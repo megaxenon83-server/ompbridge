@@ -13,9 +13,85 @@ on:
 
 env:
   VERSION: ${{ github.ref_name == '' && github.event.inputs.version || github.ref_name }}
-  REPO: nimay/ompbridge
+  REPO: megaxenon83-server/ompbridge
 
 jobs:
+  # ---------- ANDROID BUILD ----------
+  android-build:
+    name: Android APK (release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      apk_path: ${{ steps.upload.outputs.apk_path }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set version
+        id: set-version
+        run: |
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building Android version: $VERSION"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: r26c
+          cmdline-tools-version: latest
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build Release APK
+        working-directory: android-source/nimayomp-chatgpt-ui-4.2.3
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleChstgptRelease --no-daemon --stacktrace
+
+      - name: Find APK
+        id: find-apk
+        run: |
+          APK_PATH=$(find android-source/nimayomp-chatgpt-ui-4.2.3 -name "*.apk" -path "*/chstgpt/release/*" | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: APK not found"
+            exit 1
+          fi
+          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+          echo "Found APK: $APK_PATH"
+
+      - name: Rename APK
+        id: rename
+        run: |
+          VERSION="${{ steps.set-version.outputs.version }}"
+          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
+          NEW_NAME="nimay-omp-android-${VERSION}.apk"
+          cp "$APK_PATH" "$NEW_NAME"
+          echo "apk_path=$NEW_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Android artifact
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-${{ steps.set-version.outputs.version }}
+          path: ${{ steps.rename.outputs.apk_path }}
+
   # ---------- LINUX BUILD ----------
   linux-build:
     name: Linux (.deb, .rpm, Flatpak)
@@ -344,7 +420,7 @@ FLATPAK_EOF
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [linux-build, windows-build]
+    needs: [linux-build, windows-build, android-build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
@@ -369,6 +445,7 @@ FLATPAK_EOF
             - **Fedora/RHEL:** `nimay-ompbridge-${{ needs.linux-build.outputs.version }}-1.x86_64.rpm`
             - **Flatpak:** `com.nimay.OMPBridge-${{ needs.linux-build.outputs.version }}.flatpak`
             - **Universal (Linux/macOS/WSL):** `ompbridge-linux-x86_64.tar.gz`
+            - **Android:** `nimay-omp-android-${{ needs.android-build.outputs.version }}.apk`
             
             ### Installation
             **Windows:** Run the `.exe` installer.
@@ -376,6 +453,7 @@ FLATPAK_EOF
             **Linux (rpm):** `sudo rpm -i nimay-ompbridge-*.rpm`
             **Flatpak:** `flatpak install com.nimay.OMPBridge-*.flatpak`
             **Universal:** `tar -xzf ompbridge-linux-x86_64.tar.gz && ./install.sh`
+            **Android:** Install APK via file manager or `adb install nimay-omp-android-*.apk`
             
             ### Verify checksums
             Check `.sha256` files for tarball verification.
@@ -389,5 +467,6 @@ FLATPAK_EOF
             artifacts/**/*.flatpak
             artifacts/**/*.tar.gz
             artifacts/**/*.sha256
+            artifacts/**/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
