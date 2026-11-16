@@ -23,6 +23,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       apk_path: ${{ steps.upload.outputs.apk_path }}
+      version: ${{ steps.set-version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -159,16 +160,9 @@ jobs:
           VERSION="${{ steps.set-version.outputs.version }}"
           ARCH="x86_64"
           
-          # Create install.sh if not exists (use the one from repo)
+          # Use install.sh from repo, create minimal if missing
           if [ ! -f install.sh ]; then
-            # We'll create a minimal one here
-            cat > install.sh << 'INSTALL_EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-echo "Nimay OMP Bridge installer - run manually"
-echo "See: https://github.com/nimay/ompbridge/releases"
-exit 0
-INSTALL_EOF
+            printf '#!/usr/bin/env bash\nset -euo pipefail\necho "Nimay OMP Bridge installer - run manually"\necho "See: https://github.com/nimay/ompbridge/releases"\nexit 0\n' > install.sh
             chmod +x install.sh
           fi
           
@@ -202,36 +196,13 @@ INSTALL_EOF
           chmod +x deb-package/usr/local/bin/nimay-ompbridge-install
           
           # Create desktop entry
-          cat > deb-package/usr/local/share/applications/nimay-ompbridge.desktop << 'DESKTOP_EOF'
-[Desktop Entry]
-Name=Nimay OMP Bridge
-Comment=Bridge between OMP on PC and OmpChat on Android
-Exec=nimay-ompbridge-install
-Icon=bridge
-Terminal=false
-Type=Application
-Categories=Network;Development;
-DESKTOP_EOF
+          printf '[Desktop Entry]\nName=Nimay OMP Bridge\nComment=Bridge between OMP on PC and OmpChat on Android\nExec=nimay-ompbridge-install\nIcon=bridge\nTerminal=false\nType=Application\nCategories=Network;Development;\n' > deb-package/usr/local/share/applications/nimay-ompbridge.desktop
           
           # Control file
-          cat > deb-package/DEBIAN/control << CONTROL_EOF
-Package: nimay-ompbridge
-Version: ${VERSION}
-Section: net
-Priority: optional
-Architecture: ${ARCH}
-Maintainer: Nimay <nimay@example.com>
-Description: Bridge between OMP on PC and OmpChat on Android
- Homepage: https://github.com/nimay/ompbridge
-CONTROL_EOF
+          printf 'Package: nimay-ompbridge\nVersion: ${VERSION}\nSection: net\nPriority: optional\nArchitecture: ${ARCH}\nMaintainer: Nimay <nimay@example.com>\nDescription: Bridge between OMP on PC and OmpChat on Android\n Homepage: https://github.com/nimay/ompbridge\n' > deb-package/DEBIAN/control
           
           # Postinst
-          cat > deb-package/DEBIAN/postinst << 'POSTINST_EOF'
-#!/bin/bash
-set -e
-echo "Nimay OMP Bridge installed. Run 'nimay-ompbridge-install' to set up."
-exit 0
-POSTINST_EOF
+          printf '#!/bin/bash\nset -e\necho "Nimay OMP Bridge installed. Run '"'"'nimay-ompbridge-install'"'"' to set up."\nexit 0\n' > deb-package/DEBIAN/postinst
           chmod +x deb-package/DEBIAN/postinst
           
           # Build
@@ -254,34 +225,7 @@ POSTINST_EOF
           chmod +x rpm-package/usr/local/bin/nimay-ompbridge-install
           
           # Spec file
-          cat > rpm-package.spec << SPEC_EOF
-Name: nimay-ompbridge
-Version: ${VERSION}
-Release: 1%{?dist}
-Summary: Bridge between OMP on PC and OmpChat on Android
-License: MIT
-URL: https://github.com/nimay/ompbridge
-Source0: %{name}-%{version}.tar.gz
-BuildArch: x86_64
-Requires: systemd, bash, curl
-
-%description
-Bridge between OMP on PC and OmpChat on Android
-
-%install
-mkdir -p %{buildroot}/usr/local/bin
-mkdir -p %{buildroot}/usr/local/share/nimay/ompbridge
-cp -r * %{buildroot}/usr/local/share/nimay/ompbridge/
-ln -s /usr/local/share/nimay/ompbridge/install.sh %{buildroot}/usr/local/bin/nimay-ompbridge-install
-
-%files
-/usr/local/bin/nimay-ompbridge-install
-/usr/local/share/nimay/ompbridge/
-
-%changelog
-* $(date +"%a %b %d %Y") Nimay <nimay@example.com> - ${VERSION}-1
-- Release ${VERSION}
-SPEC_EOF
+          printf 'Name: nimay-ompbridge\nVersion: ${VERSION}\nRelease: 1%%{?dist}\nSummary: Bridge between OMP on PC and OmpChat on Android\nLicense: MIT\nURL: https://github.com/nimay/ompbridge\nSource0: %%{name}-%%{version}.tar.gz\nBuildArch: x86_64\nRequires: systemd, bash, curl\n\n%%description\nBridge between OMP on PC and OmpChat on Android\n\n%%install\nmkdir -p %%{buildroot}/usr/local/bin\nmkdir -p %%{buildroot}/usr/local/share/nimay/ompbridge\ncp -r * %%{buildroot}/usr/local/share/nimay/ompbridge/\nln -s /usr/local/share/nimay/ompbridge/install.sh %%{buildroot}/usr/local/bin/nimay-ompbridge-install\n\n%%files\n/usr/local/bin/nimay-ompbridge-install\n/usr/local/share/nimay/ompbridge/\n\n%%changelog\n* $(date +"%%a %%b %%d %%Y") Nimay <nimay@example.com> - ${VERSION}-1\n- Release ${VERSION}\n' > rpm-package.spec
           
           # Create source tarball for rpmbuild
           tar -czf ~/rpmbuild/SOURCES/nimay-ompbridge-${VERSION}.tar.gz -C .. nimay-ompbridge-${VERSION} 2>/dev/null || true
@@ -299,41 +243,9 @@ SPEC_EOF
         run: |
           VERSION="${{ steps.set-version.outputs.version }}"
           
-          cat > com.nimay.OMPBridge.yml << FLATPAK_EOF
-app-id: com.nimay.OMPBridge
-runtime: org.freedesktop.Platform
-runtime-version: '24.08'
-sdk: org.freedesktop.Sdk
-sdk-extensions:
-  - org.freedesktop.Sdk.Extension.node20
-command: nimay-ompbridge
-finish-args:
-  - --share=network
-  - --filesystem=host
-  - --talk-name=org.freedesktop.Flatpak
-modules:
-  - name: nimay-ompbridge
-    buildsystem: simple
-    build-commands:
-      - mkdir -p /app/bin /app/share/nimay/ompbridge
-      - cp -r bridge tools commands /app/share/nimay/ompbridge/
-      - install -m 755 install.sh /app/bin/nimay-ompbridge
-      - |
-        cat > /app/share/applications/com.nimay.OMPBridge.desktop << 'EOF'
-        [Desktop Entry]
-        Name=Nimay OMP Bridge
-        Comment=Bridge between OMP on PC and OmpChat on Android
-        Exec=nimay-ompbridge
-        Icon=com.nimay.OMPBridge
-        Terminal=false
-        Type=Application
-        Categories=Network;Development;
-        EOF
-    sources:
-      - type: dir
-        path: .
-FLATPAK_EOF
-
+          # Create flatpak manifest
+          printf 'app-id: com.nimay.OMPBridge\nruntime: org.freedesktop.Platform\nruntime-version: '"'"'24.08'"'"'\nsdk: org.freedesktop.Sdk\nsdk-extensions:\n  - org.freedesktop.Sdk.Extension.node20\ncommand: nimay-ompbridge\nfinish-args:\n  - --share=network\n  - --filesystem=host\n  - --talk-name=org.freedesktop.Flatpak\nmodules:\n  - name: nimay-ompbridge\n    buildsystem: simple\n    build-commands:\n      - mkdir -p /app/bin /app/share/nimay/ompbridge\n      - cp -r bridge tools commands /app/share/nimay/ompbridge/\n      - install -m 755 install.sh /app/bin/nimay-ompbridge\n      - printf '"'"'[Desktop Entry]\nName=Nimay OMP Bridge\nComment=Bridge between OMP on PC and OmpChat on Android\nExec=nimay-ompbridge\nIcon=com.nimay.OMPBridge\nTerminal=false\nType=Application\nCategories=Network;Development;\n'"'"' > /app/share/applications/com.nimay.OMPBridge.desktop\n    sources:\n      - type: dir\n        path: .\n' > com.nimay.OMPBridge.yml
+          
           flatpak-builder --force-clean --install-deps-from=flathub \
             --install --user build-dir com.nimay.OMPBridge.yml 2>&1 | tail -30
           
