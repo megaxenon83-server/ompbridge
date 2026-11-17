@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Nimay OMP Chat Bridge - Linux installer
 # Supports:
 #   install.sh              download the release tarball and install it

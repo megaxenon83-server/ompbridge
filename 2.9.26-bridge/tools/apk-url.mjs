@@ -1,4 +1,4 @@
-﻿// Prints the LAN URLs a phone can use, without leaking the pairing token to
+// Prints the LAN URLs a phone can use, without leaking the pairing token to
 // stdout (the token is only embedded in the QR payload).
 //
 //   node apk-url.mjs [--app <installDir>] [--apk-port 7787] [--bridge-port 7777]

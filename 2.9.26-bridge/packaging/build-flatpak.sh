@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Builds the Nimay OMP Chat Bridge Flatpak bundle.
 #
 # Usage: build-flatpak.sh [version] [output-dir]

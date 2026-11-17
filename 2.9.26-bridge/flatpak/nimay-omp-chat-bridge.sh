@@ -1,4 +1,4 @@
-﻿#!/bin/sh
+#!/bin/sh
 # Launcher for the Nimay OMP Chat Bridge Flatpak.
 #
 # The bridge needs a writable directory next to omp-bridge.mjs (it stores its

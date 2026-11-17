@@ -1,4 +1,4 @@
-﻿// Small local HTTP server that publishes the Android APK on the LAN so the
+// Small local HTTP server that publishes the Android APK on the LAN so the
 // phone can download it straight from this PC (no cloud upload).
 //
 //   node apk-server.mjs [--app <installDir>] [--port 7787]

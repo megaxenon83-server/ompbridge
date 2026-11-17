@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # Builds the Nimay OMP Chat Bridge Linux artifacts:
 #   - nimay-omp-chat-bridge-linux-x86_64.tar.gz (+ .sha256)
 #   - nimay-omp-chat-bridge_<version>_amd64.deb

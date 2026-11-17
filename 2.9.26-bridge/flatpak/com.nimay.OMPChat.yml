@@ -1,4 +1,4 @@
-﻿app-id: com.nimay.OMPChat
+app-id: com.nimay.OMPChat
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
