@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <b>Nimay OMP Chat</b> â€” run your AI agent on your own PC, use it from your phone.<br/>
-  Two-way provider sync Â· Your keys, your hardware, your network.
+  <b>Nimay OMP Chat</b> — a bridge and Android app for the <a href="https://github.com/oh-my-pi">Oh My Pi (OMP)</a> coding agent.<br/>
+  Run OMP on your own PC. Chat, approve actions, browse files, run terminal, and switch models — all from your phone.
 </p>
 
 <p align="center">
@@ -18,14 +18,14 @@
 
 ## What is Nimay OMP Chat?
 
-**Nimay OMP Chat is a full client for the AI agent that already runs on your computer.**
+**Nimay OMP Chat is a bridge and Android app for the <a href="https://github.com/oh-my-pi">Oh My Pi (OMP)</a> coding agent.**
 
-[OMP (Oh My Pi)](https://github.com/oh-my-pi) is a coding agent that lives in your terminal: it reads your projects, runs commands, edits files and talks to whichever model providers you configure. It is powerful, but it is stuck on the keyboard in front of you.
+OMP is a coding agent that lives in your terminal: it reads your projects, runs commands, edits files and talks to whichever model providers you configure. It is powerful, but it is stuck on the keyboard in front of you.
 
 Nimay OMP Chat frees it:
 
 - **Nimay OMP Chat Bridge** runs on your PC (Windows, Linux or Flatpak). It speaks OMP's real RPC protocol and exposes it over HTTP + Server-Sent Events on your local network.
-- **Nimay OMP Chat for Android** is the client. Chat with your agent, approve actions, browse projects, open a terminal, switch models â€” all from your phone, over your own Wi-Fi or Tailscale.
+- **Nimay OMP Chat for Android** is the client. Chat with your agent, approve actions, browse projects, open a terminal, switch models — all from your phone, over your own Wi-Fi or Tailscale.
 
 No account, no cloud relay, no subscription. The model runs on your provider account, the agent runs on your machine, and the traffic never leaves your network.
 
