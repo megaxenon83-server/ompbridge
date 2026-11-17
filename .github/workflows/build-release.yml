@@ -111,9 +111,9 @@ jobs:
             exit 1
           fi
           mkdir -p dist
-          cp "$APK_PATH" "dist/Nimay OMP Chat-android-${ANDROID_VERSION}.apk"
-          (cd dist && sha256sum "Nimay OMP Chat-android-${ANDROID_VERSION}.apk" > "Nimay OMP Chat-android-${ANDROID_VERSION}.apk.sha256")
-          echo "apk_path=dist/Nimay OMP Chat-android-${ANDROID_VERSION}.apk" >> "$GITHUB_OUTPUT"
+          cp "$APK_PATH" "dist/nimay-omp-chat-android-${ANDROID_VERSION}.apk"
+          (cd dist && sha256sum "nimay-omp-chat-android-${ANDROID_VERSION}.apk" > "nimay-omp-chat-android-${ANDROID_VERSION}.apk.sha256")
+          echo "apk_path=dist/nimay-omp-chat-android-${ANDROID_VERSION}.apk" >> "$GITHUB_OUTPUT"
           echo "Packaged $APK_PATH"
 
       - name: Upload Android artifact
@@ -121,8 +121,8 @@ jobs:
         with:
           name: android-apk
           path: |
-            dist/Nimay OMP Chat-android-*.apk
-            dist/Nimay OMP Chat-android-*.sha256
+            dist/nimay-omp-chat-android-*.apk
+            dist/nimay-omp-chat-android-*.sha256
           if-no-files-found: error
 
   # ------------------------------------------------------------------- LINUX
@@ -275,20 +275,20 @@ jobs:
             Nimay OMP Chat Android app ${{ needs.android-build.outputs.version }}.
 
             ### Downloads
-            - **Windows:** `Nimay OMP Chat-Bridge-Setup-${{ needs.linux-build.outputs.version }}.exe`
-            - **Debian/Ubuntu:** `Nimay OMP Chat-bridge_${{ needs.linux-build.outputs.version }}_amd64.deb`
-            - **Fedora/RHEL:** `Nimay OMP Chat-bridge-${{ needs.linux-build.outputs.version }}-1.x86_64.rpm`
-            - **Flatpak:** `com.Nimay OMP Chat.bridge-${{ needs.linux-build.outputs.version }}.flatpak`
-            - **Universal tarball:** `Nimay OMP Chat-bridge-linux-x86_64.tar.gz`
-            - **Android:** `Nimay OMP Chat-android-${{ needs.android-build.outputs.version }}.apk`
+            - **Windows:** `Nimay-OMP-Chat-Bridge-Setup-${{ needs.linux-build.outputs.version }}.exe`
+            - **Debian/Ubuntu:** `nimay-omp-chat-bridge_${{ needs.linux-build.outputs.version }}_amd64.deb`
+            - **Fedora/RHEL:** `nimay-omp-chat-bridge-${{ needs.linux-build.outputs.version }}-1.x86_64.rpm`
+            - **Flatpak:** `com.nimay.OMPChat-${{ needs.linux-build.outputs.version }}.flatpak`
+            - **Universal tarball:** `nimay-omp-chat-bridge-linux-x86_64.tar.gz`
+            - **Android:** `nimay-omp-chat-android-${{ needs.android-build.outputs.version }}.apk`
 
             ### Installation
             **Windows:** run the `.exe` installer (per-user, no admin rights needed).
-            **Linux (.deb):** `sudo dpkg -i Nimay OMP Chat-bridge_*.deb` then run `Nimay OMP Chat-bridge-install --local`.
-            **Linux (.rpm):** `sudo rpm -i Nimay OMP Chat-bridge-*.rpm` then run `Nimay OMP Chat-bridge-install --local`.
-            **Flatpak:** `flatpak install com.Nimay OMP Chat.bridge-*.flatpak`.
-            **Universal:** `tar -xzf Nimay OMP Chat-bridge-linux-x86_64.tar.gz && ./install.sh`.
-            **Android:** install the APK (`adb install Nimay OMP Chat-android-*.apk`).
+            **Linux (.deb):** `sudo dpkg -i nimay-omp-chat-bridge_*.deb` then run `nimay-omp-chat-bridge-install --local`.
+            **Linux (.rpm):** `sudo rpm -i nimay-omp-chat-bridge-*.rpm` then run `nimay-omp-chat-bridge-install --local`.
+            **Flatpak:** `flatpak install com.nimay.OMPChat-*.flatpak`.
+            **Universal:** `tar -xzf nimay-omp-chat-bridge-linux-x86_64.tar.gz && ./install.sh`.
+            **Android:** install the APK (`adb install nimay-omp-chat-android-*.apk`).
 
             ### Provider sync
             The bridge is the source of truth for providers and API keys
