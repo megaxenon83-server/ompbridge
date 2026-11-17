@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="OmniDesk — your AI workstation, in your pocket">
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="Nimay OMP Chat â€” Your OMP agent, on your phone">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0A0C12"/>
@@ -69,10 +69,10 @@
   <rect x="96" y="296" width="132" height="7" rx="3.5" fill="url(#accent)"/>
 
   <text x="92" y="368" font-family="Segoe UI, Inter, system-ui, -apple-system, Helvetica, Arial, sans-serif"
-        font-size="34" font-weight="600" fill="#DCE4F2">Your AI workstation, in your pocket.</text>
+        font-size="34" font-weight="600" fill="#DCE4F2">Your OMP agent, on your phone.</text>
 
   <text x="92" y="414" font-family="Segoe UI, Inter, system-ui, -apple-system, Helvetica, Arial, sans-serif"
-        font-size="21" fill="#8A99B3">Run OMP on your own PC. Talk to it from your phone —</text>
+        font-size="21" fill="#8A99B3">Run OMP on your own PC. Talk to it from your phone â€”</text>
   <text x="92" y="444" font-family="Segoe UI, Inter, system-ui, -apple-system, Helvetica, Arial, sans-serif"
         font-size="21" fill="#8A99B3">providers, API keys and models stay in sync.</text>
 
@@ -88,11 +88,11 @@
 
     <rect x="486" y="500" width="268" height="46" rx="23" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.12"/>
     <circle cx="514" cy="523" r="6" fill="#7C8CFF"/>
-    <text x="534" y="530" fill="#C8D4E8">Windows · Linux · Flatpak · Android</text>
+    <text x="534" y="530" fill="#C8D4E8">Windows Â· Linux Â· Flatpak Â· Android</text>
   </g>
 
   <text x="92" y="594" font-family="Segoe UI, Inter, system-ui, -apple-system, Helvetica, Arial, sans-serif"
-        font-size="18" fill="#6E7C93">Free and open source (MIT) · Your keys never leave your machine</text>
+        font-size="18" fill="#6E7C93">Free and open source (MIT) Â· Your keys never leave your machine</text>
 
   <!-- phone -->
   <g transform="translate(830,44)" filter="url(#shadow)">
@@ -102,9 +102,9 @@
 
     <!-- app bar -->
     <g font-family="Segoe UI, Inter, system-ui, -apple-system, Helvetica, Arial, sans-serif">
-      <text x="30" y="70" font-size="19" font-weight="700" fill="#EEF2F8">OmniDesk</text>
+      <text x="30" y="70" font-size="19" font-weight="700" fill="#EEF2F8">Nimay OMP Chat</text>
       <circle cx="30" cy="92" r="5" fill="#10A37F"/>
-      <text x="42" y="97" font-size="13" fill="#7D8CA5">Connected · PC 2</text>
+      <text x="42" y="97" font-size="13" fill="#7D8CA5">Connected Â· PC 2</text>
     </g>
 
     <!-- chat bubbles -->
@@ -113,7 +113,7 @@
     <text x="130" y="165" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="14" fill="#DCE4F2">in the sync module.</text>
 
     <rect x="30" y="190" width="250" height="76" rx="18" fill="url(#bubbleIn)" stroke="#FFFFFF" stroke-opacity="0.07"/>
-    <text x="48" y="214" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="13.5" fill="#9FB0C9">Found it — the provider id was</text>
+    <text x="48" y="214" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="13.5" fill="#9FB0C9">Found it â€” the provider id was</text>
     <text x="48" y="233" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="13.5" fill="#9FB0C9">derived from the preset. Fixed,</text>
     <text x="48" y="252" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="13.5" fill="#9FB0C9">tests pass. Synced to your PC.</text>
 
@@ -121,14 +121,15 @@
     <rect x="30" y="282" width="298" height="92" rx="16" fill="#151A25" stroke="#FFFFFF" stroke-opacity="0.08"/>
     <circle cx="54" cy="308" r="9" fill="#10A37F" opacity="0.9"/>
     <text x="74" y="313" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="14.5" font-weight="600" fill="#E6ECF6">openai</text>
-    <text x="48" y="338" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="13" fill="#7D8CA5">gpt-5 · o3 · codex-mini</text>
+    <text x="48" y="338" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="13" fill="#7D8CA5">gpt-5 Â· o3 Â· codex-mini</text>
     <rect x="228" y="296" width="84" height="28" rx="14" fill="#FFB454" fill-opacity="0.16" stroke="#FFB454" stroke-opacity="0.4"/>
     <text x="247" y="315" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="12.5" font-weight="700" fill="#FFC978">Synced</text>
 
     <!-- composer -->
     <rect x="30" y="470" width="298" height="52" rx="26" fill="#161C28" stroke="#FFFFFF" stroke-opacity="0.1"/>
-    <text x="54" y="502" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="14.5" fill="#6E7C93">Ask OMP anything…</text>
+    <text x="54" y="502" font-family="Segoe UI, Inter, system-ui, sans-serif" font-size="14.5" fill="#6E7C93">Ask OMP anythingâ€¦</text>
     <circle cx="302" cy="496" r="17" fill="url(#accent)"/>
     <path d="M295 496 h14 M303 490 l6 6 -6 6" stroke="#10141C" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
+

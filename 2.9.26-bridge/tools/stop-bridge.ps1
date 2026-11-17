@@ -1,4 +1,4 @@
-# Stops the OMP bridge and the APK server that belong to THIS installation.
+﻿# Stops the OMP bridge and the APK server that belong to THIS installation.
 #
 # The services write <script dir>\*.pid when they start, so they are found
 # reliably even when the install path is passed in short 8.3 form
@@ -35,4 +35,5 @@ foreach ($entry in $pidFiles) {
     Remove-Item $entry.File -Force -ErrorAction SilentlyContinue
 }
 
-if ($stopped -eq 0) { Write-Host "Ingen kjørende OmniDesk-tjenester for denne installasjonen." }
+if ($stopped -eq 0) { Write-Host "Ingen kjÃ¸rende Nimay OMP Chat-tjenester for denne installasjonen." }
+

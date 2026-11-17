@@ -1,5 +1,5 @@
-#!/bin/sh
-# Launcher for the OmniDesk Bridge Flatpak.
+﻿#!/bin/sh
+# Launcher for the Nimay OMP Chat Bridge Flatpak.
 #
 # The bridge needs a writable directory next to omp-bridge.mjs (it stores its
 # pairing token in config.json) and the real home directory (it reads
@@ -11,15 +11,15 @@ if [ -n "$REAL_HOME" ]; then
     export HOME="$REAL_HOME"
 fi
 
-APP_ID="com.omnidesk.bridge"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/omnidesk-bridge"
+APP_ID="com.Nimay OMP Chat.bridge"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Nimay OMP Chat-bridge"
 mkdir -p "$DATA_DIR"
 
 if [ ! -f "$DATA_DIR/bridge/omp-bridge.mjs" ]; then
-    cp -r /app/share/omnidesk/bridge/bridge "$DATA_DIR/bridge"
-    cp -r /app/share/omnidesk/bridge/tools "$DATA_DIR/tools" 2>/dev/null || true
-    cp -r /app/share/omnidesk/bridge/commands "$DATA_DIR/commands" 2>/dev/null || true
-    cp /app/share/omnidesk/bridge/install.sh "$DATA_DIR/install.sh" 2>/dev/null || true
+    cp -r /app/share/Nimay OMP Chat/bridge/bridge "$DATA_DIR/bridge"
+    cp -r /app/share/Nimay OMP Chat/bridge/tools "$DATA_DIR/tools" 2>/dev/null || true
+    cp -r /app/share/Nimay OMP Chat/bridge/commands "$DATA_DIR/commands" 2>/dev/null || true
+    cp /app/share/Nimay OMP Chat/bridge/install.sh "$DATA_DIR/install.sh" 2>/dev/null || true
 fi
 
 # Install the OMP slash commands and the state file, exactly like the deb/rpm
@@ -41,12 +41,12 @@ fi
 
 # Write a systemd user unit so the bridge can start at login. The unit can
 # only be enabled from the host:
-#   systemctl --user enable --now omnidesk-bridge
+#   systemctl --user enable --now Nimay OMP Chat-bridge
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 if mkdir -p "$SYSTEMD_DIR" 2>/dev/null; then
-    cat > "$SYSTEMD_DIR/omnidesk-bridge.service" << EOF
+    cat > "$SYSTEMD_DIR/Nimay OMP Chat-bridge.service" << EOF
 [Unit]
-Description=OmniDesk Bridge
+Description=Nimay OMP Chat Bridge
 After=network-online.target
 Wants=network-online.target
 
@@ -63,3 +63,4 @@ EOF
 fi
 
 exec node "$DATA_DIR/bridge/omp-bridge.mjs" "$@"
+

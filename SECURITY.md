@@ -1,10 +1,10 @@
-# Security policy
+﻿# Security policy
 
 ## Reporting a vulnerability
 
 Please report security issues privately. Do not open a public issue for a vulnerability you have found.
 
-Use GitHub's private vulnerability reporting for this repository (Security → Report a vulnerability), or contact the maintainer directly.
+Use GitHub's private vulnerability reporting for this repository (Security â†’ Report a vulnerability), or contact the maintainer directly.
 
 Include:
 
@@ -25,13 +25,13 @@ You will get an acknowledgement within a few days and a fix or a mitigation plan
 
 ### API keys
 
-- The PC keeps API keys in `~/.omp/agent/models.yml` in plain text — that is how OMP works. Protect the file with normal filesystem permissions.
+- The PC keeps API keys in `~/.omp/agent/models.yml` in plain text â€” that is how OMP works. Protect the file with normal filesystem permissions.
 - The Android app stores received keys in the **Android Keystore**, encrypted by the platform, and never writes them to a readable file.
 
 ### Release signing
 
 - The Android release keystore is stored as an encrypted GitHub Actions secret. It is never committed to this repository.
-- Back up the keystore and its passwords somewhere safe. Losing them means the app can no longer be updated in place — new installs would need a different package id.
+- Back up the keystore and its passwords somewhere safe. Losing them means the app can no longer be updated in place â€” new installs would need a different package id.
 
 ### Dependencies
 
@@ -43,4 +43,5 @@ You will get an acknowledgement within a few days and a fix or a mitigation plan
 - Run the bridge on a user account, not as root or SYSTEM.
 - Use Tailscale or a firewall rule if the PC is on a shared network.
 - Rotate the pairing token by deleting `bridge/config.json` and restarting the bridge, then re-pair the phone.
-- Keep the app's Keystore-protected credentials intact when you change devices — re-pair instead of copying app data.
+- Keep the app's Keystore-protected credentials intact when you change devices â€” re-pair instead of copying app data.
+

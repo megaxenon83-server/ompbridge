@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-# OmniDesk Bridge - Linux installer
+﻿#!/usr/bin/env bash
+# Nimay OMP Chat Bridge - Linux installer
 # Supports:
 #   install.sh              download the release tarball and install it
 #   install.sh --local      install the files that sit next to this script
@@ -23,10 +23,10 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 # own variable name to avoid being overwritten by detect_os().
 BRIDGE_VERSION="2.9.28"
 REPO="megaxenon83-server/ompbridge"
-INSTALL_DIR="${HOME}/.local/share/omnidesk/bridge"
+INSTALL_DIR="${HOME}/.local/share/Nimay OMP Chat/bridge"
 BRIDGE_DIR="${INSTALL_DIR}/bridge"
 CONFIG_FILE="${BRIDGE_DIR}/config.json"
-SERVICE_NAME="omnidesk-bridge"
+SERVICE_NAME="Nimay OMP Chat-bridge"
 LEGACY_SERVICE_NAME="nimay-ompbridge"
 LEGACY_INSTALL_DIR="${HOME}/.local/share/nimay/ompbridge"
 PORT="${OMPCHAT_BRIDGE_PORT:-7777}"
@@ -94,7 +94,7 @@ detect_arch() {
 }
 
 download_bridge() {
-    local tarball="omnidesk-bridge-linux-${ARCH}.tar.gz"
+    local tarball="Nimay OMP Chat-bridge-linux-${ARCH}.tar.gz"
     local url="${DOWNLOAD_BASE}/${tarball}"
     local sha_url="${url}.sha256"
     local dest="${INSTALL_DIR}/${tarball}"
@@ -140,9 +140,9 @@ install_local_bridge() {
         rm -rf "${INSTALL_DIR}/commands"
         cp -r "${SCRIPT_DIR}/commands" "${INSTALL_DIR}/commands"
     fi
-    if [[ -f "${SCRIPT_DIR}/flatpak/com.omnidesk.bridge.yml" ]]; then
+    if [[ -f "${SCRIPT_DIR}/flatpak/com.Nimay OMP Chat.bridge.yml" ]]; then
         mkdir -p "${INSTALL_DIR}/flatpak"
-        cp -f "${SCRIPT_DIR}/flatpak/com.omnidesk.bridge.yml" "${INSTALL_DIR}/flatpak/com.omnidesk.bridge.yml"
+        cp -f "${SCRIPT_DIR}/flatpak/com.Nimay OMP Chat.bridge.yml" "${INSTALL_DIR}/flatpak/com.Nimay OMP Chat.bridge.yml"
     fi
     log_ok "Local payload installed"
 }
@@ -194,7 +194,7 @@ setup_systemd() {
     mkdir -p "${service_dir}"
     cat > "${service_file}" << SERVICE_EOF
 [Unit]
-Description=OmniDesk Bridge
+Description=Nimay OMP Chat Bridge
 After=network-online.target
 Wants=network-online.target
 
@@ -277,7 +277,7 @@ print_summary() {
     token="$(read_token)"
     echo
     echo "=========================================="
-    echo "  OmniDesk Bridge v${BRIDGE_VERSION} installed!"
+    echo "  Nimay OMP Chat Bridge v${BRIDGE_VERSION} installed!"
     echo "=========================================="
     echo "Install dir: ${INSTALL_DIR}"
     echo "Config file: ${CONFIG_FILE}"
@@ -299,7 +299,7 @@ print_summary() {
 }
 
 uninstall() {
-    log_info "Uninstalling OmniDesk Bridge..."
+    log_info "Uninstalling Nimay OMP Chat Bridge..."
     systemctl --user stop "${SERVICE_NAME}.service" 2>/dev/null || true
     systemctl --user disable "${SERVICE_NAME}.service" 2>/dev/null || true
     rm -f "${HOME}/.config/systemd/user/${SERVICE_NAME}.service"
@@ -324,7 +324,7 @@ main() {
 
     case "${action}" in
         install)
-            log_info "Starting OmniDesk Bridge v${BRIDGE_VERSION} installation..."
+            log_info "Starting Nimay OMP Chat Bridge v${BRIDGE_VERSION} installation..."
             detect_os
             check_deps
             detect_arch
@@ -350,3 +350,4 @@ main() {
 }
 
 main "$@"
+

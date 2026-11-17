@@ -1,10 +1,10 @@
-<p align="center">
-  <img src="docs/images/banner.png" alt="OmniDesk — your AI workstation, in your pocket" width="100%" />
+﻿<p align="center">
+  <img src="docs/images/banner.png" alt="Nimay OMP Chat â€” your AI workstation, in your pocket" width="100%" />
 </p>
 
 <p align="center">
-  <b>OmniDesk</b> — run your AI agent on your own PC, use it from your phone.<br/>
-  Two-way provider sync · Your keys, your hardware, your network.
+  <b>Nimay OMP Chat</b> â€” run your AI agent on your own PC, use it from your phone.<br/>
+  Two-way provider sync Â· Your keys, your hardware, your network.
 </p>
 
 <p align="center">
@@ -16,16 +16,16 @@
 
 ---
 
-## What is OmniDesk?
+## What is Nimay OMP Chat?
 
-**OmniDesk is a full client for the AI agent that already runs on your computer.**
+**Nimay OMP Chat is a full client for the AI agent that already runs on your computer.**
 
 [OMP (Oh My Pi)](https://github.com/oh-my-pi) is a coding agent that lives in your terminal: it reads your projects, runs commands, edits files and talks to whichever model providers you configure. It is powerful, but it is stuck on the keyboard in front of you.
 
-OmniDesk frees it:
+Nimay OMP Chat frees it:
 
-- **OmniDesk Bridge** runs on your PC (Windows, Linux or Flatpak). It speaks OMP's real RPC protocol and exposes it over HTTP + Server-Sent Events on your local network.
-- **OmniDesk for Android** is the client. Chat with your agent, approve actions, browse projects, open a terminal, switch models — all from your phone, over your own Wi-Fi or Tailscale.
+- **Nimay OMP Chat Bridge** runs on your PC (Windows, Linux or Flatpak). It speaks OMP's real RPC protocol and exposes it over HTTP + Server-Sent Events on your local network.
+- **Nimay OMP Chat for Android** is the client. Chat with your agent, approve actions, browse projects, open a terminal, switch models â€” all from your phone, over your own Wi-Fi or Tailscale.
 
 No account, no cloud relay, no subscription. The model runs on your provider account, the agent runs on your machine, and the traffic never leaves your network.
 
@@ -37,7 +37,7 @@ No account, no cloud relay, no subscription. The model runs on your provider acc
 
 | | |
 |---|---|
-| **Two-way provider sync** | Add, edit or delete a provider in the phone app and push it to the PC with one tap — or pull the PC's configuration when you connect. The PC stays the source of truth. |
+| **Two-way provider sync** | Add, edit or delete a provider in the phone app and push it to the PC with one tap â€” or pull the PC's configuration when you connect. The PC stays the source of truth. |
 | **Keys stay in the Keystore** | API keys received from the PC are stored in the Android Keystore, never in plain text on disk. |
 | **Real agent, not a chatbot** | Tool calls, file edits, terminal access and approval prompts are streamed to your phone. You stay in control of every action. |
 | **QR pairing** | Start the bridge, scan the QR code in the app, done. Manual entry and `omp2://` deep links work too. |
@@ -64,19 +64,19 @@ The UI ships in Norwegian and English; the screenshots show the English locale.
 ## How it works
 
 ```
-┌──────────────── your PC ───────────────────────────────────────────────┐
-│                                                                        │
-│   models.yml ──▶ OmniDesk Bridge (Node.js) ──▶ OMP (`omp --mode rpc`)  │
-│   providers,      :7777 HTTP + SSE        real agent                   │
-│   API keys            ▲                                                │
-└───────────────────────┼────────────────────────────────────────────────┘
-                        │  LAN / Tailscale, bearer token
-                        ▼
-                ┌──────────────────────────┐
-                │  OmniDesk (Android)      │
-                │  chat · files · terminal │
-                │  Keystore for API keys   │
-                └──────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ your PC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                                                                        â”‚
+â”‚   models.yml â”€â”€â–¶ Nimay OMP Chat Bridge (Node.js) â”€â”€â–¶ OMP (`omp --mode rpc`)  â”‚
+â”‚   providers,      :7777 HTTP + SSE        real agent                   â”‚
+â”‚   API keys            â–²                                                â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                        â”‚  LAN / Tailscale, bearer token
+                        â–¼
+                â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+                â”‚  Nimay OMP Chat (Android)      â”‚
+                â”‚  chat Â· files Â· terminal â”‚
+                â”‚  Keystore for API keys   â”‚
+                â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 1. The bridge spawns one OMP process per project folder, keeps it warm and normalises its event stream.
@@ -93,11 +93,11 @@ The bridge owns `~/.omp/agent/models.yml`. The app is a synchronised editor for 
 
 | | PC wins | App-local |
 |---|---|---|
-| Provider id, base URL, API key | ✅ | |
-| Model list of a provider | ✅ | |
-| `enabled` / active state | | ✅ |
-| Favourites and hidden models | | ✅ |
-| Provider test results | | ✅ |
+| Provider id, base URL, API key | âœ… | |
+| Model list of a provider | âœ… | |
+| `enabled` / active state | | âœ… |
+| Favourites and hidden models | | âœ… |
+| Provider test results | | âœ… |
 
 **Pull** happens automatically when the app connects to a known bridge, and **push** happens when you tap **Sync** in the provider screen after adding, editing or deleting a provider. Offline or failed syncs never discard your work: the change stays on the device and the app tells you to retry.
 
@@ -118,31 +118,31 @@ The bridge owns `~/.omp/agent/models.yml`. The app is a synchronised editor for 
 
 ### 1. Install the bridge on your PC
 
-**Windows** — download `OmniDesk-Bridge-Setup-<version>.exe` and run it. It is a per-user installer: no administrator rights, no Windows service. It installs a Startup-folder entry so the bridge starts with your session, and installs the OMP slash commands `/ompqr` and `/ompserver`.
+**Windows** â€” download `Nimay OMP Chat-Bridge-Setup-<version>.exe` and run it. It is a per-user installer: no administrator rights, no Windows service. It installs a Startup-folder entry so the bridge starts with your session, and installs the OMP slash commands `/ompqr` and `/ompserver`.
 
 **Linux**
 
 ```bash
 # Debian / Ubuntu
-sudo dpkg -i omnidesk-bridge_*.deb && omnidesk-bridge-install --local
+sudo dpkg -i Nimay OMP Chat-bridge_*.deb && Nimay OMP Chat-bridge-install --local
 
 # Fedora / RHEL
-sudo rpm -i omnidesk-bridge-*.rpm && omnidesk-bridge-install --local
+sudo rpm -i Nimay OMP Chat-bridge-*.rpm && Nimay OMP Chat-bridge-install --local
 
 # Flatpak
-flatpak install com.omnidesk.bridge-*.flatpak
+flatpak install com.Nimay OMP Chat.bridge-*.flatpak
 
 # Universal tarball
-tar -xzf omnidesk-bridge-linux-x86_64.tar.gz && ./install.sh
+tar -xzf Nimay OMP Chat-bridge-linux-x86_64.tar.gz && ./install.sh
 ```
 
-The installer creates a `systemd --user` service (`omnidesk-bridge`), enables linger so it starts at boot, and writes the bridge location to `~/.omp/agent/ompchat-commands.json`.
+The installer creates a `systemd --user` service (`Nimay OMP Chat-bridge`), enables linger so it starts at boot, and writes the bridge location to `~/.omp/agent/ompchat-commands.json`.
 
 **Requirements:** Node.js 20+ and [OMP](https://github.com/oh-my-pi) on the PC.
 
 ### 2. Pair the phone
 
-Run `omp` and then `/ompqr` in the terminal — or open `http://<pc-ip>:7777/apk` on the phone to download the app and scan the QR code. The app can also pair manually by typing the address and token.
+Run `omp` and then `/ompqr` in the terminal â€” or open `http://<pc-ip>:7777/apk` on the phone to download the app and scan the QR code. The app can also pair manually by typing the address and token.
 
 ### 3. Talk to your agent
 
@@ -158,12 +158,12 @@ Everything is published on the [releases page](https://github.com/megaxenon83-se
 
 | Platform | Artifact | Current |
 |---|---|---|
-| Windows (x64) | `OmniDesk-Bridge-Setup-<version>.exe` | 2.9.28 |
-| Debian / Ubuntu | `omnidesk-bridge_<version>_amd64.deb` | 2.9.28 |
-| Fedora / RHEL | `omnidesk-bridge-<version>-1.x86_64.rpm` | 2.9.28 |
-| Flatpak | `com.omnidesk.bridge-<version>.flatpak` | 2.9.28 |
-| Linux (universal) | `omnidesk-bridge-linux-x86_64.tar.gz` | 2.9.28 |
-| Android | `omnidesk-android-<version>.apk` | 4.2.6 |
+| Windows (x64) | `Nimay OMP Chat-Bridge-Setup-<version>.exe` | 2.9.28 |
+| Debian / Ubuntu | `Nimay OMP Chat-bridge_<version>_amd64.deb` | 2.9.28 |
+| Fedora / RHEL | `Nimay OMP Chat-bridge-<version>-1.x86_64.rpm` | 2.9.28 |
+| Flatpak | `com.Nimay OMP Chat.bridge-<version>.flatpak` | 2.9.28 |
+| Linux (universal) | `Nimay OMP Chat-bridge-linux-x86_64.tar.gz` | 2.9.28 |
+| Android | `Nimay OMP Chat-android-<version>.apk` | 4.2.6 |
 
 Every artifact is covered by the `SHA256SUMS` file in the release; the universal tarball and the Android APK also ship an individual `.sha256` file. The Android APK is signed with a release key, so it installs as an update over previous versions.
 
@@ -217,7 +217,7 @@ Pushing a `v*` tag runs GitHub Actions, which builds all platforms and publishes
 - Every bridge request except the public APK download (`/apk`) and the discovery endpoint (`/api/ping`) requires `Authorization: Bearer <token>`.
 - API keys received by the app are stored in the **Android Keystore**, encrypted by the platform.
 - The release keystore lives in GitHub Actions secrets, never in the repository.
-- The bridge listens on `0.0.0.0` so the phone can reach it — use a trusted network (LAN or Tailscale) and do not expose the port to the internet.
+- The bridge listens on `0.0.0.0` so the phone can reach it â€” use a trusted network (LAN or Tailscale) and do not expose the port to the internet.
 
 Report vulnerabilities privately: see [`SECURITY.md`](SECURITY.md).
 
@@ -228,7 +228,7 @@ Report vulnerabilities privately: see [`SECURITY.md`](SECURITY.md).
 - The bridge rewrites `models.yml` with a minimal YAML writer. Fields it does not manage are preserved, but comments, key order and quoting can change.
 - OMP provider entries have no separate display name, so the provider id doubles as the name. The app therefore derives the id of a new provider from the name you type, which keeps both sides on the same entry.
 - The bridge and the app can only use one port at a time. Start a second bridge on another port (for example `OMPCHAT_BRIDGE_PORT=7778`).
-- The Flatpak bundle runs the bridge fully and installs the OMP commands, but autostart still has to be enabled once from the host (`systemctl --user enable --now omnidesk-bridge`).
+- The Flatpak bundle runs the bridge fully and installs the OMP commands, but autostart still has to be enabled once from the host (`systemctl --user enable --now Nimay OMP Chat-bridge`).
 
 ---
 
@@ -245,14 +245,15 @@ Report vulnerabilities privately: see [`SECURITY.md`](SECURITY.md).
 
 ## Contributing
 
-Issues and pull requests are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). Please never commit API keys, pairing tokens or signing material.
+Issues and pull requests are welcome â€” see [`CONTRIBUTING.md`](CONTRIBUTING.md). Please never commit API keys, pairing tokens or signing material.
 
 ## License
 
-[MIT](LICENSE) © 2026 Megaxenon
+[MIT](LICENSE) Â© 2026 Megaxenon
 
 ## Acknowledgements
 
-- **OMP / Oh My Pi** — the agent this project exposes. OmniDesk is a client, not a fork.
-- **[Jetpack Compose](https://developer.android.com/jetpack/compose)** — the Android UI.
-- **[Node.js](https://nodejs.org)** — the bridge runtime.
+- **OMP / Oh My Pi** â€” the agent this project exposes. Nimay OMP Chat is a client, not a fork.
+- **[Jetpack Compose](https://developer.android.com/jetpack/compose)** â€” the Android UI.
+- **[Node.js](https://nodejs.org)** â€” the bridge runtime.
+

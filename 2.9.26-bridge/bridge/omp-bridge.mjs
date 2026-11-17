@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
- * OmniDesk Bridge
+ * Nimay OMP Chat Bridge
  * ---------------
- * Exposes the real Oh My Pi (OMP) RPC surface to the OmniDesk Android app.
+ * Exposes the real Oh My Pi (OMP) RPC surface to the Nimay OMP Chat Android app.
  *
  * OMP speaks newline-delimited JSON over stdin/stdout (`omp --mode rpc`).
  * This bridge spawns one OMP process per project folder, keeps it warm,
@@ -50,7 +50,7 @@ async function getResources() {
   const usedMem = totalMem - freeMem;
   const ramPercent = Math.round((usedMem / totalMem) * 100);
 
-  // GPU (via PowerShell performance counters — works for all vendors on Windows 10+)
+  // GPU (via PowerShell performance counters â€” works for all vendors on Windows 10+)
   let gpuPercent = 0;
   let gpuName = "";
   let gpuMemoryTotal = 0;
@@ -264,7 +264,7 @@ function readConfig() {
           cpu: "lav",
           ram: "512 MB",
           vram: "0 MB",
-          description: "Rask norsk tale på CPU",
+          description: "Rask norsk tale pÃ¥ CPU",
         },
         "chatterbox-v3": {
           name: "Chatterbox Multilingual V3",
@@ -272,7 +272,7 @@ function readConfig() {
           lang: "nb",
           installed: false,
           size: "1.5 GB",
-          cpu: "høy",
+          cpu: "hÃ¸y",
           ram: "4 GB",
           vram: "2 GB",
           description: "Naturlig norsk tale",
@@ -283,10 +283,10 @@ function readConfig() {
           lang: "nb",
           installed: false,
           size: "6.2 GB",
-          cpu: "svært høy",
+          cpu: "svÃ¦rt hÃ¸y",
           ram: "8 GB",
           vram: "7 GB",
-          description: "Norsk bokmål, krever sterkt GPU",
+          description: "Norsk bokmÃ¥l, krever sterkt GPU",
         },
         "original-vibevoice": {
           name: "Original Microsoft VibeVoice",
@@ -294,10 +294,10 @@ function readConfig() {
           lang: "en",
           installed: false,
           size: "2.5 GB",
-          cpu: "høy",
+          cpu: "hÃ¸y",
           ram: "6 GB",
           vram: "4 GB",
-          description: "Primært engelsk/kinesisk",
+          description: "PrimÃ¦rt engelsk/kinesisk",
         },
       },
       stt: {
@@ -327,7 +327,7 @@ function readConfig() {
         autoplay: cfg.voice?.settings?.autoplay !== false,
         bargeIn: cfg.voice?.settings?.bargeIn !== false,
         micMute: cfg.voice?.settings?.micMute !== false,
-        speaker: cfg.voice?.settings?.speaker || "høyttaler",
+        speaker: cfg.voice?.settings?.speaker || "hÃ¸yttaler",
         speed: cfg.voice?.settings?.speed || 1.0,
       },
     },
@@ -430,7 +430,7 @@ function log(level, message) {
   logLines.push(line);
   if (logLines.length > LOG_LIMIT) logLines.shift();
   if (process.env.OMPCHAT_BRIDGE_QUIET === "1" && level === "debug") return;
-  // Skriver ikke til stdout for å unngå at bro-status forurenser OMP-terminalen.
+  // Skriver ikke til stdout for Ã¥ unngÃ¥ at bro-status forurenser OMP-terminalen.
   // Loggen er fortsatt tilgjengelig via /api/diagnostics.
 }
 
@@ -676,7 +676,7 @@ async function writeSessionTitle(file, name) {
   }
   if (!renamed) {
     try { fs.unlinkSync(temp); } catch {}
-    throw new Error("Kunne ikke omdøpe sesjonsfilen (Windows-fillås)");
+    throw new Error("Kunne ikke omdÃ¸pe sesjonsfilen (Windows-fillÃ¥s)");
   }
   sessionCache.delete(resolved);
 }
@@ -847,7 +847,7 @@ class OmpRuntime {
       ? [OMP_BIN_ENTRY, "--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT]
       : ["--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT];
     // OMP-moduser: always-ask | always-ask-cached | write | yolo ("write" =
-    // spør ved sletting/store endringer; "yolo" = godkjenn alt automatisk).
+    // spÃ¸r ved sletting/store endringer; "yolo" = godkjenn alt automatisk).
     if (CONFIG.approvalMode && CONFIG.approvalMode !== "default") {
       args.push("--approval-mode", CONFIG.approvalMode);
     }
@@ -881,7 +881,7 @@ class OmpRuntime {
       this.pending.clear();
       this.pendingUi.clear();
       this.broadcast({ type: "backend", status: "offline", cwd: this.cwd, error: this.stderrTail.slice(-3).join("\n") });
-      if (gotifyEnabledFor("omp_error")) sendGotify("OMP frakoblet", `OMP-prosessen stoppet på ${this.cwd}`, 7, `offline:${this.cwd}`).catch(() => {});
+      if (gotifyEnabledFor("omp_error")) sendGotify("OMP frakoblet", `OMP-prosessen stoppet pÃ¥ ${this.cwd}`, 7, `offline:${this.cwd}`).catch(() => {});
     });
     child.on("error", (error) => {
       log("error", `omp spawn failed: ${error.message}`);
@@ -1080,7 +1080,7 @@ class OmpRuntime {
     if (frame.type === "session_settled") {
       this.pendingUi.clear();
       this.broadcast({ type: "session_settled", cwd: this.cwd });
-      if (gotifyEnabledFor("task_done")) sendGotify("Oppgave fullført", `OMP fullførte en oppgave i ${this.cwd}`, 4, `settled:${this.cwd}:${Date.now()}`).catch(() => {});
+      if (gotifyEnabledFor("task_done")) sendGotify("Oppgave fullfÃ¸rt", `OMP fullfÃ¸rte en oppgave i ${this.cwd}`, 4, `settled:${this.cwd}:${Date.now()}`).catch(() => {});
       return;
     }
 
@@ -1091,7 +1091,7 @@ class OmpRuntime {
 
     if (frame.type === "host_tool_call" || frame.type === "host_uri_request") {
       // We publish no host tools/URIs; answer so OMP never hangs.
-      this.write({ type: frame.type === "host_tool_call" ? "host_tool_result" : "host_uri_result", id: frame.id, isError: true, error: "Host tools are not available in OmniDesk" });
+      this.write({ type: frame.type === "host_tool_call" ? "host_tool_result" : "host_uri_result", id: frame.id, isError: true, error: "Host tools are not available in Nimay OMP Chat" });
       return;
     }
   }
@@ -1137,10 +1137,10 @@ class OmpRuntime {
     this.pendingUi.set(frame.id, request);
     this.broadcast(request);
     if (gotifyEnabledFor("approval") && (method === "select" || method === "confirm")) {
-      sendGotify("Godkjenning nødvendig", `${frame.title || "OMP"}: ${frame.message || ""}`.trim(), 7, `approval:${this.cwd}:${frame.id}`).catch(() => {});
+      sendGotify("Godkjenning nÃ¸dvendig", `${frame.title || "OMP"}: ${frame.message || ""}`.trim(), 7, `approval:${this.cwd}:${frame.id}`).catch(() => {});
     }
     if (gotifyEnabledFor("agent_waiting") && (method === "input" || method === "editor" || method === "ask")) {
-      sendGotify("Agent venter på svar", `${frame.title || "OMP"} venter på input`, 5, `waiting:${this.cwd}:${frame.id}`).catch(() => {});
+      sendGotify("Agent venter pÃ¥ svar", `${frame.title || "OMP"} venter pÃ¥ input`, 5, `waiting:${this.cwd}:${frame.id}`).catch(() => {});
     }
   }
 
@@ -1373,7 +1373,7 @@ async function evictIdle() {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Filbehandler-hjelpere (liste/overføring/sikkerhet)
+// Filbehandler-hjelpere (liste/overfÃ¸ring/sikkerhet)
 // ---------------------------------------------------------------------------
 
 const fsJobs = new Map();
@@ -1542,7 +1542,7 @@ function readBody(req, limitBytes = 64 * 1024 * 1024) {
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > limitBytes) {
-        reject(new Error("Forespørselen er for stor"));
+        reject(new Error("ForespÃ¸rselen er for stor"));
         req.destroy();
         return;
       }
@@ -1609,7 +1609,7 @@ function networkInterfaces() {
       if (!addr || addr.family !== "IPv4" || addr.internal) continue;
       const mac = (addr.mac || "").trim().toUpperCase();
       if (!mac || mac === "00:00:00:00:00:00") continue;
-      // Ekskluder multicast MAC (første byte's siste bit = 1)
+      // Ekskluder multicast MAC (fÃ¸rste byte's siste bit = 1)
       const firstByte = parseInt(mac.split(":")[0], 16);
       if (isNaN(firstByte) || (firstByte & 1) !== 0) continue;
       // Normaliser MAC
@@ -1630,7 +1630,7 @@ function networkInterfaces() {
       });
     }
   }
-  // Prioriter Ethernet-adaptere først
+  // Prioriter Ethernet-adaptere fÃ¸rst
   out.sort((a, b) => {
     if (a.wolCapable && !b.wolCapable) return -1;
     if (!a.wolCapable && b.wolCapable) return 1;
@@ -1821,7 +1821,7 @@ const VOICE_CATALOG = {
       lang: "nb",
       downloadMB: 1100,
       hardware: "NVIDIA GPU 6 GB VRAM",
-      description: "Lav latens tale i sanntid, én fast stemme.",
+      description: "Lav latens tale i sanntid, Ã©n fast stemme.",
     },
     "vibevoice-1.5b": {
       name: "VibeVoice 1.5B (naturlig tale, lange svar)",
@@ -1837,7 +1837,7 @@ const VOICE_CATALOG = {
       lang: "nb",
       downloadMB: 16500,
       hardware: "NVIDIA GPU 20+ GB VRAM",
-      description: "Størst og mest stabil langformssamtale.",
+      description: "StÃ¸rst og mest stabil langformssamtale.",
     },
     vibevoice: {
       name: "VibeVoice (eksperimentell, gammel)",
@@ -1934,7 +1934,7 @@ function spawnVoiceWorker() {
     cwd: VOICE_DIR,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
-    // Windows-python default cp1252 ødelega ae/oe/aa i svarene; tving utf-8.
+    // Windows-python default cp1252 Ã¸delega ae/oe/aa i svarene; tving utf-8.
     env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
   });
   child.reply = null;
@@ -1942,7 +1942,7 @@ function spawnVoiceWorker() {
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => {
-    // tqdm/modellogg: hold bare de siste linjene for feilsøking
+    // tqdm/modellogg: hold bare de siste linjene for feilsÃ¸king
     child.lastErr = (child.lastErr || "").split("\n").concat(chunk).slice(-15).join("\n");
   });
   child.on("error", (error) => log("error", `voice-worker spawn-feil: ${error.message}`));
@@ -2104,7 +2104,7 @@ function voiceEngineList() {
       return Object.entries(nvccSpeakerMap).map(([k, v]) => ({ id: k, name: v }));
     }
     if (vibeVoices[id]) {
-      // Kun stemmer med fil på disk kan brukes akkurat nå.
+      // Kun stemmer med fil pÃ¥ disk kan brukes akkurat nÃ¥.
       // 0.5B realtime bruker .pt-embeddings i voices/streaming_model/,
       // lavformmodellene bruker .wav i voices/.
       const isStreaming = id === "vibevoice-0.5b";
@@ -2160,8 +2160,8 @@ function voiceEngineList() {
 
 function apkFile() {
   const candidates = [
-    path.join(HERE, "..", "apk", "OmniDesk.apk"),
-    path.join(HERE, "..", "OmniDesk.apk"),
+    path.join(HERE, "..", "apk", "Nimay OMP Chat.apk"),
+    path.join(HERE, "..", "Nimay OMP Chat.apk"),
   ];
   for (const candidate of candidates) {
     try {
@@ -2175,12 +2175,12 @@ function serveApkLanding(res) {
   const file = apkFile();
   const size = file ? (fs.statSync(file).size / 1024 / 1024).toFixed(1) : null;
   const body = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OmniDesk</title>
+<title>Nimay OMP Chat</title>
 <style>body{background:#080F1E;color:#F1F7FF;font-family:system-ui,sans-serif;margin:0;padding:32px;display:flex;flex-direction:column;gap:18px;max-width:520px}
 h1{font-size:22px;margin:0}p{color:#A2B4CF;line-height:1.5;margin:0}
 a{display:block;text-align:center;background:#168BFF;color:#fff;text-decoration:none;padding:16px;border-radius:16px;font-weight:600}</style>
-<h1>OmniDesk</h1>
-${file ? `<p>Last ned Android-appen (${size} MB) direkte fra denne PC-en.</p><a href="/apk/OmniDesk.apk" download>Last ned OmniDesk.apk</a>` : "<p>APK er ikke tilgjengelig i denne installasjonen.</p>"}`;
+<h1>Nimay OMP Chat</h1>
+${file ? `<p>Last ned Android-appen (${size} MB) direkte fra denne PC-en.</p><a href="/apk/Nimay OMP Chat.apk" download>Last ned Nimay OMP Chat.apk</a>` : "<p>APK er ikke tilgjengelig i denne installasjonen.</p>"}`;
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-length": Buffer.byteLength(body) });
   res.end(body);
 }
@@ -2417,7 +2417,7 @@ async function handle(req, res) {
   if (req.method === "GET" && (url.pathname === "/apk" || url.pathname === "/apk/")) {
     return serveApkLanding(res);
   }
-  if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/apk/OmniDesk.apk") {
+  if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/apk/Nimay OMP Chat.apk") {
     const file = apkFile();
     if (!file) {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
@@ -2427,7 +2427,7 @@ async function handle(req, res) {
     const headers = {
       "content-type": "application/vnd.android.package-archive",
       "content-length": stat.size,
-      "content-disposition": 'attachment; filename="OmniDesk.apk"',
+      "content-disposition": 'attachment; filename="Nimay OMP Chat.apk"',
       "cache-control": "no-store",
     };
     res.writeHead(200, headers);
@@ -2452,7 +2452,7 @@ async function handle(req, res) {
     return json(res, 401, { error: "Ugyldig eller manglende token" });
   }
   if (rateLimited(req)) {
-    return json(res, 429, { error: "For mange forespørsler" });
+    return json(res, 429, { error: "For mange forespÃ¸rsler" });
   }
 
   try {
@@ -2753,7 +2753,7 @@ async function handle(req, res) {
           const low = q.toLowerCase();
           const matched = [];
           const matchedFiles = new Set();
-          // 1) Billig metadata-søk (tittel, mappe).
+          // 1) Billig metadata-sÃ¸k (tittel, mappe).
           for (const session of sessions) {
             const haystack = `${session.title || ""} ${session.cwd || ""}`.toLowerCase();
             if (haystack.includes(low)) {
@@ -2761,7 +2761,7 @@ async function handle(req, res) {
               matchedFiles.add(session.file);
             }
           }
-          // 2) Valgfritt innholdssøk, kun hvis vi trenger flere resultater og
+          // 2) Valgfritt innholdssÃ¸k, kun hvis vi trenger flere resultater og
           //    brukeren eksplisitt ber om det.
           if (content && matched.length < (offset + (limit || sessions.length))) {
             for (const session of sessions) {
@@ -3072,7 +3072,7 @@ async function handle(req, res) {
           }
         } catch {}
         if (metaObj?.originalFile) {
-          // behold meta for gjenopprettet fil hvis ønskelig (ikke nødvendig)
+          // behold meta for gjenopprettet fil hvis Ã¸nskelig (ikke nÃ¸dvendig)
         }
         sessionCache.delete(file);
         return json(res, 200, { ok: true, file: target });
@@ -3180,7 +3180,7 @@ async function handle(req, res) {
           if (!target) return json(res, 404, { error: "Fant ikke samtalen" });
           if (target.cwd && !samePath(target.cwd, cwd)) {
             return json(res, 409, {
-              error: "Samtalen tilhører en annen arbeidsmappe. Åpne den på nytt fra listen.",
+              error: "Samtalen tilhÃ¸rer en annen arbeidsmappe. Ã…pne den pÃ¥ nytt fra listen.",
             });
           }
         }
@@ -3208,13 +3208,13 @@ async function handle(req, res) {
         const body = await readBody(req);
         if (body.confirm !== true) return json(res, 400, { error: "Bekreftelse mangler" });
         const cmd = IS_WINDOWS
-          ? "shutdown /s /t 5 /c \"OmniDesk: slår av PC-en\""
+          ? "shutdown /s /t 5 /c \"Nimay OMP Chat: slÃ¥r av PC-en\""
           : "shutdown -h now";
         try {
           exec(cmd, { windowsHide: true }, (error) => {
             if (error) log("warn", `poweroff feilet: ${error.message}`);
           });
-          return json(res, 200, { ok: true, message: "Slår av PC-en." });
+          return json(res, 200, { ok: true, message: "SlÃ¥r av PC-en." });
         } catch (error) {
           return json(res, 500, { error: String(error?.message || error) });
         }
@@ -3257,7 +3257,7 @@ async function handle(req, res) {
         // `branch` restores the conversation to just before the selected entry;
         // re-prompting the same message is OMP's own way of regenerating.
         const branch = await runtime.rpc("branch", { entryId: body.entryId }, 60000);
-        if (branch?.cancelled) return json(res, 409, { error: "OMP avbrøt branching" });
+        if (branch?.cancelled) return json(res, 409, { error: "OMP avbrÃ¸t branching" });
         const message = body.text || branch?.text || "";
         if (!message.trim()) return json(res, 400, { error: "Tom melding etter branching" });
         const ack = await runtime.rpc("prompt", { message }, 60000);
@@ -3335,9 +3335,9 @@ async function handle(req, res) {
       case "POST /api/approval": {
         const body = await readBody(req);
         const raw = String(body.mode || "").trim();
-        // OMP forstår bare always-ask | always-ask-cached | write | yolo.
+        // OMP forstÃ¥r bare always-ask | always-ask-cached | write | yolo.
         // Gamle app-verdier ("default"/"ask") mappes til de reelle modusene,
-        // ellers falt OMP tilbake til å spørre om alt.
+        // ellers falt OMP tilbake til Ã¥ spÃ¸rre om alt.
         const legacy = { default: "write", ask: "yolo" };
         const mode = legacy[raw] || raw;
         const valid = ["always-ask", "always-ask-cached", "write", "yolo"];
@@ -3347,8 +3347,8 @@ async function handle(req, res) {
         CONFIG.approvalMode = mode;
         writeConfig();
         log("info", `Godkjenningsmodus endret til: ${mode}`);
-        // Kjørende runtimes fikk modus satt ved oppstart: restart de som er
-        // ledig (pågående oppgaver berøres ikke; nye runder bruker ny modus).
+        // KjÃ¸rende runtimes fikk modus satt ved oppstart: restart de som er
+        // ledig (pÃ¥gÃ¥ende oppgaver berÃ¸res ikke; nye runder bruker ny modus).
         let restarted = 0;
         let busyLeft = 0;
         for (const [key, runtime] of runtimes) {
@@ -3374,15 +3374,15 @@ async function handle(req, res) {
         const engineId = String(body.engineId || "").trim();
         const voice = typeof body.voice === "string" ? body.voice.trim() : "";
         if (!kind || !engineId) return json(res, 400, { error: "Mangler kind/engineId" });
-        if (kind !== "stt" && kind !== "tts") return json(res, 400, { error: "kind må være 'stt' eller 'tts'" });
+        if (kind !== "stt" && kind !== "tts") return json(res, 400, { error: "kind mÃ¥ vÃ¦re 'stt' eller 'tts'" });
         const status = voiceStatus() || { tts: {}, stt: {} };
         const installed = kind === "tts" ? (status.tts || {}) : (status.stt || {});
         if (!installed[engineId] || !installed[engineId].installed) {
           return json(res, 404, { error: `Motor ${engineId} er ikke installert for ${kind}` });
         }
-        // Bygg enginobjektet fra status-oppføringen slik at id + model/dir
+        // Bygg enginobjektet fra status-oppfÃ¸ringen slik at id + model/dir
         // alltid passer sammen (tidligere bug: del-felt ble blandet fra
-        // forrige motor når man byttet frem og tilbake mellom motorer).
+        // forrige motor nÃ¥r man byttet frem og tilbake mellom motorer).
         const entry = installed[engineId];
         // 0.5B realtime bruker .pt-embeddings -> default Emma (Alice mangler der).
         const voiceFallback = engineId === "vibevoice-0.5b" ? "en-Emma_woman" : "en-Alice_woman";
@@ -3421,14 +3421,14 @@ async function handle(req, res) {
         const group = body.kind === "stt" || VOICE_CATALOG.stt[engineId] ? "stt" : "tts";
         if (!VOICE_CATALOG[group][engineId]) return json(res, 404, { error: "Ukjent motor" });
         if (!fs.existsSync(VOICE_SETUP)) {
-          return json(res, 501, { error: "Installasjonsskriptet mangler. Kjør Nimay OMP-installasjonen på nytt." });
+          return json(res, 501, { error: "Installasjonsskriptet mangler. KjÃ¸r Nimay OMP-installasjonen pÃ¥ nytt." });
         }
         const job = voiceJob();
         if (job && job.stage && job.stage !== "done" && job.stage !== "failed") {
-          return json(res, 409, { error: "En installasjon pågår allerede", job });
+          return json(res, 409, { error: "En installasjon pÃ¥gÃ¥r allerede", job });
         }
         if (voiceInstall) {
-          return json(res, 409, { error: "En installasjon pågår allerede", job: voiceJob() });
+          return json(res, 409, { error: "En installasjon pÃ¥gÃ¥r allerede", job: voiceJob() });
         }
         const python = voicePython() ? path.join(VOICE_DIR, "venv", "Scripts", "python.exe") : "";
         // A detached child dies silently on Windows here, so the setup script runs
@@ -3462,14 +3462,14 @@ async function handle(req, res) {
             });
             log("error", `Installasjon av ${engineId} feilet (kode ${code})`);
           } else {
-            log("info", `Installasjon av ${engineId} fullført`);
+            log("info", `Installasjon av ${engineId} fullfÃ¸rt`);
           }
         });
         return json(res, 202, {
           ok: true,
           job: voiceJob(),
           engine: engineId,
-          note: "Installasjonen kjører i bakgrunnen. Følg med i /api/voice/engines.",
+          note: "Installasjonen kjÃ¸rer i bakgrunnen. FÃ¸lg med i /api/voice/engines.",
         });
       }
 
@@ -3552,7 +3552,7 @@ async function handle(req, res) {
         const data = String(body.audio || "").replace(/^data:[^;]+;base64,/, "");
         if (!data) return json(res, 400, { error: "Mangler audio (base64 WAV)" });
         if (!voiceConfig()?.stt) {
-          return json(res, 503, { error: "Ingen talegjenkjenning er installert. Kjør Nimay OMP-installasjonen." });
+          return json(res, 503, { error: "Ingen talegjenkjenning er installert. KjÃ¸r Nimay OMP-installasjonen." });
         }
         fs.mkdirSync(VOICE_OUT, { recursive: true });
         const wavPath = path.join(VOICE_OUT, `stt-${Date.now()}.wav`);
@@ -3565,12 +3565,12 @@ async function handle(req, res) {
 
       case "POST /api/voice/start": {
         const body = await readBody(req);
-        log("info", "Startet STT-strøm");
+        log("info", "Startet STT-strÃ¸m");
         return json(res, 200, { ok: true, engine: voiceConfig()?.stt?.id || null });
       }
 
       case "POST /api/voice/stop": {
-        log("info", "Stoppet tale-strøm");
+        log("info", "Stoppet tale-strÃ¸m");
         return json(res, 200, { ok: true });
       }
       case "POST /api/terminal/create": {
@@ -3600,7 +3600,7 @@ async function handle(req, res) {
       }
 
       // =========================================================================
-﻿      // =========================================================================
+ï»¿      // =========================================================================
       // Git + filredigering (Etappe 6)
       // =========================================================================
 
@@ -3773,7 +3773,7 @@ async function handle(req, res) {
       }
 
       case "POST /api/gotify/test": {
-        const ok = await sendGotify("Nimay OMP — test", "Gotify-tilkobling fungerer.", 5, null);
+        const ok = await sendGotify("Nimay OMP â€” test", "Gotify-tilkobling fungerer.", 5, null);
         return json(res, ok ? 200 : 500, { ok });
       }
 
@@ -3870,7 +3870,7 @@ async function handle(req, res) {
         const stat = (() => { try { return fs.statSync(p); } catch { return null; } })();
         if (!stat) return json(res, 404, { error: `Fant ikke ${p}` });
 
-        // PC -> telefon: binær nedlasting med HTTP Range (store filer, gjenopptak).
+        // PC -> telefon: binÃ¦r nedlasting med HTTP Range (store filer, gjenopptak).
         if (route === "GET /api/files/download") {
           if (!stat.isFile()) return json(res, 400, { error: "Kan ikke laste ned en mappe" });
           const total = Number(stat.size);
@@ -3904,7 +3904,7 @@ async function handle(req, res) {
           return undefined;
         }
 
-        // Filintegritet: beregn sha256 for sammenligning etter overføring
+        // Filintegritet: beregn sha256 for sammenligning etter overfÃ¸ring
         if (route === "GET /api/files/hash") {
           const hash = crypto.createHash("sha256");
           await new Promise((resolve, reject) => {
@@ -3988,12 +3988,12 @@ async function handle(req, res) {
           log("info", `Slettet ${target}`);
           return json(res, 200, { ok: true });
         }
-        // copy / move kjører i bakgrunnen med fremskritt (SSE fs_job)
+        // copy / move kjÃ¸rer i bakgrunnen med fremskritt (SSE fs_job)
         const op = route.endsWith("/copy") ? "copy" : "move";
         const from = path.resolve(String(body.from || ""));
         const to = path.resolve(String(body.to || ""));
         if (!path.isAbsolute(from) || !path.isAbsolute(to)) return json(res, 400, { error: "Kun absolutte stier" });
-        if (from === to) return json(res, 400, { error: "Kilde og mål er identisk" });
+        if (from === to) return json(res, 400, { error: "Kilde og mÃ¥l er identisk" });
         if (!fs.existsSync(from)) return json(res, 404, { error: `Fant ikke ${from}` });
         fs.mkdirSync(to, { recursive: true });
         const id = crypto.randomBytes(6).toString("hex");
@@ -4016,7 +4016,7 @@ async function handle(req, res) {
       }
 
       case "POST /api/files/upload": {
-        // Telefon -> PC: rå byte-kropp (application/octet-stream), chunk-visning:
+        // Telefon -> PC: rÃ¥ byte-kropp (application/octet-stream), chunk-visning:
         // /api/files/upload?path=<target-dir>&name=<fil>.<ext>&offset=<N>&finalize=1
         const url = new URL(req.url, "http://localhost");
         const p = path.resolve(url.searchParams.get("path") || "");
@@ -4034,7 +4034,7 @@ async function handle(req, res) {
         const hash = crypto.createHash("sha256");
         let written = 0;
         let missing = null;
-        // Append at offset: les eksisterende del først for å beregne sha.
+        // Append at offset: les eksisterende del fÃ¸rst for Ã¥ beregne sha.
         if (offset > 0 && fs.existsSync(tmp)) {
           const existing = fs.statSync(tmp);
           if (existing.size > offset) {
@@ -4054,7 +4054,7 @@ async function handle(req, res) {
         } else if (offset === 0) {
           // ny fil
         } else if (!fs.existsSync(tmp)) {
-          return json(res, 409, { error: "Midlertidig fil mangler for gjenopptak; start på ny" });
+          return json(res, 409, { error: "Midlertidig fil mangler for gjenopptak; start pÃ¥ ny" });
         }
         await new Promise((resolve) => {
           const ws = fs.createWriteStream(tmp, { start: Math.min(offset, offset), flags: "r+" });
@@ -4124,7 +4124,7 @@ async function saveAttachments(cwd, files) {
 // ---------------------------------------------------------------------------
 
 // ===========================================================================
-// Terminal (PTY over WebSocket) — Etappe 4
+// Terminal (PTY over WebSocket) â€” Etappe 4
 // ===========================================================================
 
 const terminalSessions = new Map();
@@ -4474,9 +4474,9 @@ server.listen(CONFIG.port, CONFIG.host, () => {
       try { voiceWorker?.kill(); } catch {}
     });
   }
-  log("info", `OmniDesk bridge ${VERSION} listening on ${CONFIG.host}:${CONFIG.port}`);
+  log("info", `Nimay OMP Chat Bridge ${VERSION} listening on ${CONFIG.host}:${CONFIG.port}`);
   log("info", `session storage: ${SESSIONS_ROOT}`);
-  log("info", `approval mode: ${CONFIG.approvalMode} · terminal: ${CONFIG.allowBash ? "enabled" : "disabled"}`);
+  log("info", `approval mode: ${CONFIG.approvalMode} Â· terminal: ${CONFIG.allowBash ? "enabled" : "disabled"}`);
   for (const host of hosts) log("info", `pairing: omp2://${host}:${CONFIG.port} (token: bridge/config.json)`);
   log("info", `QR: /ompqr i OMP, eller python tools/omp_qr.py --bridge ${hosts[0] || "127.0.0.1"}:${CONFIG.port}`);
 });
@@ -4497,10 +4497,10 @@ async function checkUpdates() {
     const data = await res.json();
     const v = data?.channels?.stable?.windowsBridge?.version || data?.channels?.stable?.linuxBridge?.version;
     if (v && v !== VERSION) {
-      log("info", `Oppdatering tilgjengelig: bridge ${v} (nåværende ${VERSION}). Se https://chat.nimay.net/nimayomp/`);
+      log("info", `Oppdatering tilgjengelig: bridge ${v} (nÃ¥vÃ¦rende ${VERSION}). Se https://chat.nimay.net/nimayomp/`);
     }
   } catch (e) {
-    // offline or server unavailable — continue normally
+    // offline or server unavailable â€” continue normally
   }
 }
 // run after startup
@@ -4508,3 +4508,4 @@ setTimeout(() => { checkUpdates().catch(() => {}); }, 5000);
 // Periodic check every 6 hours
 setInterval(() => { checkUpdates().catch(() => {}); }, 6 * 60 * 60 * 1000);
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+

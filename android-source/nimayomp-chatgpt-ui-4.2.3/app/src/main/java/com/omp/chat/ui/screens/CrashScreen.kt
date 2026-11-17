@@ -50,7 +50,7 @@ fun CrashScreen(
                         .padding(20.dp)
                 ) {
                     Text(
-                        text = if (english) "OmniDesk stopped" else "OmniDesk stoppet",
+                        text = if (english) "Nimay OMP Chat stopped" else "Nimay OMP Chat stoppet",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold
                     )

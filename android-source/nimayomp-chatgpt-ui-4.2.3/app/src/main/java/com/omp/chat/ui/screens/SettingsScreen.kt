@@ -912,3 +912,4 @@ private fun InfoRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
     }
 }
+

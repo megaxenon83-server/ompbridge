@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OmniDesk</string>
-    <string name="notification_channel">OmniDesk-svar</string>
+    <string name="app_name">Nimay OMP Chat</string>
+    <string name="notification_channel">Nimay OMP Chat-svar</string>
     <string name="notification_channel_hint">Varsel når OMP har svart ferdig</string>
     <string name="camera_needed">Kameratilgang kreves for å skanne QR-koden</string>
     <string name="scan_prompt">Skann QR-koden fra OMP-bridgen</string>

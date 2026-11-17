@@ -1,4 +1,4 @@
-# Prepares the "Mobil" wizard page: makes sure a local web server is serving the
+﻿# Prepares the "Mobil" wizard page: makes sure a local web server is serving the
 # APK, generates the two QR codes (APK download + OMP pairing) as BMP files and
 # writes a plain KEY=VALUE file that the Inno Setup script reads back.
 param(
@@ -17,7 +17,7 @@ function Add-Info([string]$key, [string]$value) {
     $lines.Add("$key=$clean")
 }
 
-$apkPath = Join-Path $AppDir "apk\OmniDesk.apk"
+$apkPath = Join-Path $AppDir "apk\Nimay OMP Chat.apk"
 $bridgeDir = Join-Path $AppDir "bridge"
 $toolsDir = Join-Path $AppDir "tools"
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -130,14 +130,14 @@ $lastError = ""
 # Prefer the bridge (port 7777) because it is the service that stays running.
 # An older bridge build has no /apk route, so fall back to the standalone APK
 # server on port 7787 when the bridge cannot deliver the file.
-$apkUrl = "http://${host_ip}:$BridgePort/apk/OmniDesk.apk"
+$apkUrl = "http://${host_ip}:$BridgePort/apk/Nimay OMP Chat.apk"
 $servePort = $BridgePort
 $servedByBridge = $false
 if ($bridgeUp -and (Test-ApkUrl $apkUrl)) {
     $servedByBridge = $true
 } else {
     $servePort = $ApkPort
-    $apkUrl = "http://${host_ip}:$ApkPort/apk/OmniDesk.apk"
+    $apkUrl = "http://${host_ip}:$ApkPort/apk/Nimay OMP Chat.apk"
     $already = $false
     try {
         $probe = Invoke-WebRequest -Uri "http://127.0.0.1:$ApkPort/health" -TimeoutSec 2 -UseBasicParsing
@@ -215,3 +215,4 @@ Add-Info "STATUS" "ok"
 Add-Info "MESSAGE" $(if ($bridgeUp) { "OMP-broen kjorer og deler APK-en." } else { "Lokal APK-server kjorer (broen er ikke startet)." })
 Set-Content -Path $infoPath -Value $lines -Encoding ASCII
 exit 0
+

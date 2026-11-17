@@ -1,9 +1,9 @@
 ﻿; ---------------------------------------------------------------------------
-; OmniDesk Bridge v2.9.28 - clean per-user installer
+; Nimay OMP Chat Bridge v2.9.28 - clean per-user installer
 ; No voice/STT/TTS installers, admin, SYSTEM service or Program Files.
 ; ---------------------------------------------------------------------------
 
-#define MyAppName "OmniDesk Bridge"
+#define MyAppName "Nimay OMP Chat Bridge"
 #define MyAppVersion "2.9.28"
 #define MyAppPublisher "Nimay"
 #define Payload "payload"
@@ -17,10 +17,10 @@ VersionInfoVersion={#MyAppVersion}
 VersionInfoProductVersion={#MyAppVersion}
 VersionInfoDescription={#MyAppName} Setup
 VersionInfoProductName={#MyAppName}
-DefaultDirName={localappdata}\OmniDesk\Bridge
+DefaultDirName={localappdata}\Nimay OMP Chat\Bridge
 DisableProgramGroupPage=yes
 OutputDir=dist
-OutputBaseFilename=OmniDesk-Bridge-Setup-{#MyAppVersion}
+OutputBaseFilename=Nimay OMP Chat-Bridge-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -46,7 +46,7 @@ Source: "{#Payload}\commands\*"; DestDir: "{%USERPROFILE}\.omp\agent\commands"; 
 ; The only autostart mechanism: one shortcut in the current user's Startup folder.
 ; Created fresh on every install/upgrade so stale shortcuts from earlier builds
 ; (including .disabled copies or shortcuts pointing at temp/test paths) are replaced.
-Name: "{userstartup}\OmniDesk Bridge"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\tools\start-bridge-hidden.ps1"""; WorkingDir: "{app}"; Comment: "Starter OmniDesk Bridge"
+Name: "{userstartup}\Nimay OMP Chat Bridge"; Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\tools\start-bridge-hidden.ps1"""; WorkingDir: "{app}"; Comment: "Starter Nimay OMP Chat Bridge"
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\tools\stop-bridge.ps1"" -InstallDir ""{app}"""; Flags: runhidden; RunOnceId: "StopBridge"
@@ -153,7 +153,7 @@ var
 begin
   StartupFolder := ExpandConstant('{userstartup}');
   SetArrayLength(Patterns, 2);
-  Patterns[0] := 'OmniDesk Bridge*';
+  Patterns[0] := 'Nimay OMP Chat Bridge*';
   Patterns[1] := 'Nimay OMP Bridge*';
   for I := 0 to GetArrayLength(Patterns) - 1 do
   begin
@@ -223,7 +223,7 @@ begin
 
     // Fjern den gamle per-user Run-posten fra tidligere tester/installer-versjoner.
     RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Nimay OMP Bridge');
-    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'OmniDesk Bridge');
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Nimay OMP Chat Bridge');
   end;
 
   if CurStep <> ssPostInstall then Exit;
@@ -258,5 +258,6 @@ begin
   if (not Exec('powershell.exe',
     '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\tools\start-bridge-hidden.ps1') + '"',
     ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)) or (ResultCode <> 0) then
-    RaiseException('OmniDesk Bridge kunne ikke startes. Kontroller Node.js, OMP_BIN og bridge-loggen.');
+    RaiseException('Nimay OMP Chat Bridge kunne ikke startes. Kontroller Node.js, OMP_BIN og bridge-loggen.');
 end;
+

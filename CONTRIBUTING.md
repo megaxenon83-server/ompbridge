@@ -1,6 +1,6 @@
-# Contributing
+﻿# Contributing
 
-Thanks for helping out. OmniDesk is a two-part project: a Node.js bridge for the PC and a Kotlin/Compose app for Android.
+Thanks for helping out. Nimay OMP Chat is a two-part project: a Node.js bridge for the PC and a Kotlin/Compose app for Android.
 
 ## Getting started
 
@@ -49,9 +49,10 @@ Use the `bug_report.yml` and `feature_request.yml` issue templates for issues.
 
 A good report includes:
 
-- OmniDesk version (bridge version in **Settings → PC and bridge**, app version in **Settings → About**),
+- Nimay OMP Chat version (bridge version in **Settings â†’ PC and bridge**, app version in **Settings â†’ About**),
 - operating system and phone model,
 - what you expected and what happened,
 - the bridge log if the problem is on the PC side.
 
-You can fetch the bridge log from **Settings → Diagnostics → Fetch log** in the app.
+You can fetch the bridge log from **Settings â†’ Diagnostics â†’ Fetch log** in the app.
+

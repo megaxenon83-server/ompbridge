@@ -1,4 +1,4 @@
-# Building OmniDesk
+﻿# Building Nimay OMP Chat
 
 ## Repository layout
 
@@ -22,18 +22,18 @@ docs/                                 This documentation
 
 | Component | Version | Where |
 |---|---|---|
-| OmniDesk Bridge | 2.9.28 | `const VERSION` in `bridge/omp-bridge.mjs` |
-| OmniDesk Android | 4.2.6 (`versionCode 216`) | `app/build.gradle` (flavour `chstgpt`) |
+| Nimay OMP Chat Bridge | 2.9.28 | `const VERSION` in `bridge/omp-bridge.mjs` |
+| Nimay OMP Chat Android | 4.2.6 (`versionCode 216`) | `app/build.gradle` (flavour `chstgpt`) |
 | Release tag | `v2.9.28` | Follows the bridge version |
 
 The version appears in more than one place. When you bump it, update:
 
-1. `bridge/omp-bridge.mjs` → `const VERSION`
-2. `android-source/.../app/build.gradle` → `versionCode` / `versionName` (flavour `chstgpt`)
-3. `.github/workflows/build-release.yml` → `ANDROID_VERSION` and the `BRIDGE_VERSION` default
-4. `install.sh` → `BRIDGE_VERSION`
-5. `packaging/build-linux-packages.sh` and `packaging/build-flatpak.sh` → version defaults
-6. `build-installer/Build-Installer.ps1` → default version
+1. `bridge/omp-bridge.mjs` â†’ `const VERSION`
+2. `android-source/.../app/build.gradle` â†’ `versionCode` / `versionName` (flavour `chstgpt`)
+3. `.github/workflows/build-release.yml` â†’ `ANDROID_VERSION` and the `BRIDGE_VERSION` default
+4. `install.sh` â†’ `BRIDGE_VERSION`
+5. `packaging/build-linux-packages.sh` and `packaging/build-flatpak.sh` â†’ version defaults
+6. `build-installer/Build-Installer.ps1` â†’ default version
 
 ## Local builds
 
@@ -43,7 +43,7 @@ The version appears in more than one place. When you bump it, update:
 bash 2.9.26-bridge/packaging/build-linux-packages.sh 2.9.28 dist
 ```
 
-Produces `omnidesk-bridge-linux-x86_64.tar.gz`, `omnidesk-bridge_<version>_amd64.deb` and `omnidesk-bridge-<version>-1.x86_64.rpm` plus checksums. `dpkg-deb` and `rpmbuild` are required; missing tools are skipped with a warning.
+Produces `Nimay OMP Chat-bridge-linux-x86_64.tar.gz`, `Nimay OMP Chat-bridge_<version>_amd64.deb` and `Nimay OMP Chat-bridge-<version>-1.x86_64.rpm` plus checksums. `dpkg-deb` and `rpmbuild` are required; missing tools are skipped with a warning.
 
 ### Flatpak
 
@@ -66,7 +66,7 @@ Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php).
 & 2.9.26-bridge\build-installer\Build-Installer.ps1 -Version 2.9.28 -OutputDir dist
 ```
 
-The script stages a fresh payload (bridge, tools, commands), writes the version into the Inno Setup definition and compiles `OmniDesk-Bridge-Setup-<version>.exe`. The payload is always rebuilt from source, so the installer can never ship a stale bridge.
+The script stages a fresh payload (bridge, tools, commands), writes the version into the Inno Setup definition and compiles `Nimay OMP Chat-Bridge-Setup-<version>.exe`. The payload is always rebuilt from source, so the installer can never ship a stale bridge.
 
 ### Android
 
@@ -136,3 +136,4 @@ The workflow publishes the release automatically. Verify the assets and their `.
 - Never commit API keys, pairing tokens, `bridge/config.json` or the release keystore.
 - The bridge has no third-party dependencies; keep it that way unless there is a very good reason.
 - The installer must always start from a freshly staged payload.
+

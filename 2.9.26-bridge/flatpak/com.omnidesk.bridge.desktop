@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=OmniDesk Bridge
-Comment=Bridge between OMP on your PC and OmniDesk on Android
-Exec=omnidesk-bridge
-Icon=network-transmit-receive
-Terminal=true
-Categories=Network;Development;
-X-GNOME-Autostart-enabled=true

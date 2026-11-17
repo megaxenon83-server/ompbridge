@@ -1,0 +1,10 @@
+﻿[Desktop Entry]
+Type=Application
+Name=Nimay OMP Chat Bridge
+Comment=Bridge between OMP on your PC and Nimay OMP Chat on Android
+Exec=Nimay OMP Chat-bridge
+Icon=network-transmit-receive
+Terminal=true
+Categories=Network;Development;
+X-GNOME-Autostart-enabled=true
+

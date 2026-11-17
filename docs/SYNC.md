@@ -1,6 +1,6 @@
-# Provider synchronisation
+﻿# Provider synchronisation
 
-OmniDesk keeps the provider list in two places: the PC's `~/.omp/agent/models.yml` (owned by OMP) and the app's local provider store. This document describes exactly what moves in which direction.
+Nimay OMP Chat keeps the provider list in two places: the PC's `~/.omp/agent/models.yml` (owned by OMP) and the app's local provider store. This document describes exactly what moves in which direction.
 
 ## The rule
 
@@ -28,24 +28,24 @@ providers:
 
 | Field | Direction | Notes |
 |---|---|---|
-| Provider id | PC → app | The id is the key in `models.yml` and doubles as the display name |
-| `baseUrl` | PC ⇄ app | Editable on both sides |
-| `apiKey` | PC ⇄ app | Written to the Android Keystore when it arrives on the phone |
-| Model list of a provider | PC ⇄ app | |
+| Provider id | PC â†’ app | The id is the key in `models.yml` and doubles as the display name |
+| `baseUrl` | PC â‡„ app | Editable on both sides |
+| `apiKey` | PC â‡„ app | Written to the Android Keystore when it arrives on the phone |
+| Model list of a provider | PC â‡„ app | |
 | `enabled` / active state | app only | Never written back to `models.yml` |
 | Favourites | app only | |
 | Hidden models | app only | |
 | Provider test result | app only | |
 | Extra app-only fields | app only | |
 
-## Pull — PC to phone
+## Pull â€” PC to phone
 
 1. The app connects to the bridge (manual entry, QR code or `omp2://` deep link).
 2. After the connection is established, the app calls `GET /api/omp/providers`.
 3. Every provider is merged into the local store. API keys are stored in the Android Keystore; the plain key never touches the app's database.
 4. The provider list in the app now mirrors the PC.
 
-## Push — phone to PC
+## Push â€” phone to PC
 
 1. You add, edit or delete a provider in the app.
 2. You tap **Sync** in the provider screen.
@@ -63,7 +63,7 @@ The bridge rewrites `models.yml` after every write and answers with the resultin
 
 OMP provider entries have no separate display name. The provider id is therefore the name.
 
-When you create a provider in the app, the id is derived from the name you type (`OpenAI → openai`, `My Router → my-router`), and a numeric suffix is added if that id already exists. This keeps the PC and the app pointing at the same entry instead of overwriting a provider of the same type.
+When you create a provider in the app, the id is derived from the name you type (`OpenAI â†’ openai`, `My Router â†’ my-router`), and a numeric suffix is added if that id already exists. This keeps the PC and the app pointing at the same entry instead of overwriting a provider of the same type.
 
 ## Failure handling
 
@@ -77,9 +77,9 @@ All endpoints require `Authorization: Bearer <token>`.
 
 | Method | Path | Body / query | Result |
 |---|---|---|---|
-| `GET` | `/api/omp/providers` | — | `{ "providers": [ ... ] }` |
+| `GET` | `/api/omp/providers` | â€” | `{ "providers": [ ... ] }` |
 | `POST` | `/api/omp/providers` | `{"provider": {...}}` or a flat provider object | The stored provider |
-| `DELETE` | `/api/omp/providers?id=<id>` | — | `{ "ok": true }` |
+| `DELETE` | `/api/omp/providers?id=<id>` | â€” | `{ "ok": true }` |
 
 The bridge accepts both the wrapped (`{"provider": {...}}`) and the flat body shape for `POST`.
 
@@ -87,4 +87,5 @@ The bridge accepts both the wrapped (`{"provider": {...}}`) and the flat body sh
 
 - API keys travel over the local network inside the bearer-token protected API. Use a trusted network (LAN or Tailscale); never expose the bridge port to the internet.
 - On the phone, keys are stored in the Android Keystore.
-- On the PC, `models.yml` holds the keys in plain text — that is how OMP works. Protect the file with normal filesystem permissions and never commit it.
+- On the PC, `models.yml` holds the keys in plain text â€” that is how OMP works. Protect the file with normal filesystem permissions and never commit it.
+
