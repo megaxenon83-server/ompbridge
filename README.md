@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>Nimay OMP Chat</b> — a bridge and Android app for the <a href="https://github.com/oh-my-pi">Oh My Pi (OMP)</a> coding agent.<br/>
-  Run OMP on your own PC. Chat, approve actions, browse files, run terminal, and switch models — all from your phone.
+  Run OMP on your own PC. Chat, approve actions, browse files, run terminal, and switch models — all from your phone, over Wi-Fi or Tailscale.
 </p>
 
 <p align="center">
@@ -37,10 +37,11 @@ No account, no cloud relay, no subscription. The model runs on your provider acc
 
 | | |
 |---|---|
-| **Two-way provider sync** | Add, edit or delete a provider in the phone app and push it to the PC with one tap â€” or pull the PC's configuration when you connect. The PC stays the source of truth. |
+| **Two-way provider sync** | Add, edit or delete a provider in the phone app and push it to the PC with one tap — or pull the PC's configuration when you connect. The PC stays the source of truth. |
 | **Keys stay in the Keystore** | API keys received from the PC are stored in the Android Keystore, never in plain text on disk. |
 | **Real agent, not a chatbot** | Tool calls, file edits, terminal access and approval prompts are streamed to your phone. You stay in control of every action. |
 | **QR pairing** | Start the bridge, scan the QR code in the app, done. Manual entry and `omp2://` deep links work too. |
+| **Works over Tailscale** | Connect from anywhere — Wi-Fi, LAN, or Tailscale (recommended for security). No port forwarding, no cloud relay. |
 | **Your projects, your files** | Browse the PC's project folders, manage files, run a terminal and follow Git state without leaving the app. |
 | **Model aware** | Providers, models, favourites and hidden models are synced; visual preferences stay on the device. |
 | **Offline-safe** | If the bridge is unreachable, your changes are kept locally and a notification tells you what to retry. |
@@ -217,7 +218,7 @@ Pushing a `v*` tag runs GitHub Actions, which builds all platforms and publishes
 - Every bridge request except the public APK download (`/apk`) and the discovery endpoint (`/api/ping`) requires `Authorization: Bearer <token>`.
 - API keys received by the app are stored in the **Android Keystore**, encrypted by the platform.
 - The release keystore lives in GitHub Actions secrets, never in the repository.
-- The bridge listens on `0.0.0.0` so the phone can reach it â€” use a trusted network (LAN or Tailscale) and do not expose the port to the internet.
+- The bridge listens on `0.0.0.0` so the phone can reach it — use a trusted network (LAN or **Tailscale, recommended for security**) and do not expose the port to the internet.
 
 Report vulnerabilities privately: see [`SECURITY.md`](SECURITY.md).
 
