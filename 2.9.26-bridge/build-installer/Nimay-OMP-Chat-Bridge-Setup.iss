@@ -1,5 +1,5 @@
 ﻿; ---------------------------------------------------------------------------
-; Nimay OMP Chat Bridge v2.9.28 - clean per-user installer
+; Nimay OMP Chat Bridge v2.9.29 - clean per-user installer
 ; No voice/STT/TTS installers, admin, SYSTEM service or Program Files.
 ; ---------------------------------------------------------------------------
 
@@ -20,7 +20,7 @@ VersionInfoProductName={#MyAppName}
 DefaultDirName={localappdata}\Nimay OMP Chat\Bridge
 DisableProgramGroupPage=yes
 OutputDir=dist
-OutputBaseFilename=Nimay OMP Chat-Bridge-Setup-{#MyAppVersion}
+OutputBaseFilename=Nimay-OMP-Chat-Bridge-Setup-{#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
