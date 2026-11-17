@@ -109,7 +109,7 @@ keytool -genkeypair -v -keystore nimayomp-release.jks -alias nimayomp \
 | `android-build` | `ubuntu-latest` | Signed APK + checksum |
 | `linux-build` | `ubuntu-latest` | `.deb`, `.rpm`, Flatpak bundle, tarball + checksums |
 | `windows-build` | `windows-latest` | Inno Setup `.exe` |
-| `create-release` | `ubuntu-latest` | GitHub release with all artifacts |
+| `create-release` | `ubuntu-latest` | GitHub release with all artifacts and `SHA256SUMS` |
 
 ### Required secrets
 

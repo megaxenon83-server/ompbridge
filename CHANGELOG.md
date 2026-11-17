@@ -35,7 +35,7 @@ All notable changes to OmniDesk. The release tag follows the bridge version; the
 - New provider ids are derived from the provider name, so the PC and the app reference the same entry.
 
 ### Added — release engineering
-- One GitHub release for every platform: Windows installer, `.deb`, `.rpm`, Flatpak bundle, universal tarball and signed Android APK, each with a SHA-256 checksum.
+- One GitHub release for every platform: Windows installer, `.deb`, `.rpm`, Flatpak bundle, universal tarball and signed Android APK, plus a `SHA256SUMS` file covering all of them.
 - Packaging moved into committed scripts so CI and local builds share one code path.
 - `stable-beta` prerelease tracks the newest validated build.
 

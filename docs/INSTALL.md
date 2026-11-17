@@ -1,6 +1,12 @@
 # Installation
 
-Everything is published on the [releases page](https://github.com/megaxenon83-server/ompbridge/releases). Each artifact ships with a `.sha256` checksum file.
+Everything is published on the [releases page](https://github.com/megaxenon83-server/ompbridge/releases). Every release contains a `SHA256SUMS` file that covers all artifacts; the universal tarball and the Android APK also ship an individual `.sha256` file.
+
+Verify a download with:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
 
 ## Requirements
 

@@ -165,7 +165,7 @@ Everything is published on the [releases page](https://github.com/megaxenon83-se
 | Linux (universal) | `omnidesk-bridge-linux-x86_64.tar.gz` | 2.9.28 |
 | Android | `omnidesk-android-<version>.apk` | 4.2.6 |
 
-Every artifact ships with a `.sha256` checksum. The Android APK is signed with a release key, so it installs as an update over previous versions.
+Every artifact is covered by the `SHA256SUMS` file in the release; the universal tarball and the Android APK also ship an individual `.sha256` file. The Android APK is signed with a release key, so it installs as an update over previous versions.
 
 ---
 
