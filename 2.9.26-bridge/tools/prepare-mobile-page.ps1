@@ -17,7 +17,7 @@ function Add-Info([string]$key, [string]$value) {
     $lines.Add("$key=$clean")
 }
 
-$apkPath = Join-Path $AppDir "apk\OmpChat.apk"
+$apkPath = Join-Path $AppDir "apk\OmniDesk.apk"
 $bridgeDir = Join-Path $AppDir "bridge"
 $toolsDir = Join-Path $AppDir "tools"
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
@@ -130,14 +130,14 @@ $lastError = ""
 # Prefer the bridge (port 7777) because it is the service that stays running.
 # An older bridge build has no /apk route, so fall back to the standalone APK
 # server on port 7787 when the bridge cannot deliver the file.
-$apkUrl = "http://${host_ip}:$BridgePort/apk/OmpChat.apk"
+$apkUrl = "http://${host_ip}:$BridgePort/apk/OmniDesk.apk"
 $servePort = $BridgePort
 $servedByBridge = $false
 if ($bridgeUp -and (Test-ApkUrl $apkUrl)) {
     $servedByBridge = $true
 } else {
     $servePort = $ApkPort
-    $apkUrl = "http://${host_ip}:$ApkPort/apk/OmpChat.apk"
+    $apkUrl = "http://${host_ip}:$ApkPort/apk/OmniDesk.apk"
     $already = $false
     try {
         $probe = Invoke-WebRequest -Uri "http://127.0.0.1:$ApkPort/health" -TimeoutSec 2 -UseBasicParsing

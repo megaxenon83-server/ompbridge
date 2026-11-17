@@ -7,13 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag to build (e.g. v2.9.27)'
+        description: 'Version tag to build (e.g. v2.9.28)'
         required: true
         type: string
 
 env:
-  BRIDGE_VERSION: ${{ github.event.inputs.version || '2.9.27' }}
-  ANDROID_VERSION: 4.2.5
+  BRIDGE_VERSION: ${{ github.event.inputs.version || '2.9.28' }}
+  ANDROID_VERSION: 4.2.6
   REPO: megaxenon83-server/ompbridge
   ANDROID_PROJECT: android-source/nimayomp-chatgpt-ui-4.2.3
 
@@ -77,9 +77,9 @@ jobs:
             echo "::error::Android signing secrets are not configured in the repository"
             exit 1
           fi
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/nimayomp-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/omnidesk-release.jks"
           cat > "${ANDROID_PROJECT}/keystore.properties" << EOF
-          storeFile=$RUNNER_TEMP/nimayomp-release.jks
+          storeFile=$RUNNER_TEMP/omnidesk-release.jks
           storePassword=$KEYSTORE_PASSWORD
           keyAlias=$KEY_ALIAS
           keyPassword=$KEY_PASSWORD
@@ -90,7 +90,10 @@ jobs:
         working-directory: ${{ env.ANDROID_PROJECT }}
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleChstgptRelease --no-daemon --stacktrace
+          # A clean build avoids stale BuildConfig constants when only the
+          # version numbers changed (incremental Kotlin compilation can keep an
+          # inlined VERSION_NAME/VERSION_CODE from a previous build).
+          ./gradlew clean :app:assembleChstgptRelease --no-daemon --stacktrace
 
       - name: Package APK
         id: package
@@ -102,9 +105,9 @@ jobs:
             exit 1
           fi
           mkdir -p dist
-          cp "$APK_PATH" "dist/nimay-omp-android-${ANDROID_VERSION}.apk"
-          (cd dist && sha256sum "nimay-omp-android-${ANDROID_VERSION}.apk" > "nimay-omp-android-${ANDROID_VERSION}.apk.sha256")
-          echo "apk_path=dist/nimay-omp-android-${ANDROID_VERSION}.apk" >> "$GITHUB_OUTPUT"
+          cp "$APK_PATH" "dist/omnidesk-android-${ANDROID_VERSION}.apk"
+          (cd dist && sha256sum "omnidesk-android-${ANDROID_VERSION}.apk" > "omnidesk-android-${ANDROID_VERSION}.apk.sha256")
+          echo "apk_path=dist/omnidesk-android-${ANDROID_VERSION}.apk" >> "$GITHUB_OUTPUT"
           echo "Packaged $APK_PATH"
 
       - name: Upload Android artifact
@@ -112,8 +115,8 @@ jobs:
         with:
           name: android-apk
           path: |
-            dist/nimay-omp-android-*.apk
-            dist/nimay-omp-android-*.sha256
+            dist/omnidesk-android-*.apk
+            dist/omnidesk-android-*.sha256
           if-no-files-found: error
 
   # ------------------------------------------------------------------- LINUX
@@ -236,28 +239,28 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Nimay OMP Bridge ${{ needs.linux-build.outputs.version }} + OmpChat Android ${{ needs.android-build.outputs.version }}
+          name: OmniDesk Bridge ${{ needs.linux-build.outputs.version }} + OmniDesk Android ${{ needs.android-build.outputs.version }}
           body: |
-            ## Nimay OMP Bridge ${{ needs.linux-build.outputs.version }}
+            ## OmniDesk Bridge ${{ needs.linux-build.outputs.version }}
 
             Bridge ${{ needs.linux-build.outputs.version }} with two-way provider synchronisation, and the
-            ChatGPT UI Android app ${{ needs.android-build.outputs.version }}.
+            OmniDesk Android app ${{ needs.android-build.outputs.version }}.
 
             ### Downloads
-            - **Windows:** `Nimay-OMP-Bridge-Setup-${{ needs.linux-build.outputs.version }}.exe`
-            - **Debian/Ubuntu:** `nimay-ompbridge_${{ needs.linux-build.outputs.version }}_amd64.deb`
-            - **Fedora/RHEL:** `nimay-ompbridge-${{ needs.linux-build.outputs.version }}-1.x86_64.rpm`
-            - **Flatpak:** `com.nimay.OMPBridge-${{ needs.linux-build.outputs.version }}.flatpak`
-            - **Universal tarball:** `ompbridge-linux-x86_64.tar.gz`
-            - **Android:** `nimay-omp-android-${{ needs.android-build.outputs.version }}.apk`
+            - **Windows:** `OmniDesk-Bridge-Setup-${{ needs.linux-build.outputs.version }}.exe`
+            - **Debian/Ubuntu:** `omnidesk-bridge_${{ needs.linux-build.outputs.version }}_amd64.deb`
+            - **Fedora/RHEL:** `omnidesk-bridge-${{ needs.linux-build.outputs.version }}-1.x86_64.rpm`
+            - **Flatpak:** `com.omnidesk.bridge-${{ needs.linux-build.outputs.version }}.flatpak`
+            - **Universal tarball:** `omnidesk-bridge-linux-x86_64.tar.gz`
+            - **Android:** `omnidesk-android-${{ needs.android-build.outputs.version }}.apk`
 
             ### Installation
             **Windows:** run the `.exe` installer (per-user, no admin rights needed).
-            **Linux (.deb):** `sudo dpkg -i nimay-ompbridge_*.deb` then run `nimay-ompbridge-install --local`.
-            **Linux (.rpm):** `sudo rpm -i nimay-ompbridge-*.rpm` then run `nimay-ompbridge-install --local`.
-            **Flatpak:** `flatpak install com.nimay.OMPBridge-*.flatpak`.
-            **Universal:** `tar -xzf ompbridge-linux-x86_64.tar.gz && ./install.sh`.
-            **Android:** install the APK (`adb install nimay-omp-android-*.apk`).
+            **Linux (.deb):** `sudo dpkg -i omnidesk-bridge_*.deb` then run `omnidesk-bridge-install --local`.
+            **Linux (.rpm):** `sudo rpm -i omnidesk-bridge-*.rpm` then run `omnidesk-bridge-install --local`.
+            **Flatpak:** `flatpak install com.omnidesk.bridge-*.flatpak`.
+            **Universal:** `tar -xzf omnidesk-bridge-linux-x86_64.tar.gz && ./install.sh`.
+            **Android:** install the APK (`adb install omnidesk-android-*.apk`).
 
             ### Provider sync
             The bridge is the source of truth for providers and API keys

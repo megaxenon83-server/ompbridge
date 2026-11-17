@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * OmpChat Bridge
- * --------------
- * Exposes the real Oh My Pi (OMP) RPC surface to the OmpChat Android app.
+ * OmniDesk Bridge
+ * ---------------
+ * Exposes the real Oh My Pi (OMP) RPC surface to the OmniDesk Android app.
  *
  * OMP speaks newline-delimited JSON over stdin/stdout (`omp --mode rpc`).
  * This bridge spawns one OMP process per project folder, keeps it warm,
@@ -23,7 +23,7 @@ import crypto from "node:crypto";
 import { spawn, exec, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const VERSION = "2.9.27";
+const VERSION = "2.9.28";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // Resource monitoring state
@@ -1091,7 +1091,7 @@ class OmpRuntime {
 
     if (frame.type === "host_tool_call" || frame.type === "host_uri_request") {
       // We publish no host tools/URIs; answer so OMP never hangs.
-      this.write({ type: frame.type === "host_tool_call" ? "host_tool_result" : "host_uri_result", id: frame.id, isError: true, error: "Host tools are not available in OmpChat" });
+      this.write({ type: frame.type === "host_tool_call" ? "host_tool_result" : "host_uri_result", id: frame.id, isError: true, error: "Host tools are not available in OmniDesk" });
       return;
     }
   }
@@ -2160,8 +2160,8 @@ function voiceEngineList() {
 
 function apkFile() {
   const candidates = [
-    path.join(HERE, "..", "apk", "OmpChat.apk"),
-    path.join(HERE, "..", "OmpChat.apk"),
+    path.join(HERE, "..", "apk", "OmniDesk.apk"),
+    path.join(HERE, "..", "OmniDesk.apk"),
   ];
   for (const candidate of candidates) {
     try {
@@ -2175,12 +2175,12 @@ function serveApkLanding(res) {
   const file = apkFile();
   const size = file ? (fs.statSync(file).size / 1024 / 1024).toFixed(1) : null;
   const body = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nimay OMP Mobile</title>
+<title>OmniDesk</title>
 <style>body{background:#080F1E;color:#F1F7FF;font-family:system-ui,sans-serif;margin:0;padding:32px;display:flex;flex-direction:column;gap:18px;max-width:520px}
 h1{font-size:22px;margin:0}p{color:#A2B4CF;line-height:1.5;margin:0}
 a{display:block;text-align:center;background:#168BFF;color:#fff;text-decoration:none;padding:16px;border-radius:16px;font-weight:600}</style>
-<h1>Nimay OMP Mobile</h1>
-${file ? `<p>Last ned Android-appen (${size} MB) direkte fra denne PC-en.</p><a href="/apk/OmpChat.apk" download>Last ned OmpChat.apk</a>` : "<p>APK er ikke tilgjengelig i denne installasjonen.</p>"}`;
+<h1>OmniDesk</h1>
+${file ? `<p>Last ned Android-appen (${size} MB) direkte fra denne PC-en.</p><a href="/apk/OmniDesk.apk" download>Last ned OmniDesk.apk</a>` : "<p>APK er ikke tilgjengelig i denne installasjonen.</p>"}`;
   res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-length": Buffer.byteLength(body) });
   res.end(body);
 }
@@ -2417,7 +2417,7 @@ async function handle(req, res) {
   if (req.method === "GET" && (url.pathname === "/apk" || url.pathname === "/apk/")) {
     return serveApkLanding(res);
   }
-  if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/apk/OmpChat.apk") {
+  if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/apk/OmniDesk.apk") {
     const file = apkFile();
     if (!file) {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
@@ -2427,7 +2427,7 @@ async function handle(req, res) {
     const headers = {
       "content-type": "application/vnd.android.package-archive",
       "content-length": stat.size,
-      "content-disposition": 'attachment; filename="OmpChat.apk"',
+      "content-disposition": 'attachment; filename="OmniDesk.apk"',
       "cache-control": "no-store",
     };
     res.writeHead(200, headers);
@@ -3208,7 +3208,7 @@ async function handle(req, res) {
         const body = await readBody(req);
         if (body.confirm !== true) return json(res, 400, { error: "Bekreftelse mangler" });
         const cmd = IS_WINDOWS
-          ? "shutdown /s /t 5 /c \"OmpChat: slår av PC-en\""
+          ? "shutdown /s /t 5 /c \"OmniDesk: slår av PC-en\""
           : "shutdown -h now";
         try {
           exec(cmd, { windowsHide: true }, (error) => {
@@ -4474,7 +4474,7 @@ server.listen(CONFIG.port, CONFIG.host, () => {
       try { voiceWorker?.kill(); } catch {}
     });
   }
-  log("info", `OmpChat bridge ${VERSION} listening on ${CONFIG.host}:${CONFIG.port}`);
+  log("info", `OmniDesk bridge ${VERSION} listening on ${CONFIG.host}:${CONFIG.port}`);
   log("info", `session storage: ${SESSIONS_ROOT}`);
   log("info", `approval mode: ${CONFIG.approvalMode} · terminal: ${CONFIG.allowBash ? "enabled" : "disabled"}`);
   for (const host of hosts) log("info", `pairing: omp2://${host}:${CONFIG.port} (token: bridge/config.json)`);

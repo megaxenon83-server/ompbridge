@@ -46,7 +46,7 @@ for (const file of [path.join(appDir, "bridge", "config.json"), path.join(appDir
 }
 
 const port = Number(process.env.OMPCHAT_BRIDGE_PORT) || bridgePort;
-const apkUrl = `http://${primary.address}:${apkPort}/apk/OmpChat.apk`;
+const apkUrl = `http://${primary.address}:${apkPort}/apk/OmniDesk.apk`;
 const pairing = token ? `omp2://${primary.address}:${port}?token=${token}` : "";
 
 if (process.argv.includes("--plain")) {

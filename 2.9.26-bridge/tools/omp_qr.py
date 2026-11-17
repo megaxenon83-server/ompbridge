@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a QR code that connects the OmpChat 2.0 Android app to the OMP bridge.
+"""Generate a QR code that connects the OmniDesk Android app to the OMP bridge.
 
 The bridge (`bridge/omp-bridge.mjs`) is the thing the phone talks to; it in turn
 drives the real `omp --mode rpc` process on this PC. This script only renders the
@@ -96,7 +96,7 @@ def main() -> int:
     config = read_bridge_config()
 
     parser = argparse.ArgumentParser(
-        description="Create a QR code for pairing OmpChat 2.0 with the local OMP bridge."
+        description="Create a QR code for pairing OmniDesk with the local OMP bridge."
     )
     parser.add_argument("--host", default=None, help="LAN/Tailscale IP the phone connects to (default: auto-detected)")
     parser.add_argument("--port", type=int, default=int(config.get("port", DEFAULT_PORT)), help=f"Bridge port (default: {DEFAULT_PORT})")

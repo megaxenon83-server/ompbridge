@@ -1,0 +1,31 @@
+app-id: com.omnidesk.bridge
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node20
+command: omnidesk-bridge
+finish-args:
+  - --share=network
+  - --filesystem=host
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: omnidesk-bridge
+    buildsystem: simple
+    build-commands:
+      - |
+        if [ -d omnidesk-bridge ]; then
+          mv omnidesk-bridge/* . 2>/dev/null || true
+          rmdir omnidesk-bridge 2>/dev/null || true
+        fi
+      - mkdir -p /app/share/omnidesk/bridge /app/bin /app/share/applications
+      - cp -r bridge tools commands /app/share/omnidesk/bridge/
+      - install -m 755 install.sh /app/share/omnidesk/bridge/install.sh
+      - install -m 755 flatpak/omnidesk-bridge.sh /app/bin/omnidesk-bridge
+      - install -m 644 flatpak/com.omnidesk.bridge.desktop /app/share/applications/com.omnidesk.bridge.desktop
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - build-installer
+          - '*.bak*'

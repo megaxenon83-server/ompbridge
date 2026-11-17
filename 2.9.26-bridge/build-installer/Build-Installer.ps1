@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds the Nimay OMP Bridge Windows installer from the repository sources.
+    Builds the OmniDesk Bridge Windows installer from the repository sources.
 
 .DESCRIPTION
     Stages a fresh payload (bridge, tools, commands) next to the Inno Setup
@@ -9,13 +9,13 @@
     a stale bridge.
 
 .PARAMETER Version
-    Version written into the installer (default 2.9.27).
+    Version written into the installer (default 2.9.28).
 
 .PARAMETER OutputDir
     Where the .exe is copied (default: repository root / dist).
 #>
 param(
-    [string]$Version = "2.9.27",
+    [string]$Version = "2.9.28",
     [string]$OutputDir = ""
 )
 
@@ -43,8 +43,8 @@ Copy-Item -Force (Join-Path $root "bridge\config.template.json") (Join-Path $pay
 Copy-Item -Recurse -Force (Join-Path $root "tools\*") (Join-Path $payload "tools")
 Copy-Item -Recurse -Force (Join-Path $root "commands\*") (Join-Path $payload "commands")
 
-$issSource = Join-Path $scriptDir "Nimay-OMP-Bridge-Setup.iss"
-$issTarget = Join-Path $stage "Nimay-OMP-Bridge-Setup.iss"
+$issSource = Join-Path $scriptDir "OmniDesk-Bridge-Setup.iss"
+$issTarget = Join-Path $stage "OmniDesk-Bridge-Setup.iss"
 $iss = Get-Content -Raw $issSource
 $iss = $iss -replace '(?m)^#define MyAppVersion\s+"[^"]*"', "#define MyAppVersion `"$Version`""
 Set-Content -Path $issTarget -Value $iss -Encoding UTF8
@@ -67,15 +67,15 @@ if (-not $iscc) {
 Write-Host "[build-installer] Compiling with $iscc"
 Push-Location $stage
 try {
-    & $iscc "Nimay-OMP-Bridge-Setup.iss"
+    & $iscc "OmniDesk-Bridge-Setup.iss"
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 } finally {
     Pop-Location
 }
 
-$built = Join-Path $stage "dist\Nimay-OMP-Bridge-Setup-$Version.exe"
+$built = Join-Path $stage "dist\OmniDesk-Bridge-Setup-$Version.exe"
 if (-not (Test-Path $built)) { throw "Installer not found at $built" }
 
-$target = Join-Path $OutputDir "Nimay-OMP-Bridge-Setup-$Version.exe"
+$target = Join-Path $OutputDir "OmniDesk-Bridge-Setup-$Version.exe"
 Copy-Item -Force $built $target
 Write-Host "[build-installer] Created $target"

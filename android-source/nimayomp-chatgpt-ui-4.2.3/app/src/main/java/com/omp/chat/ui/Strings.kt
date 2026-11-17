@@ -10,7 +10,7 @@ class Strings(val lang: String) {
 
     private fun s(nb: String, en: String) = if (lang == "en") en else nb
 
-    val appName get() = "OMP Chat"
+    val appName get() = "OmniDesk"
     val tagline get() = s("Agenten din, på mobilen", "Your agent, on your phone")
 
     val chats get() = s("Samtaler", "Chats")
@@ -142,8 +142,8 @@ class Strings(val lang: String) {
     val pairingFailed get() = s("Kunne ikke koble til", "Could not connect")
     val welcomeTitle get() = s("Koble til PC-en din", "Connect your PC")
     val welcomeText get() = s(
-        "OmpChat snakker med Oh My Pi på Windows-maskinen din. Start bridgen på PC-en og skann QR-koden – eller skriv inn adressen.",
-        "OmpChat talks to Oh My Pi on your Windows machine. Start the bridge on the PC and scan the QR code — or type the address."
+        "OmniDesk snakker med Oh My Pi på Windows-maskinen din. Start bridgen på PC-en og skann QR-koden – eller skriv inn adressen.",
+        "OmniDesk talks to Oh My Pi on your Windows machine. Start the bridge on the PC and scan the QR code — or type the address."
     )
     val bridgeHint get() = s("node bridge/omp-bridge.mjs", "node bridge/omp-bridge.mjs")
     val cameraPermission get() = s("Kamera kreves for å skanne QR-koden", "Camera access is needed to scan the QR code")

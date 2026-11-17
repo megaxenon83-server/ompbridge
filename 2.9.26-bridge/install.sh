@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Nimay OMP Bridge - Linux installer
+# OmniDesk Bridge - Linux installer
 # Supports:
 #   install.sh              download the release tarball and install it
 #   install.sh --local      install the files that sit next to this script
 #   install.sh uninstall    remove the user installation
-# Version: 2.9.27
+# Version: 2.9.28
 
 set -euo pipefail
 
@@ -21,12 +21,14 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # Note: /etc/os-release also defines VERSION, so the bridge version uses its
 # own variable name to avoid being overwritten by detect_os().
-BRIDGE_VERSION="2.9.27"
+BRIDGE_VERSION="2.9.28"
 REPO="megaxenon83-server/ompbridge"
-INSTALL_DIR="${HOME}/.local/share/nimay/ompbridge"
+INSTALL_DIR="${HOME}/.local/share/omnidesk/bridge"
 BRIDGE_DIR="${INSTALL_DIR}/bridge"
 CONFIG_FILE="${BRIDGE_DIR}/config.json"
-SERVICE_NAME="nimay-ompbridge"
+SERVICE_NAME="omnidesk-bridge"
+LEGACY_SERVICE_NAME="nimay-ompbridge"
+LEGACY_INSTALL_DIR="${HOME}/.local/share/nimay/ompbridge"
 PORT="${OMPCHAT_BRIDGE_PORT:-7777}"
 DOWNLOAD_BASE="https://github.com/${REPO}/releases/download/v${BRIDGE_VERSION}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -92,7 +94,7 @@ detect_arch() {
 }
 
 download_bridge() {
-    local tarball="ompbridge-linux-${ARCH}.tar.gz"
+    local tarball="omnidesk-bridge-linux-${ARCH}.tar.gz"
     local url="${DOWNLOAD_BASE}/${tarball}"
     local sha_url="${url}.sha256"
     local dest="${INSTALL_DIR}/${tarball}"
@@ -138,9 +140,9 @@ install_local_bridge() {
         rm -rf "${INSTALL_DIR}/commands"
         cp -r "${SCRIPT_DIR}/commands" "${INSTALL_DIR}/commands"
     fi
-    if [[ -f "${SCRIPT_DIR}/flatpak/com.nimay.OMPBridge.yml" ]]; then
+    if [[ -f "${SCRIPT_DIR}/flatpak/com.omnidesk.bridge.yml" ]]; then
         mkdir -p "${INSTALL_DIR}/flatpak"
-        cp -f "${SCRIPT_DIR}/flatpak/com.nimay.OMPBridge.yml" "${INSTALL_DIR}/flatpak/com.nimay.OMPBridge.yml"
+        cp -f "${SCRIPT_DIR}/flatpak/com.omnidesk.bridge.yml" "${INSTALL_DIR}/flatpak/com.omnidesk.bridge.yml"
     fi
     log_ok "Local payload installed"
 }
@@ -149,6 +151,15 @@ setup_config() {
     mkdir -p "${BRIDGE_DIR}"
     if [[ -f "${CONFIG_FILE}" ]]; then
         log_info "Keeping existing bridge config at ${CONFIG_FILE}"
+        return
+    fi
+    # Upgrade path: keep the pairing token from the pre-2.9.28 install so the
+    # phone stays paired after the rename.
+    local legacy_config="${LEGACY_INSTALL_DIR}/bridge/config.json"
+    if [[ -f "${legacy_config}" ]]; then
+        cp -f "${legacy_config}" "${CONFIG_FILE}"
+        chmod 600 "${CONFIG_FILE}"
+        log_ok "Migrated bridge config (pairing token preserved) from ${legacy_config}"
         return
     fi
     local token
@@ -183,7 +194,7 @@ setup_systemd() {
     mkdir -p "${service_dir}"
     cat > "${service_file}" << SERVICE_EOF
 [Unit]
-Description=Nimay OMP Bridge
+Description=OmniDesk Bridge
 After=network-online.target
 Wants=network-online.target
 
@@ -230,6 +241,17 @@ start_service() {
     return 1
 }
 
+remove_legacy_service() {
+    local legacy_unit="${HOME}/.config/systemd/user/${LEGACY_SERVICE_NAME}.service"
+    if [[ -f "${legacy_unit}" ]]; then
+        systemctl --user stop "${LEGACY_SERVICE_NAME}.service" 2>/dev/null || true
+        systemctl --user disable "${LEGACY_SERVICE_NAME}.service" 2>/dev/null || true
+        rm -f "${legacy_unit}"
+        systemctl --user daemon-reload 2>/dev/null || true
+        log_ok "Removed legacy service ${LEGACY_SERVICE_NAME}.service"
+    fi
+}
+
 install_omp_commands() {
     local cmd_dir="${HOME}/.omp/agent/commands"
     mkdir -p "${cmd_dir}"
@@ -255,7 +277,7 @@ print_summary() {
     token="$(read_token)"
     echo
     echo "=========================================="
-    echo "  Nimay OMP Bridge v${BRIDGE_VERSION} installed!"
+    echo "  OmniDesk Bridge v${BRIDGE_VERSION} installed!"
     echo "=========================================="
     echo "Install dir: ${INSTALL_DIR}"
     echo "Config file: ${CONFIG_FILE}"
@@ -277,12 +299,13 @@ print_summary() {
 }
 
 uninstall() {
-    log_info "Uninstalling Nimay OMP Bridge..."
+    log_info "Uninstalling OmniDesk Bridge..."
     systemctl --user stop "${SERVICE_NAME}.service" 2>/dev/null || true
     systemctl --user disable "${SERVICE_NAME}.service" 2>/dev/null || true
     rm -f "${HOME}/.config/systemd/user/${SERVICE_NAME}.service"
     systemctl --user daemon-reload 2>/dev/null || true
     rm -rf "${INSTALL_DIR}"
+    rm -rf "${LEGACY_INSTALL_DIR}"
     rm -rf "${HOME}/.omp/agent/commands/ompserver" "${HOME}/.omp/agent/commands/ompqr" "${HOME}/.omp/agent/commands/ompchat-shared" 2>/dev/null || true
     rm -f "${HOME}/.omp/agent/ompchat-commands.json"
     loginctl disable-linger "$(whoami)" 2>/dev/null || true
@@ -301,10 +324,11 @@ main() {
 
     case "${action}" in
         install)
-            log_info "Starting Nimay OMP Bridge v${BRIDGE_VERSION} installation..."
+            log_info "Starting OmniDesk Bridge v${BRIDGE_VERSION} installation..."
             detect_os
             check_deps
             detect_arch
+            remove_legacy_service
             if [[ "${MODE}" == "local" ]]; then
                 install_local_bridge
             else

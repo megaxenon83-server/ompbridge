@@ -17,7 +17,7 @@ function arg(name, fallback) {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(arg("--app", path.join(HERE, "..")));
 const port = Number(arg("--port", 7787)) || 7787;
-const apk = path.join(appDir, "apk", "OmpChat.apk");
+const apk = path.join(appDir, "apk", "OmniDesk.apk");
 
 function primaryAddress() {
   const scored = [];
@@ -59,9 +59,9 @@ function qrSvg(text, size = 240) {
 
 function page(host, port) {
   const size = fs.existsSync(apk) ? (fs.statSync(apk).size / 1024 / 1024).toFixed(1) : "?";
-  const url = `http://${host}:${port}/apk/OmpChat.apk`;
+  const url = `http://${host}:${port}/apk/OmniDesk.apk`;
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nimay OMP Mobile</title>
+<title>OmniDesk</title>
 <style>
 body{background:#080F1E;color:#F1F7FF;font-family:system-ui,sans-serif;margin:0;padding:32px;display:flex;flex-direction:column;gap:18px;max-width:520px}
 h1{font-size:22px;margin:0}p{color:#A2B4CF;line-height:1.5;margin:0}
@@ -70,11 +70,11 @@ a{display:block;text-align:center;background:#168BFF;color:#fff;text-decoration:
 code{color:#38D9FF;word-break:break-all}
 small{color:#7E93B3}
 </style>
-<h1>Nimay OMP Mobile</h1>
+<h1>OmniDesk</h1>
 <p>Skann QR-koden med telefonen for a laste ned Android-appen (${size} MB) direkte fra denne PC-en.</p>
 <div class="qr">${qrSvg(url)}</div>
 <p>Adresse: <code>${url}</code></p>
-<a href="/apk/OmpChat.apk" download>Last ned OmpChat.apk</a>
+<a href="/apk/OmniDesk.apk" download>Last ned OmniDesk.apk</a>
 <p><small>Telefonen ma vaere pa samme nettverk (LAN eller Tailscale). Etter nedlasting: apne filen og tillat installasjon fra denne kilden.</small></p>`;
 }
 
@@ -85,7 +85,7 @@ const server = http.createServer((request, response) => {
     response.end(JSON.stringify({ ok: true, apk: fs.existsSync(apk), bytes: fs.existsSync(apk) ? fs.statSync(apk).size : 0 }));
     return;
   }
-  if (url.pathname === "/apk/OmpChat.apk") {
+  if (url.pathname === "/apk/OmniDesk.apk") {
     if (!fs.existsSync(apk)) {
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       response.end("APK mangler. Kjor installasjonen pa nytt.");
@@ -95,7 +95,7 @@ const server = http.createServer((request, response) => {
     const headers = {
       "content-type": "application/vnd.android.package-archive",
       "content-length": stat.size,
-      "content-disposition": 'attachment; filename="OmpChat.apk"',
+      "content-disposition": 'attachment; filename="OmniDesk.apk"',
       "cache-control": "no-store",
     };
     if (request.method === "HEAD") {
@@ -123,7 +123,7 @@ server.listen(port, "0.0.0.0", () => {
   } catch (error) {
     console.error("pid file failed:", error.message, "HERE:", HERE);
   }
-  console.log(`APK server: http://${host}:${port}/apk/OmpChat.apk`);
+  console.log(`APK server: http://${host}:${port}/apk/OmniDesk.apk`);
   console.log(`APK exists: ${fs.existsSync(apk)}`);
 });
 

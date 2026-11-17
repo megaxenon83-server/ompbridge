@@ -54,7 +54,7 @@ object CrashReporter {
     private fun write(context: Context, thread: Thread, error: Throwable) {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val report = buildString {
-            appendLine("OmpChat ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            appendLine("OmniDesk ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             appendLine("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
             appendLine("ABI: ${Build.SUPPORTED_ABIS.joinToString()}")

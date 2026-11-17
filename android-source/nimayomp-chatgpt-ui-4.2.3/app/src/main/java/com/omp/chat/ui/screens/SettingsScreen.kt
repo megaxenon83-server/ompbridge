@@ -1,5 +1,6 @@
 ﻿package com.omp.chat.ui.screens
 
+import com.omp.chat.ui.LocalStrings
 import com.omp.chat.ui.theme.VariantColors;
 
 import androidx.compose.foundation.background
@@ -277,10 +278,16 @@ fun SettingsScreen(
             }
 
             // ----------------------------------------------------------- WoL-tjeneste
-            SectionLabel("Wake-on-LAN-tjeneste", Modifier.padding(top = 10.dp))
+            SectionLabel(
+                if (strings.lang == "en") "Wake-on-LAN service" else "Wake-on-LAN-tjeneste",
+                Modifier.padding(top = 10.dp)
+            )
             SettingsCard {
                 Text(
-                    "Global adresse til WOL-tjenesten (brukes som fallback hvis PC-profilen ikke har egen adresse).",
+                    if (strings.lang == "en")
+                        "Global address of the Wake-on-LAN service (used as fallback when a PC profile has no address of its own)."
+                    else
+                        "Global adresse til WOL-tjenesten (brukes som fallback hvis PC-profilen ikke har egen adresse).",
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -288,7 +295,7 @@ fun SettingsScreen(
                 OutlinedTextField(
                     value = settings.wolServiceUrl,
                     onValueChange = onWolServiceUrl,
-                    label = { Text("WOL-tjeneste URL") },
+                    label = { Text(if (strings.lang == "en") "WOL service URL" else "WOL-tjeneste URL") },
                     placeholder = { Text("http://192.168.50.222:8790") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -767,10 +774,14 @@ private fun legacyApprovalMode(mode: String): String = when (mode) {
 }
 
 /** Visningsnavn ("Alltid spør"/"Spør ved …"/"Tillat alt") i stedet for rå modusverdi. */
-private fun approvalModeLabel(mode: String): String = when (legacyApprovalMode(mode)) {
-    "write" -> "Spør ved sletting/store endringer"
-    "yolo" -> "Tillat alt"
-    else -> "Alltid spør"
+@Composable
+private fun approvalModeLabel(mode: String): String {
+    val english = LocalStrings.current.lang == "en"
+    return when (legacyApprovalMode(mode)) {
+        "write" -> if (english) "Ask on deletes/major changes" else "Spør ved sletting/store endringer"
+        "yolo" -> if (english) "Allow all" else "Tillat alt"
+        else -> if (english) "Always ask" else "Alltid spør"
+    }
 }
 
 @Composable

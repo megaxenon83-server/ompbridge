@@ -35,4 +35,4 @@ foreach ($entry in $pidFiles) {
     Remove-Item $entry.File -Force -ErrorAction SilentlyContinue
 }
 
-if ($stopped -eq 0) { Write-Host "Ingen kjorende Nimay OMP-tjenester for denne installasjonen." }
+if ($stopped -eq 0) { Write-Host "Ingen kjørende OmniDesk-tjenester for denne installasjonen." }

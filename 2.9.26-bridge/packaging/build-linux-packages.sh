@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Builds the Nimay OMP Bridge Linux artifacts:
-#   - ompbridge-linux-x86_64.tar.gz (+ .sha256)
-#   - nimay-ompbridge_<version>_amd64.deb
-#   - nimay-ompbridge-<version>-1.x86_64.rpm
+# Builds the OmniDesk Bridge Linux artifacts:
+#   - omnidesk-bridge-linux-x86_64.tar.gz (+ .sha256)
+#   - omnidesk-bridge_<version>_amd64.deb
+#   - omnidesk-bridge-<version>-1.x86_64.rpm
 #
 # Usage: build-linux-packages.sh [version] [output-dir]
 
 set -euo pipefail
 
-VERSION="${1:-2.9.27}"
+VERSION="${1:-2.9.28}"
 OUT_DIR="${2:-dist}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"
@@ -36,7 +36,7 @@ fi
 rm -f "${PAYLOAD}/bridge/config.json"
 
 # --------------------------------------------------------------- tarball ---
-TARBALL_NAME="ompbridge-linux-x86_64.tar.gz"
+TARBALL_NAME="omnidesk-bridge-linux-x86_64.tar.gz"
 log "Creating ${TARBALL_NAME}"
 tar -czf "${OUT_DIR}/${TARBALL_NAME}" -C "${PAYLOAD}" .
 (cd "${OUT_DIR}" && sha256sum "${TARBALL_NAME}" > "${TARBALL_NAME}.sha256")
@@ -44,45 +44,47 @@ tar -czf "${OUT_DIR}/${TARBALL_NAME}" -C "${PAYLOAD}" .
 # ------------------------------------------------------------------- .deb ---
 DEB_ROOT="${WORK}/deb"
 mkdir -p "${DEB_ROOT}/DEBIAN" \
-         "${DEB_ROOT}/usr/local/share/nimay/ompbridge" \
+         "${DEB_ROOT}/usr/local/share/omnidesk/bridge" \
          "${DEB_ROOT}/usr/local/bin" \
          "${DEB_ROOT}/usr/share/applications"
-cp -r "${PAYLOAD}"/* "${DEB_ROOT}/usr/local/share/nimay/ompbridge/"
+cp -r "${PAYLOAD}"/* "${DEB_ROOT}/usr/local/share/omnidesk/bridge/"
 
-cat > "${DEB_ROOT}/usr/local/bin/nimay-ompbridge-install" << WRAPPER
+cat > "${DEB_ROOT}/usr/local/bin/omnidesk-bridge-install" << WRAPPER
 #!/bin/sh
-exec /usr/local/share/nimay/ompbridge/install.sh --local "\$@"
+exec /usr/local/share/omnidesk/bridge/install.sh --local "\$@"
 WRAPPER
-chmod 755 "${DEB_ROOT}/usr/local/bin/nimay-ompbridge-install"
+chmod 755 "${DEB_ROOT}/usr/local/bin/omnidesk-bridge-install"
 
-cat > "${DEB_ROOT}/usr/share/applications/nimay-ompbridge.desktop" << DESKTOP
+cat > "${DEB_ROOT}/usr/share/applications/omnidesk-bridge.desktop" << DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Nimay OMP Bridge
-Comment=Bridge between OMP on PC and OmpChat on Android
-Exec=nimay-ompbridge-install --local
+Name=OmniDesk Bridge
+Comment=Bridge between OMP on your PC and OmniDesk on Android
+Exec=omnidesk-bridge-install --local
 Icon=network-transmit-receive
 Terminal=true
 Categories=Network;Development;
 DESKTOP
 
 cat > "${DEB_ROOT}/DEBIAN/control" << CONTROL
-Package: nimay-ompbridge
+Package: omnidesk-bridge
 Version: ${VERSION}
 Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: Nimay <nimay@example.com>
-Description: Bridge between OMP on PC and OmpChat on Android
- OMP bridge with provider synchronisation and Android pairing.
+Description: Bridge between OMP on your PC and OmniDesk on Android
+ OmniDesk bridge with provider synchronisation and Android pairing.
 Homepage: https://github.com/megaxenon83-server/ompbridge
+Conflicts: nimay-ompbridge
+Replaces: nimay-ompbridge
 CONTROL
 
 cat > "${DEB_ROOT}/DEBIAN/postinst" << POSTINST
 #!/bin/sh
 set -e
-echo "Nimay OMP Bridge ${VERSION} installed."
-echo "Run 'nimay-ompbridge-install --local' as your user to set up the service."
+echo "OmniDesk Bridge ${VERSION} installed."
+echo "Run 'omnidesk-bridge-install --local' as your user to set up the service."
 exit 0
 POSTINST
 chmod 755 "${DEB_ROOT}/DEBIAN/postinst"
@@ -96,7 +98,7 @@ chmod 755 "${DEB_ROOT}/DEBIAN/prerm"
 
 if command -v dpkg-deb >/dev/null 2>&1; then
     log "Building .deb"
-    dpkg-deb --build --root-owner-group "${DEB_ROOT}" "${OUT_DIR}/nimay-ompbridge_${VERSION}_amd64.deb"
+    dpkg-deb --build --root-owner-group "${DEB_ROOT}" "${OUT_DIR}/omnidesk-bridge_${VERSION}_amd64.deb"
 else
     log "WARNING: dpkg-deb not available, skipping .deb"
 fi
@@ -106,44 +108,45 @@ if command -v rpmbuild >/dev/null 2>&1; then
     log "Building .rpm"
     RPM_TOP="${WORK}/rpmbuild"
     mkdir -p "${RPM_TOP}"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-    cp "${OUT_DIR}/${TARBALL_NAME}" "${RPM_TOP}/SOURCES/nimay-ompbridge-${VERSION}.tar.gz"
+    cp "${OUT_DIR}/${TARBALL_NAME}" "${RPM_TOP}/SOURCES/omnidesk-bridge-${VERSION}.tar.gz"
 
-    cat > "${WORK}/nimay-ompbridge.spec" << SPEC
-Name: nimay-ompbridge
+    cat > "${WORK}/omnidesk-bridge.spec" << SPEC
+Name: omnidesk-bridge
 Version: ${VERSION}
 Release: 1%{?dist}
-Summary: Bridge between OMP on PC and OmpChat on Android
+Summary: Bridge between OMP on your PC and OmniDesk on Android
 License: MIT
 URL: https://github.com/megaxenon83-server/ompbridge
 BuildArch: x86_64
 Requires: nodejs
-Source0: nimay-ompbridge-${VERSION}.tar.gz
+Obsoletes: nimay-ompbridge
+Source0: omnidesk-bridge-${VERSION}.tar.gz
 
 %description
-Bridge between OMP on PC and OmpChat on Android, including provider
+Bridge between OMP on your PC and OmniDesk on Android, including provider
 synchronisation and Android pairing.
 
 %install
 rm -rf %{buildroot}
-mkdir -p %{buildroot}%{_prefix}/share/nimay/ompbridge
-tar -xzf %{SOURCE0} -C %{buildroot}%{_prefix}/share/nimay/ompbridge
+mkdir -p %{buildroot}%{_prefix}/share/omnidesk/bridge
+tar -xzf %{SOURCE0} -C %{buildroot}%{_prefix}/share/omnidesk/bridge
 mkdir -p %{buildroot}%{_prefix}/bin
-cat > %{buildroot}%{_prefix}/bin/nimay-ompbridge-install << 'WRAPPER'
+cat > %{buildroot}%{_prefix}/bin/omnidesk-bridge-install << 'WRAPPER'
 #!/bin/sh
-exec %{_prefix}/share/nimay/ompbridge/install.sh --local "\$@"
+exec %{_prefix}/share/omnidesk/bridge/install.sh --local "\$@"
 WRAPPER
-chmod 755 %{buildroot}%{_prefix}/bin/nimay-ompbridge-install
+chmod 755 %{buildroot}%{_prefix}/bin/omnidesk-bridge-install
 
 %files
-%{_prefix}/bin/nimay-ompbridge-install
-%{_prefix}/share/nimay/ompbridge
+%{_prefix}/bin/omnidesk-bridge-install
+%{_prefix}/share/omnidesk/bridge
 
 %changelog
 * Tue Nov 17 2026 Nimay <nimay@example.com> - ${VERSION}-1
 - Release ${VERSION}
 SPEC
 
-    rpmbuild --define "_topdir ${RPM_TOP}" -bb "${WORK}/nimay-ompbridge.spec"
+    rpmbuild --define "_topdir ${RPM_TOP}" -bb "${WORK}/omnidesk-bridge.spec"
     find "${RPM_TOP}/RPMS" -name '*.rpm' -exec cp {} "${OUT_DIR}/" \;
 else
     log "WARNING: rpmbuild not available, skipping .rpm"

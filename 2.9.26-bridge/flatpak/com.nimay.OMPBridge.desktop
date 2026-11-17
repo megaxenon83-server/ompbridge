@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Nimay OMP Bridge
-Comment=Bridge between OMP on PC and OmpChat on Android
-Exec=nimay-ompbridge
-Icon=network-transmit-receive
-Terminal=true
-Categories=Network;Development;

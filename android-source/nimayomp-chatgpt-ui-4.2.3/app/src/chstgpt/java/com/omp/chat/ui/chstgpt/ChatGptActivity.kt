@@ -197,9 +197,15 @@ class ChatGptActivity : ComponentActivity() {
     }
 
     private fun launchScanner() {
+        val english = viewModel.settings.state.value.language == "en"
         val options = ScanOptions().apply {
             setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            setPrompt(getString(com.omp.chat.R.string.scan_prompt))
+            setPrompt(
+                getString(
+                    if (english) com.omp.chat.R.string.scan_prompt_en
+                    else com.omp.chat.R.string.scan_prompt
+                )
+            )
             setBeepEnabled(false)
             setOrientationLocked(false)
         }
