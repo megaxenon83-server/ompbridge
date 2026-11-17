@@ -1,32 +1,31 @@
-﻿app-id: com.Nimay OMP Chat.bridge
+﻿app-id: com.nimay.OMPChat
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.node20
-command: Nimay OMP Chat-bridge
+command: nimay-omp-chat-bridge
 finish-args:
   - --share=network
   - --filesystem=host
   - --talk-name=org.freedesktop.Flatpak
 modules:
-  - name: Nimay OMP Chat-bridge
+  - name: nimay-omp-chat-bridge
     buildsystem: simple
     build-commands:
       - |
-        if [ -d Nimay OMP Chat-bridge ]; then
-          mv Nimay OMP Chat-bridge/* . 2>/dev/null || true
-          rmdir Nimay OMP Chat-bridge 2>/dev/null || true
+        if [ -d nimay-omp-chat-bridge ]; then
+          mv nimay-omp-chat-bridge/* . 2>/dev/null || true
+          rmdir nimay-omp-chat-bridge 2>/dev/null || true
         fi
-      - mkdir -p /app/share/Nimay OMP Chat/bridge /app/bin /app/share/applications
-      - cp -r bridge tools commands /app/share/Nimay OMP Chat/bridge/
-      - install -m 755 install.sh /app/share/Nimay OMP Chat/bridge/install.sh
-      - install -m 755 flatpak/Nimay OMP Chat-bridge.sh /app/bin/Nimay OMP Chat-bridge
-      - install -m 644 flatpak/com.Nimay OMP Chat.bridge.desktop /app/share/applications/com.Nimay OMP Chat.bridge.desktop
+      - mkdir -p /app/share/nimay/omp-chat-bridge /app/bin /app/share/applications
+      - cp -r bridge tools commands /app/share/nimay/omp-chat-bridge/
+      - install -m 755 install.sh /app/share/nimay/omp-chat-bridge/install.sh
+      - install -m 755 flatpak/nimay-omp-chat-bridge.sh /app/bin/nimay-omp-chat-bridge
+      - install -m 644 flatpak/com.nimay.OMPChat.desktop /app/share/applications/com.nimay.OMPChat.desktop
     sources:
       - type: dir
         path: ..
         skip:
           - build-installer
           - '*.bak*'
-

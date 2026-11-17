@@ -11,15 +11,15 @@ if [ -n "$REAL_HOME" ]; then
     export HOME="$REAL_HOME"
 fi
 
-APP_ID="com.Nimay OMP Chat.bridge"
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/Nimay OMP Chat-bridge"
+APP_ID="com.nimay.OMPChat"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nimay-omp-chat-bridge"
 mkdir -p "$DATA_DIR"
 
 if [ ! -f "$DATA_DIR/bridge/omp-bridge.mjs" ]; then
-    cp -r /app/share/Nimay OMP Chat/bridge/bridge "$DATA_DIR/bridge"
-    cp -r /app/share/Nimay OMP Chat/bridge/tools "$DATA_DIR/tools" 2>/dev/null || true
-    cp -r /app/share/Nimay OMP Chat/bridge/commands "$DATA_DIR/commands" 2>/dev/null || true
-    cp /app/share/Nimay OMP Chat/bridge/install.sh "$DATA_DIR/install.sh" 2>/dev/null || true
+    cp -r /app/share/nimay/omp-chat-bridge/bridge "$DATA_DIR/bridge"
+    cp -r /app/share/nimay/omp-chat-bridge/tools "$DATA_DIR/tools" 2>/dev/null || true
+    cp -r /app/share/nimay/omp-chat-bridge/commands "$DATA_DIR/commands" 2>/dev/null || true
+    cp /app/share/nimay/omp-chat-bridge/install.sh "$DATA_DIR/install.sh" 2>/dev/null || true
 fi
 
 # Install the OMP slash commands and the state file, exactly like the deb/rpm
@@ -41,10 +41,10 @@ fi
 
 # Write a systemd user unit so the bridge can start at login. The unit can
 # only be enabled from the host:
-#   systemctl --user enable --now Nimay OMP Chat-bridge
+#   systemctl --user enable --now nimay-omp-chat-bridge
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 if mkdir -p "$SYSTEMD_DIR" 2>/dev/null; then
-    cat > "$SYSTEMD_DIR/Nimay OMP Chat-bridge.service" << EOF
+    cat > "$SYSTEMD_DIR/nimay-omp-chat-bridge.service" << EOF
 [Unit]
 Description=Nimay OMP Chat Bridge
 After=network-online.target
@@ -63,4 +63,3 @@ EOF
 fi
 
 exec node "$DATA_DIR/bridge/omp-bridge.mjs" "$@"
-
