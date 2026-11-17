@@ -12,7 +12,6 @@ on:
         type: string
 
 env:
-  BRIDGE_VERSION: ${{ github.event.inputs.version || '2.9.28' }}
   ANDROID_VERSION: 4.2.6
   REPO: megaxenon83-server/ompbridge
   ANDROID_PROJECT: android-source/nimayomp-chatgpt-ui-4.2.3
@@ -35,8 +34,15 @@ jobs:
       - name: Set versions
         id: version
         run: |
+          # Extract version from tag (e.g. refs/tags/v2.9.29 -> 2.9.29)
+          # or use the workflow_dispatch input if provided
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            BRIDGE_VER="${{ github.event.inputs.version }}"
+          else
+            BRIDGE_VER="${GITHUB_REF_NAME#v}"
+          fi
+          echo "bridge_version=${BRIDGE_VER}" >> "$GITHUB_OUTPUT"
           echo "android_version=${ANDROID_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "bridge_version=${BRIDGE_VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -135,7 +141,14 @@ jobs:
       - name: Set versions
         id: version
         run: |
-          echo "bridge_version=${BRIDGE_VERSION#v}" >> "$GITHUB_OUTPUT"
+          # Extract version from tag (e.g. refs/tags/v2.9.29 -> 2.9.29)
+          # or use the workflow_dispatch input if provided
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            BRIDGE_VER="${{ github.event.inputs.version }}"
+          else
+            BRIDGE_VER="${GITHUB_REF_NAME#v}"
+          fi
+          echo "bridge_version=${BRIDGE_VER}" >> "$GITHUB_OUTPUT"
 
       - name: Install build dependencies
         run: |
@@ -162,11 +175,11 @@ jobs:
 
       - name: Build tarball, .deb and .rpm
         run: |
-          bash 2.9.26-bridge/packaging/build-linux-packages.sh "${BRIDGE_VERSION#v}" dist
+          bash 2.9.26-bridge/packaging/build-linux-packages.sh "${{ steps.version.outputs.bridge_version }}" dist
 
       - name: Build Flatpak bundle
         run: |
-          bash 2.9.26-bridge/packaging/build-flatpak.sh "${BRIDGE_VERSION#v}" dist
+          bash 2.9.26-bridge/packaging/build-flatpak.sh "${{ steps.version.outputs.bridge_version }}" dist
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4

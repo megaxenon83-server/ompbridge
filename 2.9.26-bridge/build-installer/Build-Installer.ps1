@@ -15,7 +15,7 @@
     Where the .exe is copied (default: repository root / dist).
 #>
 param(
-    [string]$Version = "2.9.28",
+    [string]$Version = "2.9.29",
     [string]$OutputDir = ""
 )
 
@@ -43,8 +43,8 @@ Copy-Item -Force (Join-Path $root "bridge\config.template.json") (Join-Path $pay
 Copy-Item -Recurse -Force (Join-Path $root "tools\*") (Join-Path $payload "tools")
 Copy-Item -Recurse -Force (Join-Path $root "commands\*") (Join-Path $payload "commands")
 
-$issSource = Join-Path $scriptDir "Nimay OMP Chat-Bridge-Setup.iss"
-$issTarget = Join-Path $stage "Nimay OMP Chat-Bridge-Setup.iss"
+$issSource = Join-Path $scriptDir "Nimay-OMP-Chat-Bridge-Setup.iss"
+$issTarget = Join-Path $stage "Nimay-OMP-Chat-Bridge-Setup.iss"
 $iss = Get-Content -Raw $issSource
 $iss = $iss -replace '(?m)^#define MyAppVersion\s+"[^"]*"', "#define MyAppVersion `"$Version`""
 Set-Content -Path $issTarget -Value $iss -Encoding UTF8
@@ -67,16 +67,16 @@ if (-not $iscc) {
 Write-Host "[build-installer] Compiling with $iscc"
 Push-Location $stage
 try {
-    & $iscc "Nimay OMP Chat-Bridge-Setup.iss"
+    & $iscc "Nimay-OMP-Chat-Bridge-Setup.iss"
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 } finally {
     Pop-Location
 }
 
-$built = Join-Path $stage "dist\Nimay OMP Chat-Bridge-Setup-$Version.exe"
+$built = Join-Path $stage "dist\Nimay-OMP-Chat-Bridge-Setup-$Version.exe"
 if (-not (Test-Path $built)) { throw "Installer not found at $built" }
 
-$target = Join-Path $OutputDir "Nimay OMP Chat-Bridge-Setup-$Version.exe"
+$target = Join-Path $OutputDir "Nimay-OMP-Chat-Bridge-Setup-$Version.exe"
 Copy-Item -Force $built $target
 Write-Host "[build-installer] Created $target"
 
