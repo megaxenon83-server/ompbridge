@@ -48,6 +48,8 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: latest
+          packages: platform-tools
+          accept-android-sdk-licenses: true
 
       - name: Install Android SDK packages
         run: |
@@ -149,10 +151,11 @@ jobs:
 
       - name: Install Flatpak runtime and SDK
         run: |
-          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --noninteractive flathub org.freedesktop.Platform//24.08
-          flatpak install --noninteractive flathub org.freedesktop.Sdk//24.08
-          flatpak install --noninteractive flathub org.freedesktop.Sdk.Extension.node20//24.08
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --noninteractive flathub org.freedesktop.Platform//24.08
+          sudo flatpak install --noninteractive flathub org.freedesktop.Sdk//24.08
+          sudo flatpak install --noninteractive flathub org.freedesktop.Sdk.Extension.node20//24.08
+          flatpak list
 
       - name: Build tarball, .deb and .rpm
         run: |

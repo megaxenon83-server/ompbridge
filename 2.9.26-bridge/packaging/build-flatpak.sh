@@ -18,7 +18,7 @@ fi
 
 echo "[build-flatpak] Building ${APP_ID} ${VERSION}"
 cd "${ROOT}/flatpak"
-flatpak-builder --force-clean --repo=flatpak-repo flatpak-build com.nimay.OMPBridge.yml
+flatpak-builder --force-clean --disable-rofiles-fuse --repo=flatpak-repo flatpak-build com.nimay.OMPBridge.yml
 
 echo "[build-flatpak] Creating bundle"
 flatpak build-bundle flatpak-repo "${OUT_DIR}/${APP_ID}-${VERSION}.flatpak" "${APP_ID}"
