@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Nimay OMP Bridge - Universal Linux Installer
+# Nimay OMP Bridge - Linux installer
+# Supports:
+#   install.sh              download the release tarball and install it
+#   install.sh --local      install the files that sit next to this script
+#   install.sh uninstall    remove the user installation
 # Version: 2.9.27
 
 set -euo pipefail
@@ -15,12 +19,18 @@ log_ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-VERSION="2.9.27"
-REPO="nimay/ompbridge"
+# Note: /etc/os-release also defines VERSION, so the bridge version uses its
+# own variable name to avoid being overwritten by detect_os().
+BRIDGE_VERSION="2.9.27"
+REPO="megaxenon83-server/ompbridge"
 INSTALL_DIR="${HOME}/.local/share/nimay/ompbridge"
-CONFIG_DIR="${HOME}/.config/nimay/ompbridge"
+BRIDGE_DIR="${INSTALL_DIR}/bridge"
+CONFIG_FILE="${BRIDGE_DIR}/config.json"
 SERVICE_NAME="nimay-ompbridge"
-DOWNLOAD_BASE="https://github.com/${REPO}/releases/download/v${VERSION}"
+PORT="${OMPCHAT_BRIDGE_PORT:-7777}"
+DOWNLOAD_BASE="https://github.com/${REPO}/releases/download/v${BRIDGE_VERSION}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODE="download"
 
 detect_os() {
     if [[ -f /etc/os-release ]]; then
@@ -46,14 +56,29 @@ detect_os() {
 
 check_deps() {
     local missing=()
-    for cmd in curl tar systemctl loginctl; do
+    for cmd in systemctl loginctl node; do
         if ! command -v "${cmd}" >/dev/null 2>&1; then
             missing+=("${cmd}")
         fi
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing dependencies: ${missing[*]}"
+        log_error "Install them first, for example: sudo apt-get install nodejs"
         exit 1
+    fi
+    if [[ "${MODE}" == "download" ]]; then
+        for cmd in curl tar sha256sum; do
+            if ! command -v "${cmd}" >/dev/null 2>&1; then
+                missing+=("${cmd}")
+            fi
+        done
+        if [[ ${#missing[@]} -gt 0 ]]; then
+            log_error "Missing dependencies: ${missing[*]}"
+            exit 1
+        fi
+    fi
+    if ! command -v omp >/dev/null 2>&1 && [[ -z "${OMP_BIN:-}" ]]; then
+        log_warn "OMP CLI not found in PATH. Install OMP before using sessions (/ompserver)."
     fi
 }
 
@@ -93,32 +118,63 @@ download_bridge() {
     fi
     log_info "Extracting..."
     tar -xzf "${dest}" -C "${INSTALL_DIR}"
-    rm "${dest}"
+    rm -f "${dest}"
     log_ok "Extracted to ${INSTALL_DIR}"
 }
 
+install_local_bridge() {
+    if [[ ! -f "${SCRIPT_DIR}/bridge/omp-bridge.mjs" ]]; then
+        log_error "No local payload found next to this script (${SCRIPT_DIR}/bridge/omp-bridge.mjs)"
+        exit 1
+    fi
+    log_info "Installing local payload from ${SCRIPT_DIR}"
+    mkdir -p "${BRIDGE_DIR}"
+    cp -f "${SCRIPT_DIR}/bridge/omp-bridge.mjs" "${BRIDGE_DIR}/omp-bridge.mjs"
+    if [[ -d "${SCRIPT_DIR}/tools" ]]; then
+        rm -rf "${INSTALL_DIR}/tools"
+        cp -r "${SCRIPT_DIR}/tools" "${INSTALL_DIR}/tools"
+    fi
+    if [[ -d "${SCRIPT_DIR}/commands" ]]; then
+        rm -rf "${INSTALL_DIR}/commands"
+        cp -r "${SCRIPT_DIR}/commands" "${INSTALL_DIR}/commands"
+    fi
+    if [[ -f "${SCRIPT_DIR}/flatpak/com.nimay.OMPBridge.yml" ]]; then
+        mkdir -p "${INSTALL_DIR}/flatpak"
+        cp -f "${SCRIPT_DIR}/flatpak/com.nimay.OMPBridge.yml" "${INSTALL_DIR}/flatpak/com.nimay.OMPBridge.yml"
+    fi
+    log_ok "Local payload installed"
+}
+
 setup_config() {
-    mkdir -p "${CONFIG_DIR}"
-    local config_file="${CONFIG_DIR}/config.json"
-    if [[ ! -f "${config_file}" ]]; then
-        local token
-        token=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 64)
-        cat > "${config_file}" << CONFIG_EOF
+    mkdir -p "${BRIDGE_DIR}"
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        log_info "Keeping existing bridge config at ${CONFIG_FILE}"
+        return
+    fi
+    local token
+    token=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 64)
+    cat > "${CONFIG_FILE}" << CONFIG_EOF
 {
-    "port": 7777,
-    "host": "0.0.0.0",
-    "token": "${token}",
-    "approvalMode": "always-ask",
-    "allowBash": true,
-    "projectRoots": [],
-    "maxChildren": 4,
-    "idleMinutes": 90
+  "port": ${PORT},
+  "host": "0.0.0.0",
+  "token": "${token}",
+  "approvalMode": "always-ask",
+  "allowBash": true,
+  "projectRoots": [],
+  "maxChildren": 4,
+  "idleMinutes": 90
 }
 CONFIG_EOF
-        log_ok "Generated config with new token at ${config_file}"
-    else
-        log_info "Using existing config at ${config_file}"
+    chmod 600 "${CONFIG_FILE}"
+    log_ok "Generated config with new token at ${CONFIG_FILE}"
+}
+
+read_token() {
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        echo ""
+        return
     fi
+    node -e "try{const c=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8').replace(/^\uFEFF/,''));process.stdout.write(String(c.token||''))}catch(e){process.stdout.write('')}" "${CONFIG_FILE}"
 }
 
 setup_systemd() {
@@ -133,15 +189,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${INSTALL_DIR}/omp-bridge.mjs
-WorkingDirectory=${INSTALL_DIR}
+ExecStart=/usr/bin/env node ${BRIDGE_DIR}/omp-bridge.mjs
+WorkingDirectory=${BRIDGE_DIR}
 Restart=on-failure
 RestartSec=5
-Environment=OMPCHAT_BRIDGE_PORT=7777
+Environment=OMPCHAT_BRIDGE_PORT=${PORT}
 Environment=HOME=%h
 Environment=USERPROFILE=%h
-StandardOutput=append:${INSTALL_DIR}/bridge.stdout.log
-StandardError=append:${INSTALL_DIR}/bridge.stderr.log
+StandardOutput=append:${BRIDGE_DIR}/bridge.stdout.log
+StandardError=append:${BRIDGE_DIR}/bridge.stderr.log
 
 [Install]
 WantedBy=default.target
@@ -161,17 +217,16 @@ SERVICE_EOF
 start_service() {
     log_info "Starting bridge..."
     systemctl --user start "${SERVICE_NAME}.service"
-    sleep 3
     local token
-    token=$(grep -o '"token"' | sed 's/.*"\([^"]*\)".*/\1/')
-    for i in {1..10}; do
-        if curl -fsS -H "Authorization: Bearer ${token}" "http://127.0.0.1:7777/api/health" >/dev/null 2>&1; then
+    token="$(read_token)"
+    for _ in $(seq 1 15); do
+        if curl -fsS -H "Authorization: Bearer ${token}" "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
             log_ok "Bridge is running and healthy!"
             return 0
         fi
         sleep 1
     done
-    log_error "Bridge failed to start. Check logs: ${INSTALL_DIR}/bridge.stderr.log"
+    log_error "Bridge failed to start. Check logs: ${BRIDGE_DIR}/bridge.stderr.log"
     return 1
 }
 
@@ -189,7 +244,7 @@ install_omp_commands() {
     cat > "${state_file}" << STATE_EOF
 {
   "projectRoot": "${INSTALL_DIR}",
-  "bridge": "${INSTALL_DIR}/omp-bridge.mjs"
+  "bridge": "${BRIDGE_DIR}/omp-bridge.mjs"
 }
 STATE_EOF
     log_ok "Wrote OMP state file"
@@ -197,14 +252,14 @@ STATE_EOF
 
 print_summary() {
     local token
-    token=$(grep -o '"token"' | sed 's/.*"\([^"]*\)".*/\1/')
+    token="$(read_token)"
     echo
     echo "=========================================="
-    echo "  Nimay OMP Bridge v${VERSION} installed!"
+    echo "  Nimay OMP Bridge v${BRIDGE_VERSION} installed!"
     echo "=========================================="
     echo "Install dir: ${INSTALL_DIR}"
-    echo "Config dir:  ${CONFIG_DIR}"
-    echo "Port:        7777"
+    echo "Config file: ${CONFIG_FILE}"
+    echo "Port:        ${PORT}"
     echo "Token:       ${token}"
     echo
     echo "Service:     ${SERVICE_NAME} (systemd --user)"
@@ -217,7 +272,7 @@ print_summary() {
     echo "  Stop:      systemctl --user stop ${SERVICE_NAME}"
     echo
     echo "QR pairing:  Run 'omp' then '/ompqr' in terminal"
-    echo "Bridge API:  http://localhost:7777/api/health"
+    echo "Bridge API:  http://localhost:${PORT}/api/health"
     echo "=========================================="
 }
 
@@ -226,9 +281,8 @@ uninstall() {
     systemctl --user stop "${SERVICE_NAME}.service" 2>/dev/null || true
     systemctl --user disable "${SERVICE_NAME}.service" 2>/dev/null || true
     rm -f "${HOME}/.config/systemd/user/${SERVICE_NAME}.service"
-    systemctl --user daemon-reload
+    systemctl --user daemon-reload 2>/dev/null || true
     rm -rf "${INSTALL_DIR}"
-    rm -rf "${CONFIG_DIR}"
     rm -rf "${HOME}/.omp/agent/commands/ompserver" "${HOME}/.omp/agent/commands/ompqr" "${HOME}/.omp/agent/commands/ompchat-shared" 2>/dev/null || true
     rm -f "${HOME}/.omp/agent/ompchat-commands.json"
     loginctl disable-linger "$(whoami)" 2>/dev/null || true
@@ -236,13 +290,26 @@ uninstall() {
 }
 
 main() {
-    case "${1:-install}" in
+    local action="install"
+    for arg in "$@"; do
+        case "${arg}" in
+            --local) MODE="local" ;;
+            install|uninstall|help) action="${arg}" ;;
+            *) log_error "Unknown argument: ${arg}"; exit 1 ;;
+        esac
+    done
+
+    case "${action}" in
         install)
-            log_info "Starting Nimay OMP Bridge v${VERSION} installation..."
+            log_info "Starting Nimay OMP Bridge v${BRIDGE_VERSION} installation..."
             detect_os
             check_deps
             detect_arch
-            download_bridge
+            if [[ "${MODE}" == "local" ]]; then
+                install_local_bridge
+            else
+                download_bridge
+            fi
             setup_config
             setup_systemd
             install_omp_commands
@@ -252,9 +319,8 @@ main() {
         uninstall)
             uninstall
             ;;
-        *)
-            echo "Usage: $0 [install|uninstall]"
-            exit 1
+        help)
+            echo "Usage: $0 [install [--local] | uninstall | help]"
             ;;
     esac
 }

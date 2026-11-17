@@ -1,0 +1,31 @@
+app-id: com.nimay.OMPBridge
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node20
+command: nimay-ompbridge
+finish-args:
+  - --share=network
+  - --filesystem=host
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: nimay-ompbridge
+    buildsystem: simple
+    build-commands:
+      - |
+        if [ -d nimay-ompbridge ]; then
+          mv nimay-ompbridge/* . 2>/dev/null || true
+          rmdir nimay-ompbridge 2>/dev/null || true
+        fi
+      - mkdir -p /app/share/nimay/ompbridge /app/bin /app/share/applications
+      - cp -r bridge tools commands /app/share/nimay/ompbridge/
+      - install -m 755 install.sh /app/share/nimay/ompbridge/install.sh
+      - install -m 755 flatpak/nimay-ompbridge.sh /app/bin/nimay-ompbridge
+      - install -m 644 flatpak/com.nimay.OMPBridge.desktop /app/share/applications/com.nimay.OMPBridge.desktop
+    sources:
+      - type: dir
+        path: ..
+        skip:
+          - build-installer
+          - '*.bak*'

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Terminal</title>
+<link rel="stylesheet" href="xterm.css">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0a0f1e; }
+  #terminal { width: 100%; height: 100%; }
+  .xterm { padding: 4px; }
+</style>
+</head>
+<body>
+<div id="terminal"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+(function() {
+  var term = null;
+  var fitAddon = null;
+  var pending = window.__ompPending || [];
+  window.__ompPending = [];
+
+  function init() {
+    if (typeof Terminal === 'undefined') {
+      if (window.android && window.android.error) window.android.error('xterm.js not loaded');
+      return;
+    }
+    term = new Terminal({
+      cursorBlink: true,
+      fontSize: 13,
+      fontFamily: 'monospace',
+      theme: { background: '#0a0f1e', foreground: '#e0e0e0' },
+      scrollback: 10000,
+      allowProposedApi: true
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    term.onData(function(data) {
+      if (window.android && window.android.input) window.android.input(data);
+    });
+
+    term.onResize(function(size) {
+      if (window.android && window.android.resize) window.android.resize(size.cols, size.rows);
+    });
+
+    // Handle pending messages
+    pending.forEach(function(msg) { handleReceive(msg); });
+    pending = [];
+    window.__ompPending = [];
+
+    if (window.android && window.android.ready) window.android.ready();
+    if (window.android && window.android.log) window.android.log('terminal ready');
+  }
+
+  function handleReceive(jsonStr) {
+    try {
+      var msg = (typeof jsonStr === 'string') ? JSON.parse(jsonStr) : jsonStr;
+      if (!term) {
+        (window.__ompPending = window.__ompPending || []).push(jsonStr);
+        return;
+      }
+      if (msg.type === 'data') {
+        term.write(msg.data || '');
+      } else if (msg.type === 'ready') {
+        // no-op
+      } else if (msg.type === 'closed') {
+        term.write('\r\n[session closed: ' + (msg.reason || '') + ']\r\n');
+      } else if (msg.type === 'failure') {
+        term.write('\r\n[error: ' + (msg.error || '') + ']\r\n');
+      }
+    } catch (e) {
+      if (window.android && window.android.log) window.android.log('terminalReceive parse error: ' + e.message);
+    }
+  }
+
+  window.terminalReceive = function(jsonStr) {
+    handleReceive(jsonStr);
+  };
+
+  window.terminalSetFontSize = function(size) {
+    if (term) {
+      term.options.fontSize = size;
+      if (fitAddon) fitAddon.fit();
+    }
+  };
+
+  window.terminalBackspaceInput = function() {
+    if (term) {
+      // Send backspace
+      if (window.android && window.android.input) window.android.input('\x7f');
+    }
+  };
+
+  window.terminalDump = function(lines) {
+    if (!term) return '';
+    // xterm.js doesn't have a simple dump; return buffer content
+    return '(dump not implemented)';
+  };
+
+  // Resize on window resize
+  window.addEventListener('resize', function() {
+    if (fitAddon) fitAddon.fit();
+  });
+
+  // Init when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>

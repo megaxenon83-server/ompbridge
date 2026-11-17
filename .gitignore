@@ -1,0 +1,31 @@
+# Local worktrees / archives that are not part of the release build.
+/2.9.24-bridge-latest/
+/2.9.25-bridge/
+/bridge/
+/installer-source/
+/linux-bridge/
+/nimayomp-3.0.34-source/
+/release/
+/releases/
+
+# Older Android source copies (only the 4.2.3 ChatGPT UI project is released)
+/android-source/nimayomp/
+/android-source/nimayomp-super-premium/
+/android-source/nimayomp-super-premium-release-build/
+/android-source/nimayomp-super-premium-release-build-4.1.1/
+/android-source/nimayomp-chatgpt-ui-4.2.0/
+/android-source/nimayomp-chatgpt-ui-4.2.1/
+/android-source/release-v4.1.0/
+/android-source/release-v4.1.1/
+
+# Large local artifacts
+/nimayomp-*.zip
+/nimayomp-*.apk
+/*.exe
+/version.json
+/release_body.txt
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store

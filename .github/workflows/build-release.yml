@@ -7,49 +7,52 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v2.9.27)'
+        description: 'Version tag to build (e.g. v2.9.27)'
         required: true
         type: string
 
 env:
-  VERSION: ${{ github.ref_name == '' && github.event.inputs.version || github.ref_name }}
+  BRIDGE_VERSION: ${{ github.event.inputs.version || '2.9.27' }}
+  ANDROID_VERSION: 4.2.5
   REPO: megaxenon83-server/ompbridge
+  ANDROID_PROJECT: android-source/nimayomp-chatgpt-ui-4.2.3
 
 jobs:
-  # ---------- ANDROID BUILD ----------
+  # ------------------------------------------------------------------ ANDROID
   android-build:
     name: Android APK (release)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
-      apk_path: ${{ steps.upload.outputs.apk_path }}
-      version: ${{ steps.set-version.outputs.version }}
+      version: ${{ steps.version.outputs.android_version }}
+      apk_path: ${{ steps.package.outputs.apk_path }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set version
-        id: set-version
+      - name: Set versions
+        id: version
         run: |
-          VERSION="${VERSION#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building Android version: $VERSION"
+          echo "android_version=${ANDROID_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "bridge_version=${BRIDGE_VERSION#v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-          cache: 'gradle'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: 34
-          ndk-version: r26c
           cmdline-tools-version: latest
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -57,282 +60,165 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('android-source/**/*.gradle*', 'android-source/**/gradle-wrapper.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Build Release APK
-        working-directory: android-source/nimayomp-chatgpt-ui-4.2.3
+      - name: Restore release signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.NIMAYOMP_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.NIMAYOMP_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.NIMAYOMP_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.NIMAYOMP_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Android signing secrets are not configured in the repository"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/nimayomp-release.jks"
+          cat > "${ANDROID_PROJECT}/keystore.properties" << EOF
+          storeFile=$RUNNER_TEMP/nimayomp-release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          echo "Keystore restored (passwords are never printed)."
+
+      - name: Build release APK
+        working-directory: ${{ env.ANDROID_PROJECT }}
         run: |
           chmod +x gradlew
           ./gradlew :app:assembleChstgptRelease --no-daemon --stacktrace
 
-      - name: Find APK
-        id: find-apk
+      - name: Package APK
+        id: package
         run: |
-          APK_PATH=$(find android-source/nimayomp-chatgpt-ui-4.2.3 -name "*.apk" -path "*/chstgpt/release/*" | head -1)
+          set -euo pipefail
+          APK_PATH="$(find "${ANDROID_PROJECT}/app/build/outputs/apk" -name '*.apk' -path '*release*' | head -1)"
           if [ -z "$APK_PATH" ]; then
-            echo "ERROR: APK not found"
+            echo "::error::Release APK not found"
             exit 1
           fi
-          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "Found APK: $APK_PATH"
-
-      - name: Rename APK
-        id: rename
-        run: |
-          VERSION="${{ steps.set-version.outputs.version }}"
-          APK_PATH="${{ steps.find-apk.outputs.apk_path }}"
-          NEW_NAME="nimay-omp-android-${VERSION}.apk"
-          cp "$APK_PATH" "$NEW_NAME"
-          echo "apk_path=$NEW_NAME" >> $GITHUB_OUTPUT
+          mkdir -p dist
+          cp "$APK_PATH" "dist/nimay-omp-android-${ANDROID_VERSION}.apk"
+          (cd dist && sha256sum "nimay-omp-android-${ANDROID_VERSION}.apk" > "nimay-omp-android-${ANDROID_VERSION}.apk.sha256")
+          echo "apk_path=dist/nimay-omp-android-${ANDROID_VERSION}.apk" >> "$GITHUB_OUTPUT"
+          echo "Packaged $APK_PATH"
 
       - name: Upload Android artifact
-        id: upload
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk-${{ steps.set-version.outputs.version }}
-          path: ${{ steps.rename.outputs.apk_path }}
+          name: android-apk
+          path: |
+            dist/nimay-omp-android-*.apk
+            dist/nimay-omp-android-*.sha256
+          if-no-files-found: error
 
-  # ---------- LINUX BUILD ----------
+  # ------------------------------------------------------------------- LINUX
   linux-build:
     name: Linux (.deb, .rpm, Flatpak)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     outputs:
-      deb_path: ${{ steps.package.outputs.deb_path }}
-      rpm_path: ${{ steps.package.outputs.rpm_path }}
-      flatpak_path: ${{ steps.flatpak.outputs.flatpak_path }}
-      version: ${{ steps.set-version.outputs.version }}
+      version: ${{ steps.version.outputs.bridge_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set version
-        id: set-version
+      - name: Set versions
+        id: version
         run: |
-          VERSION="${VERSION#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION"
+          echo "bridge_version=${BRIDGE_VERSION#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             flatpak-builder \
-            fpm \
             rpm \
             dpkg-dev \
-            python3 \
             nodejs \
             npm \
-            wget \
+            python3 \
             curl \
-            gnupg \
-            file
+            wget \
+            file \
+            xz-utils
 
-      - name: Setup Flatpak
+      - name: Install Flatpak runtime and SDK
         run: |
           flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --noninteractive flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08 org.freedesktop.Sdk.Extension.node20//24.08
+          flatpak install --noninteractive flathub org.freedesktop.Platform//24.08
+          flatpak install --noninteractive flathub org.freedesktop.Sdk//24.08
+          flatpak install --noninteractive flathub org.freedesktop.Sdk.Extension.node20//24.08
 
-      - name: Prepare build directory
-        id: prep
+      - name: Build tarball, .deb and .rpm
         run: |
-          VERSION="${{ steps.set-version.outputs.version }}"
-          BUILD_DIR="build-linux-${VERSION}"
-          mkdir -p "${BUILD_DIR}"
-          
-          # Copy bridge source
-          cp -r 2.9.26-bridge/* "${BUILD_DIR}/"
-          
-          # Update version in installer
-          sed -i "s/VERSION=\"2.9.27\"/VERSION=\"${VERSION}\"/" "${BUILD_DIR}/install.sh"
-          sed -i "s/2.9.27/${VERSION}/g" "${BUILD_DIR}"/Nimay-OMP-Bridge-Setup.iss 2>/dev/null || true
-          
-          echo "build_dir=${BUILD_DIR}" >> $GITHUB_OUTPUT
+          bash 2.9.26-bridge/packaging/build-linux-packages.sh "${BRIDGE_VERSION#v}" dist
 
-      - name: Build install.sh tarball
-        id: tarball
-        working-directory: ${{ steps.prep.outputs.build_dir }}
+      - name: Build Flatpak bundle
         run: |
-          VERSION="${{ steps.set-version.outputs.version }}"
-          ARCH="x86_64"
-          
-          # Use install.sh from repo, create minimal if missing
-          if [ ! -f install.sh ]; then
-            printf '#!/usr/bin/env bash\nset -euo pipefail\necho "Nimay OMP Bridge installer - run manually"\necho "See: https://github.com/nimay/ompbridge/releases"\nexit 0\n' > install.sh
-            chmod +x install.sh
-          fi
-          
-          # Create tarball for universal installer
-          mkdir -p dist
-          tar -czf "dist/ompbridge-linux-${ARCH}.tar.gz" \
-            bridge/ tools/ commands/ install.sh 2>/dev/null || \
-            tar -czf "dist/ompbridge-linux-${ARCH}.tar.gz" \
-            bridge/ tools/ commands/
-          
-          # SHA256
-          sha256sum "dist/ompbridge-linux-${ARCH}.tar.gz" > "dist/ompbridge-linux-${ARCH}.tar.gz.sha256"
-          
-          echo "tarball=dist/ompbridge-linux-${ARCH}.tar.gz" >> $GITHUB_OUTPUT
-
-      - name: Build .deb package
-        id: deb
-        working-directory: ${{ steps.prep.outputs.build_dir }}
-        run: |
-          VERSION="${{ steps.set-version.outputs.version }}"
-          ARCH="amd64"
-          
-          mkdir -p deb-package/usr/local/bin
-          mkdir -p deb-package/usr/local/share/nimay/ompbridge
-          mkdir -p deb-package/usr/local/share/applications
-          mkdir -p deb-package/DEBIAN
-          
-          # Copy files
-          cp -r bridge tools commands deb-package/usr/local/share/nimay/ompbridge/
-          cp install.sh deb-package/usr/local/bin/nimay-ompbridge-install
-          chmod +x deb-package/usr/local/bin/nimay-ompbridge-install
-          
-          # Create desktop entry
-          printf '[Desktop Entry]\nName=Nimay OMP Bridge\nComment=Bridge between OMP on PC and OmpChat on Android\nExec=nimay-ompbridge-install\nIcon=bridge\nTerminal=false\nType=Application\nCategories=Network;Development;\n' > deb-package/usr/local/share/applications/nimay-ompbridge.desktop
-          
-          # Control file
-          printf 'Package: nimay-ompbridge\nVersion: ${VERSION}\nSection: net\nPriority: optional\nArchitecture: ${ARCH}\nMaintainer: Nimay <nimay@example.com>\nDescription: Bridge between OMP on PC and OmpChat on Android\n Homepage: https://github.com/nimay/ompbridge\n' > deb-package/DEBIAN/control
-          
-          # Postinst
-          printf '#!/bin/bash\nset -e\necho "Nimay OMP Bridge installed. Run '"'"'nimay-ompbridge-install'"'"' to set up."\nexit 0\n' > deb-package/DEBIAN/postinst
-          chmod +x deb-package/DEBIAN/postinst
-          
-          # Build
-          dpkg-deb --build deb-package
-          mv deb-package.deb ../nimay-ompbridge_${VERSION}_${ARCH}.deb
-          echo "deb_path=../nimay-ompbridge_${VERSION}_${ARCH}.deb" >> $GITHUB_OUTPUT
-
-      - name: Build .rpm package
-        id: rpm
-        working-directory: ${{ steps.prep.outputs.build_dir }}
-        run: |
-          VERSION="${{ steps.set-version.outputs.version }}"
-          ARCH="x86_64"
-          
-          mkdir -p rpm-package/usr/local/bin
-          mkdir -p rpm-package/usr/local/share/nimay/ompbridge
-          
-          cp -r bridge tools commands rpm-package/usr/local/share/nimay/ompbridge/
-          cp install.sh rpm-package/usr/local/bin/nimay-ompbridge-install
-          chmod +x rpm-package/usr/local/bin/nimay-ompbridge-install
-          
-          # Spec file
-          printf 'Name: nimay-ompbridge\nVersion: ${VERSION}\nRelease: 1%%{?dist}\nSummary: Bridge between OMP on PC and OmpChat on Android\nLicense: MIT\nURL: https://github.com/nimay/ompbridge\nSource0: %%{name}-%%{version}.tar.gz\nBuildArch: x86_64\nRequires: systemd, bash, curl\n\n%%description\nBridge between OMP on PC and OmpChat on Android\n\n%%install\nmkdir -p %%{buildroot}/usr/local/bin\nmkdir -p %%{buildroot}/usr/local/share/nimay/ompbridge\ncp -r * %%{buildroot}/usr/local/share/nimay/ompbridge/\nln -s /usr/local/share/nimay/ompbridge/install.sh %%{buildroot}/usr/local/bin/nimay-ompbridge-install\n\n%%files\n/usr/local/bin/nimay-ompbridge-install\n/usr/local/share/nimay/ompbridge/\n\n%%changelog\n* $(date +"%%a %%b %%d %%Y") Nimay <nimay@example.com> - ${VERSION}-1\n- Release ${VERSION}\n' > rpm-package.spec
-          
-          # Create source tarball for rpmbuild
-          tar -czf ~/rpmbuild/SOURCES/nimay-ompbridge-${VERSION}.tar.gz -C .. nimay-ompbridge-${VERSION} 2>/dev/null || true
-          mkdir -p ~/rpmbuild/SOURCES
-          tar -czf ~/rpmbuild/SOURCES/nimay-ompbridge-${VERSION}.tar.gz .
-          
-          rpmbuild -bb rpm-package.spec --define "_topdir $(pwd)/rpmbuild" 2>&1 | tail -20
-          
-          find . -name "*.rpm" -exec mv {} ../nimay-ompbridge-${VERSION}-1.x86_64.rpm \;
-          echo "rpm_path=../nimay-ompbridge-${VERSION}-1.x86_64.rpm" >> $GITHUB_OUTPUT
-
-      - name: Build Flatpak
-        id: flatpak
-        working-directory: ${{ steps.prep.outputs.build_dir }}
-        run: |
-          VERSION="${{ steps.set-version.outputs.version }}"
-          
-          # Create flatpak manifest
-          printf 'app-id: com.nimay.OMPBridge\nruntime: org.freedesktop.Platform\nruntime-version: '"'"'24.08'"'"'\nsdk: org.freedesktop.Sdk\nsdk-extensions:\n  - org.freedesktop.Sdk.Extension.node20\ncommand: nimay-ompbridge\nfinish-args:\n  - --share=network\n  - --filesystem=host\n  - --talk-name=org.freedesktop.Flatpak\nmodules:\n  - name: nimay-ompbridge\n    buildsystem: simple\n    build-commands:\n      - mkdir -p /app/bin /app/share/nimay/ompbridge\n      - cp -r bridge tools commands /app/share/nimay/ompbridge/\n      - install -m 755 install.sh /app/bin/nimay-ompbridge\n      - printf '"'"'[Desktop Entry]\nName=Nimay OMP Bridge\nComment=Bridge between OMP on PC and OmpChat on Android\nExec=nimay-ompbridge\nIcon=com.nimay.OMPBridge\nTerminal=false\nType=Application\nCategories=Network;Development;\n'"'"' > /app/share/applications/com.nimay.OMPBridge.desktop\n    sources:\n      - type: dir\n        path: .\n' > com.nimay.OMPBridge.yml
-          
-          flatpak-builder --force-clean --install-deps-from=flathub \
-            --install --user build-dir com.nimay.OMPBridge.yml 2>&1 | tail -30
-          
-          # Export flatpak bundle
-          flatpak build-bundle --runtime --filesystem=host \
-            ~/.local/share/flatpak/repo com.nimay.OMPBridge-${VERSION}.flatpak com.nimay.OMPBridge
-          
-          mv com.nimay.OMPBridge-${VERSION}.flatpak ../
-          echo "flatpak_path=../com.nimay.OMPBridge-${VERSION}.flatpak" >> $GITHUB_OUTPUT
+          bash 2.9.26-bridge/packaging/build-flatpak.sh "${BRIDGE_VERSION#v}" dist
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-packages-${{ steps.set-version.outputs.version }}
+          name: linux-packages
           path: |
-            *.deb
-            *.rpm
-            *.flatpak
-            build-linux-*/dist/*.tar.gz
-            build-linux-*/dist/*.sha256
+            dist/*.deb
+            dist/*.rpm
+            dist/*.flatpak
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
 
-  # ---------- WINDOWS BUILD ----------
+  # ----------------------------------------------------------------- WINDOWS
   windows-build:
     name: Windows Installer (.exe)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     needs: linux-build
     outputs:
-      exe_path: ${{ steps.package.outputs.exe_path }}
+      version: ${{ needs.linux-build.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set version
-        id: set-version
+      - name: Ensure Inno Setup is available
+        shell: pwsh
         run: |
-          $version = "${{ needs.linux-build.outputs.version }}"
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Install Inno Setup
-        run: |
-          choco install innosetup -y --version 6.3.1
-          echo "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Prepare Windows build
-        id: prep
-        run: |
-          $version = "${{ steps.set-version.outputs.version }}"
-          $buildDir = "build-windows-${version}"
-          New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
-          Copy-Item -Recurse -Force "2.9.26-bridge\*" $buildDir\
-          
-          # Update version in ISS
-          $issFile = "$buildDir\Nimay-OMP-Bridge-Setup.iss"
-          if (Test-Path $issFile) {
-            (Get-Content $issFile) -replace '#define MyAppVersion "2.9.27"', "#define MyAppVersion `"$version`"" | Set-Content $issFile
-          }
-          echo "build_dir=$buildDir" >> $env:GITHUB_OUTPUT
-
-      - name: Compile Inno Setup
-        id: compile
-        working-directory: ${{ steps.prep.outputs.build_dir }}
-        run: |
-          $version = "${{ steps.set-version.outputs.version }}"
-          iscc.exe Nimay-OMP-Bridge-Setup.iss
-          $exe = "dist\Nimay-OMP-Bridge-Setup-${version}.exe"
-          if (Test-Path $exe) {
-            Copy-Item $exe "..\Nimay-OMP-Bridge-Setup-${version}.exe"
-            echo "exe_path=..\Nimay-OMP-Bridge-Setup-${version}.exe" >> $env:GITHUB_OUTPUT
+          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            Write-Host "Inno Setup 6 is already installed"
+          } elseif (Test-Path "C:\Program Files\Inno Setup 6\ISCC.exe") {
+            Write-Host "Inno Setup 6 is already installed"
           } else {
-            Write-Error "Inno Setup compilation failed or output not found"
-            exit 1
+            choco install innosetup -y --no-progress
           }
+
+      - name: Build installer
+        shell: pwsh
+        env:
+          BRIDGE_VERSION: ${{ needs.linux-build.outputs.version }}
+        run: |
+          & "2.9.26-bridge\build-installer\Build-Installer.ps1" -Version "$env:BRIDGE_VERSION" -OutputDir "dist"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer-${{ steps.set-version.outputs.version }}
-          path: Nimay-OMP-Bridge-Setup-${{ steps.set-version.outputs.version }}.exe
+          name: windows-installer
+          path: dist/*.exe
+          if-no-files-found: error
 
-  # ---------- RELEASE ----------
+  # ----------------------------------------------------------------- RELEASE
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [linux-build, windows-build, android-build]
+    needs: [android-build, linux-build, windows-build]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
@@ -341,35 +227,41 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: true
+          merge-multiple: false
 
-      - name: Create Release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Nimay OMP Bridge ${{ needs.linux-build.outputs.version }}
+          name: Nimay OMP Bridge ${{ needs.linux-build.outputs.version }} + OmpChat Android ${{ needs.android-build.outputs.version }}
           body: |
             ## Nimay OMP Bridge ${{ needs.linux-build.outputs.version }}
-            
-            ### Installers
-            - **Windows:** `Nimay-OMP-Bridge-Setup-${{ needs.linux-build.outputs.version }}.exe` (Inno Setup)
+
+            Bridge ${{ needs.linux-build.outputs.version }} with two-way provider synchronisation, and the
+            ChatGPT UI Android app ${{ needs.android-build.outputs.version }}.
+
+            ### Downloads
+            - **Windows:** `Nimay-OMP-Bridge-Setup-${{ needs.linux-build.outputs.version }}.exe`
             - **Debian/Ubuntu:** `nimay-ompbridge_${{ needs.linux-build.outputs.version }}_amd64.deb`
             - **Fedora/RHEL:** `nimay-ompbridge-${{ needs.linux-build.outputs.version }}-1.x86_64.rpm`
             - **Flatpak:** `com.nimay.OMPBridge-${{ needs.linux-build.outputs.version }}.flatpak`
-            - **Universal (Linux/macOS/WSL):** `ompbridge-linux-x86_64.tar.gz`
+            - **Universal tarball:** `ompbridge-linux-x86_64.tar.gz`
             - **Android:** `nimay-omp-android-${{ needs.android-build.outputs.version }}.apk`
-            
+
             ### Installation
-            **Windows:** Run the `.exe` installer.
-            **Linux (deb):** `sudo dpkg -i nimay-ompbridge_*.deb && sudo apt-get install -f`
-            **Linux (rpm):** `sudo rpm -i nimay-ompbridge-*.rpm`
-            **Flatpak:** `flatpak install com.nimay.OMPBridge-*.flatpak`
-            **Universal:** `tar -xzf ompbridge-linux-x86_64.tar.gz && ./install.sh`
-            **Android:** Install APK via file manager or `adb install nimay-omp-android-*.apk`
-            
-            ### Verify checksums
-            Check `.sha256` files for tarball verification.
-            
+            **Windows:** run the `.exe` installer (per-user, no admin rights needed).
+            **Linux (.deb):** `sudo dpkg -i nimay-ompbridge_*.deb` then run `nimay-ompbridge-install --local`.
+            **Linux (.rpm):** `sudo rpm -i nimay-ompbridge-*.rpm` then run `nimay-ompbridge-install --local`.
+            **Flatpak:** `flatpak install com.nimay.OMPBridge-*.flatpak`.
+            **Universal:** `tar -xzf ompbridge-linux-x86_64.tar.gz && ./install.sh`.
+            **Android:** install the APK (`adb install nimay-omp-android-*.apk`).
+
+            ### Provider sync
+            The bridge is the source of truth for providers and API keys
+            (`~/.omp/agent/models.yml`). The Android app pulls on connect and can
+            push added, edited and deleted providers with **Sync**.
+
+            SHA-256 checksums are included for every artifact.
           draft: false
           prerelease: false
           files: |
