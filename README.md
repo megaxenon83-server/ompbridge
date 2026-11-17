@@ -1,5 +1,5 @@
 ﻿<p align="center">
-  <img src="docs/images/banner.png?v=2" alt="Nimay OMP Chat — your OMP agent, on your phone" width="100%" />
+  <img src="docs/images/banner.png?v=3" alt="Nimay OMP Chat - your OMP agent, on your phone" width="100%" />
 </p>
 
 <p align="center">
