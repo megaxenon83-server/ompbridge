@@ -103,3 +103,13 @@ Pairing tokens, API keys and the release keystore are never committed. The
 bridge generates its own token on first start and stores it in
 `bridge/config.json` (git-ignored), and the Android app keeps incoming keys in
 the Android Keystore.
+
+## Known limitations
+
+- The bridge rewrites `models.yml` with a minimal YAML writer. Fields it does
+  not manage are preserved, but comments, key order and quoting can change.
+- OMP provider entries have no separate display name, so the provider id is
+  used as the name. The app therefore derives the id of a new provider from
+  the name you type, which keeps PC and app on the same entry.
+- The bridge and the app can only be on the same port at the same time. Start
+  the second bridge on another port (for example `OMPCHAT_BRIDGE_PORT=7778`).
