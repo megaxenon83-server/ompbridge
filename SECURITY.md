@@ -19,7 +19,7 @@ You will get an acknowledgement within a few days and a fix or a mitigation plan
 ### The bridge
 
 - The bridge binds to `0.0.0.0` so the phone can reach it on the LAN. **Do not expose the port to the internet.** Use a trusted network or a VPN such as Tailscale.
-- Every endpoint except the public APK download (`/apk`) requires `Authorization: Bearer <token>`.
+- Every endpoint except the public APK download (`/apk`) and the discovery endpoint (`/api/ping`) requires `Authorization: Bearer <token>`.
 - The token is generated with a cryptographically secure random source on first start and stored in `bridge/config.json` with file mode `600`. The file is git-ignored.
 - `bridge/config.json` is created next to the bridge, never in the repository. Do not commit it.
 

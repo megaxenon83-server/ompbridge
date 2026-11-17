@@ -64,19 +64,19 @@ The UI ships in Norwegian and English; the screenshots show the English locale.
 ## How it works
 
 ```
-┌───────────────────────────── your PC ─────────────────────────────┐
-│                                                                    │
-│   models.yml ──▶ OmniDesk Bridge (Node.js) ──▶ OMP (`omp --mode rpc`)│
-│   providers,      :7777  HTTP + SSE                 real agent    │
-│   API keys             ▲                                          │
-└────────────────────────┼──────────────────────────────────────────┘
-                         │  LAN / Tailscale, bearer token
-                         ▼
-              ┌─────────────────────────┐
-              │  OmniDesk (Android)     │
-              │  chat · files · terminal │
-              │  Keystore for API keys  │
-              └─────────────────────────┘
+┌──────────────── your PC ───────────────────────────────────────────────┐
+│                                                                        │
+│   models.yml ──▶ OmniDesk Bridge (Node.js) ──▶ OMP (`omp --mode rpc`)  │
+│   providers,      :7777 HTTP + SSE        real agent                   │
+│   API keys            ▲                                                │
+└───────────────────────┼────────────────────────────────────────────────┘
+                        │  LAN / Tailscale, bearer token
+                        ▼
+                ┌──────────────────────────┐
+                │  OmniDesk (Android)      │
+                │  chat · files · terminal │
+                │  Keystore for API keys   │
+                └──────────────────────────┘
 ```
 
 1. The bridge spawns one OMP process per project folder, keeps it warm and normalises its event stream.
@@ -214,7 +214,7 @@ Pushing a `v*` tag runs GitHub Actions, which builds all platforms and publishes
 ## Security
 
 - The bridge generates a random pairing token on first start and stores it in `bridge/config.json`, which is never committed.
-- Every bridge request except the public APK download requires `Authorization: Bearer <token>`.
+- Every bridge request except the public APK download (`/apk`) and the discovery endpoint (`/api/ping`) requires `Authorization: Bearer <token>`.
 - API keys received by the app are stored in the **Android Keystore**, encrypted by the platform.
 - The release keystore lives in GitHub Actions secrets, never in the repository.
 - The bridge listens on `0.0.0.0` so the phone can reach it — use a trusted network (LAN or Tailscale) and do not expose the port to the internet.
