@@ -560,6 +560,26 @@ private fun ProviderModelRow(
 // Editor (add/edit provider)
 // ---------------------------------------------------------------------------
 
+/**
+ * Slug used as provider id. The id is shared with PC/OMP, so it must match the
+ * format the bridge accepts (lowercase, no spaces).
+ */
+private fun providerIdFromName(name: String): String =
+    name.trim()
+        .lowercase()
+        .replace(Regex("[^a-z0-9._-]+"), "-")
+        .trim('-')
+        .take(64)
+
+/** Makes sure a new provider never overwrites an existing one. */
+private fun uniqueProviderId(base: String, fallback: String, taken: Set<String>): String {
+    val seed = base.ifBlank { fallback }
+    if (taken.none { it.equals(seed, ignoreCase = true) }) return seed
+    var index = 2
+    while (taken.any { it.equals("$seed-$index", ignoreCase = true) }) index++
+    return "$seed-$index"
+}
+
 @Composable
 private fun ProviderEditorDialog(
     initial: ApiProvider?,
@@ -698,13 +718,21 @@ private fun ProviderEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = {
+                    val trimmedName = name.trim()
                     val id = when {
                         initial != null -> initial.id
                         isCustom -> customId.trim()
                         isBridge -> "bridge"
-                        else -> selectedPreset
+                        // The id is shared with PC/OMP, so derive it from the name the
+                        // user typed. That keeps the entry recognisable on the PC and
+                        // lets several providers of the same type exist side by side.
+                        else -> uniqueProviderId(
+                            base = providerIdFromName(trimmedName),
+                            fallback = selectedPreset,
+                            taken = existingIds
+                        )
                     }
-                    val effectiveName = name.trim().ifBlank {
+                    val effectiveName = trimmedName.ifBlank {
                         when {
                             isBridge -> "Bridge (OMP)"
                             isCustom -> id
