@@ -2,6 +2,18 @@
 
 All notable changes to Nimay OMP Chat. The release tag follows the bridge version; the Android app carries its own version number.
 
+## 2.9.31 ? Critical approval/request fixes and release updates
+
+**Bridge 2.9.31 ? Android 4.2.7 (`versionCode 217`) ? tag `v2.9.31`**
+
+### Fixed
+- **Approval flow:** switching approval mode to **Allow all (yolo)** now auto-approves pending interactive `confirm`/`select` requests in the bridge, preventing sessions from staying blocked after enabling yolo.
+- **Android reconnect/request handling:** the app rebuilds the SSE stream on foreground to recover from half-open connections and receive replayed pending UI requests; failed approval answers now restore the request in state so the user can retry instead of losing the prompt while OMP remains blocked.
+
+### Added / Changed
+- In-app update support and `omp.nimay.net` update-manifest/site groundwork (primary) with GitHub fallback, plus CI workflow updates for release/site publishing.
+- Bridge/runtime and release metadata bumped to **2.9.31**; Android app bumped to **4.2.7** (`versionCode 217`).
+
 ## 2.9.28 â€” Nimay OMP Chat rebrand and release polish
 
 **Bridge 2.9.28 Â· Android 4.2.6 (`versionCode 216`) Â· tag `v2.9.28`**

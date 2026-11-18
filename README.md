@@ -1,4 +1,4 @@
-﻿<p align="center">
+<p align="center">
   <img src="docs/images/banner.png?v=3" alt="Nimay OMP Chat - your OMP agent, on your phone" width="100%" />
 </p>
 
@@ -11,7 +11,7 @@
   <a href="https://github.com/megaxenon83-server/ompbridge/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/megaxenon83-server/ompbridge?label=release&style=flat-square"/></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square"/></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20Flatpak%20%7C%20Android-informational?style=flat-square"/>
-  <img alt="Android version" src="https://img.shields.io/badge/android-4.2.6-3DDC84?style=flat-square"/>
+  <img alt="Android version" src="https://img.shields.io/badge/android-4.2.7-3DDC84?style=flat-square"/>
 </p>
 
 ---
@@ -119,31 +119,31 @@ The bridge owns `~/.omp/agent/models.yml`. The app is a synchronised editor for 
 
 ### 1. Install the bridge on your PC
 
-**Windows** â€” download `Nimay OMP Chat-Bridge-Setup-<version>.exe` and run it. It is a per-user installer: no administrator rights, no Windows service. It installs a Startup-folder entry so the bridge starts with your session, and installs the OMP slash commands `/ompqr` and `/ompserver`.
+**Windows** — download `Nimay-OMP-Chat-Bridge-Setup-<version>.exe` and run it. It is a per-user installer: no administrator rights, no Windows service. It installs a Startup-folder entry so the bridge starts with your session, and installs the OMP slash commands `/ompqr` and `/ompserver`.
 
 **Linux**
 
 ```bash
 # Debian / Ubuntu
-sudo dpkg -i Nimay OMP Chat-bridge_*.deb && Nimay OMP Chat-bridge-install --local
+sudo dpkg -i nimay-omp-chat-bridge_*.deb && nimay-omp-chat-bridge-install --local
 
 # Fedora / RHEL
-sudo rpm -i Nimay OMP Chat-bridge-*.rpm && Nimay OMP Chat-bridge-install --local
+sudo rpm -i nimay-omp-chat-bridge-*.rpm && nimay-omp-chat-bridge-install --local
 
 # Flatpak
-flatpak install com.Nimay OMP Chat.bridge-*.flatpak
+flatpak install com.nimay.OMPChat-*.flatpak
 
 # Universal tarball
-tar -xzf Nimay OMP Chat-bridge-linux-x86_64.tar.gz && ./install.sh
+tar -xzf nimay-omp-chat-bridge-linux-x86_64.tar.gz && ./install.sh
 ```
 
-The installer creates a `systemd --user` service (`Nimay OMP Chat-bridge`), enables linger so it starts at boot, and writes the bridge location to `~/.omp/agent/ompchat-commands.json`.
+The installer creates a `systemd --user` service (`nimay-omp-chat-bridge`), enables linger so it starts at boot, and writes the bridge location to `~/.omp/agent/ompchat-commands.json`.
 
 **Requirements:** Node.js 20+ and [OMP](https://github.com/oh-my-pi) on the PC.
 
 ### 2. Pair the phone
 
-Run `omp` and then `/ompqr` in the terminal â€” or open `http://<pc-ip>:7777/apk` on the phone to download the app and scan the QR code. The app can also pair manually by typing the address and token.
+Run `omp` and then `/ompqr` in the terminal — or open `http://<pc-ip>:7777/apk` on the phone to download the app and scan the QR code. The app can also pair manually by typing the address and token.
 
 ### 3. Talk to your agent
 
@@ -159,12 +159,12 @@ Everything is published on the [releases page](https://github.com/megaxenon83-se
 
 | Platform | Artifact | Current |
 |---|---|---|
-| Windows (x64) | `Nimay OMP Chat-Bridge-Setup-<version>.exe` | 2.9.28 |
-| Debian / Ubuntu | `Nimay OMP Chat-bridge_<version>_amd64.deb` | 2.9.28 |
-| Fedora / RHEL | `Nimay OMP Chat-bridge-<version>-1.x86_64.rpm` | 2.9.28 |
-| Flatpak | `com.Nimay OMP Chat.bridge-<version>.flatpak` | 2.9.28 |
-| Linux (universal) | `Nimay OMP Chat-bridge-linux-x86_64.tar.gz` | 2.9.28 |
-| Android | `Nimay OMP Chat-android-<version>.apk` | 4.2.6 |
+| Windows (x64) | `Nimay-OMP-Chat-Bridge-Setup-<version>.exe` | 2.9.31 |
+| Debian / Ubuntu | `nimay-omp-chat-bridge_<version>_amd64.deb` | 2.9.31 |
+| Fedora / RHEL | `nimay-omp-chat-bridge-<version>-1.x86_64.rpm` | 2.9.31 |
+| Flatpak | `com.nimay.OMPChat-<version>.flatpak` | 2.9.31 |
+| Linux (universal) | `nimay-omp-chat-bridge-linux-x86_64.tar.gz` | 2.9.31 |
+| Android | `nimay-omp-chat-android-<version>.apk` | 4.2.7 |
 
 Every artifact is covered by the `SHA256SUMS` file in the release; the universal tarball and the Android APK also ship an individual `.sha256` file. The Android APK is signed with a release key, so it installs as an update over previous versions.
 
@@ -193,15 +193,15 @@ docs/                                 Architecture, sync, install, build and rel
 
 ```bash
 # Linux packages
-bash 2.9.26-bridge/packaging/build-linux-packages.sh 2.9.28 dist
+bash 2.9.26-bridge/packaging/build-linux-packages.sh 2.9.31 dist
 
 # Flatpak
-bash 2.9.26-bridge/packaging/build-flatpak.sh 2.9.28 dist
+bash 2.9.26-bridge/packaging/build-flatpak.sh 2.9.31 dist
 ```
 
 ```powershell
 # Windows installer (needs Inno Setup 6)
-& 2.9.26-bridge\build-installer\Build-Installer.ps1 -Version 2.9.28 -OutputDir dist
+& 2.9.26-bridge\build-installer\Build-Installer.ps1 -Version 2.9.31 -OutputDir dist
 
 # Android (needs the Android SDK and a release keystore in keystore.properties)
 $env:ANDROID_HOME='C:\android'
@@ -246,7 +246,7 @@ Report vulnerabilities privately: see [`SECURITY.md`](SECURITY.md).
 
 ## Contributing
 
-Issues and pull requests are welcome â€” see [`CONTRIBUTING.md`](CONTRIBUTING.md). Please never commit API keys, pairing tokens or signing material.
+Issues and pull requests are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). Please never commit API keys, pairing tokens or signing material.
 
 ## License
 
@@ -254,7 +254,9 @@ Issues and pull requests are welcome â€” see [`CONTRIBUTING.md`](CONTRIBUTI
 
 ## Acknowledgements
 
-- **OMP / Oh My Pi** â€” the agent this project exposes. Nimay OMP Chat is a client, not a fork.
-- **[Jetpack Compose](https://developer.android.com/jetpack/compose)** â€” the Android UI.
-- **[Node.js](https://nodejs.org)** â€” the bridge runtime.
+- **OMP / Oh My Pi** — the agent this project exposes. Nimay OMP Chat is a client, not a fork.
+- **[Jetpack Compose](https://developer.android.com/jetpack/compose)** — the Android UI.
+- **[Node.js](https://nodejs.org)** — the bridge runtime.
+
+
 
