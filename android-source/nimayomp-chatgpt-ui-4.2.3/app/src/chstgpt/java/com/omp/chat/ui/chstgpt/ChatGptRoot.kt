@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -60,6 +63,7 @@ fun ChatGptRoot(
     val pcProfiles by viewModel.pcProfileList.collectAsStateWithLifecycle()
     val activePcId by viewModel.activePcId.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteSessions.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
     val strings = remember(settings.language) { Strings(settings.language) }
     val context = LocalContext.current
@@ -359,7 +363,11 @@ fun ChatGptRoot(
                                     onPinMessagesEnabled = { viewModel.settings.setPinMessagesEnabled(it) },
                                     onWolServiceUrl = { viewModel.settings.setWolServiceUrl(it) },
                                     onActivityDetailLevel = { viewModel.settings.setActivityDetailLevel(it) },
-                                    onOpenApiProviders = { screen = GptScreen.ApiProviders }
+                                    onOpenApiProviders = { screen = GptScreen.ApiProviders },
+                                    updateState = updateState,
+                                    onCheckUpdates = { viewModel.checkForUpdates(showDialogIfAvailable = false) },
+                                    onInstallUpdate = { viewModel.installAppUpdate() },
+                                    onOpenRelease = { }
                                 )
                             }
 
@@ -464,6 +472,29 @@ fun ChatGptRoot(
                 }
             }
         }
+    }
+
+    if (updateState.showStartupDialog && !updateState.startupDialogDismissedThisSession) {
+        val res = updateState.result
+        val appMsg = if (res?.appUpdateAvailable == true) "Ny app-versjon: ${res.latestAppVersion}" else null
+        val bridgeMsg = if (res?.bridgeUpdateAvailable == true) "Ny bridge-versjon: ${res.latestBridgeVersion}" else null
+        val details = listOfNotNull(appMsg, bridgeMsg).joinToString("\n").ifBlank { "Oppdatering tilgjengelig." }
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissStartupUpdateDialog() },
+            title = { Text(if (settings.language == "en") "Update available" else "Oppdatering tilgjengelig") },
+            text = { Text(details + "\n\n" + if (settings.language == "en") "You can update now in Settings, or be reminded next time you open the app." else "Du kan oppdatere nå i Innstillinger, eller få påminnelse neste gang du åpner appen.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.consumeStartupUpdateDialogForSettings()
+                    screen = GptScreen.Settings
+                }) { Text(if (settings.language == "en") "Open Settings" else "Gå til Innstillinger") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissStartupUpdateDialog() }) {
+                    Text(if (settings.language == "en") "Not now" else "Ikke nå")
+                }
+            }
+        )
     }
 }
 

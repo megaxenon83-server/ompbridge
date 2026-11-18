@@ -565,18 +565,18 @@ class ChatRepository(private val settings: SettingsStore) {
         val configured = settings.baseUrl().isNotBlank() && settings.token() != null
         if (!configured) return
         val token = epoch
-        android.util.Log.d("OmpChat", "onAppForeground: alive=${eventJob?.isActive == true && _state.value.connected}")
         val alive = eventJob?.isActive == true && _state.value.connected
+        android.util.Log.d("OmpChat", "onAppForeground: rebuilding stream (wasAlive=$alive)")
         backgroundMonitor?.cancel()
         backgroundMonitor = null
-        if (alive) {
-            resyncAfterReconnect("foreground", token)
-        } else {
-            // Half-open sockets cannot be kept: cancel and rebuild the SSE
-            // loop, then resync. No session is reopened or restarted.
-            startEvents(token)
-            resyncAfterReconnect("foreground-reconnect", token)
-        }
+        // Always rebuild the SSE stream on foreground. This recovers from
+        // half-open sockets and makes the bridge replay any pending UI request
+        // (e.g. a tool approval) that the app may have lost while in background.
+        eventJob?.cancel()
+        eventJob = null
+        _state.update { it.copy(connected = false) }
+        startEvents(token)
+        resyncAfterReconnect("foreground", token)
     }
 
     /**
@@ -1750,7 +1750,12 @@ class ChatRepository(private val settings: SettingsStore) {
             try {
                 client.answer(request, value = value, confirmed = confirmed, cancelled = cancelled, answers = answers)
             } catch (error: Exception) {
-                if (isCurrent(token)) pushNotice(error.message ?: "Kunne ikke svare OMP", "error")
+                if (isCurrent(token)) {
+                    // Restore the prompt if sending failed so the user can retry
+                    // instead of losing it while OMP remains blocked waiting.
+                    _state.update { st -> if (st.request == null) st.copy(request = request) else st }
+                    pushNotice(error.message ?: "Kunne ikke svare OMP", "error")
+                }
             }
         }
     }

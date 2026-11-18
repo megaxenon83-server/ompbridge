@@ -1,0 +1,31 @@
+﻿{
+  "schemaVersion": 1,
+  "product": "Nimay OMP Chat",
+  "releaseTag": "v2.9.31",
+  "publishedAt": "2026-11-17T01:25:00Z",
+  "releaseUrl": "https://github.com/megaxenon83-server/ompbridge/releases/tag/v2.9.31",
+  "notesUrl": "https://github.com/megaxenon83-server/ompbridge/releases/tag/v2.9.31",
+  "app": {
+    "name": "Nimay OMP Chat (Android)",
+    "versionName": "4.2.7",
+    "versionCode": 217,
+    "fileName": "nimay-omp-chat-android-4.2.7.apk",
+    "url": "https://omp.nimay.net/downloads/v2.9.31/nimay-omp-chat-android-4.2.7.apk",
+    "sha256": "eddc04b762b79bb7f14ed0ebf5d5253c185fd96c36c5321c447d8b8fd8422c44",
+    "changelog": "Latest Android client with app icon, provider sync, and stability improvements."
+  },
+  "bridge": {
+    "name": "Nimay OMP Chat Bridge",
+    "version": "2.9.31",
+    "changelog": "Latest bridge release with packaging and branding updates.",
+    "downloads": {
+      "windows": {"label": "Windows Installer (.exe)", "fileName": "Nimay-OMP-Chat-Bridge-Setup-2.9.31.exe", "url": "https://omp.nimay.net/downloads/v2.9.31/Nimay-OMP-Chat-Bridge-Setup-2.9.31.exe", "sha256": "79492117dc201cbc81cf9f0611a7d04e82235cc55a603a1c0b557ea47739702b"},
+      "deb": {"label": "Debian/Ubuntu (.deb)", "fileName": "nimay-omp-chat-bridge_2.9.31_amd64.deb", "url": "https://omp.nimay.net/downloads/v2.9.31/nimay-omp-chat-bridge_2.9.31_amd64.deb", "sha256": "5554a0f6f8dc244ecd53d8e98fe83f35b682e15fc680201b0d1373886c1c1d96"},
+      "rpm": {"label": "Fedora/RHEL (.rpm)", "fileName": "nimay-omp-chat-bridge-2.9.31-1.x86_64.rpm", "url": "https://omp.nimay.net/downloads/v2.9.31/nimay-omp-chat-bridge-2.9.31-1.x86_64.rpm", "sha256": "9a6ce3800981d5bc47252dce5e6eb31521d8b4675fa18b921032403aa1b4a5e3"},
+      "flatpak": {"label": "Flatpak (.flatpak)", "fileName": "com.nimay.OMPChat-2.9.31.flatpak", "url": "https://omp.nimay.net/downloads/v2.9.31/com.nimay.OMPChat-2.9.31.flatpak", "sha256": "ebc22708a4e1d90db45641acab6841d215a898713376ebbe66a7c2013b5b659b"},
+      "linux": {"label": "Linux tarball (.tar.gz)", "fileName": "nimay-omp-chat-bridge-linux-x86_64.tar.gz", "url": "https://omp.nimay.net/downloads/v2.9.31/nimay-omp-chat-bridge-linux-x86_64.tar.gz", "sha256": "3bfae215a40c01da36be984e3c425cf32a120eaaeb27135e7a13bf3255272019"}
+    },
+    "checksumsUrl": "https://omp.nimay.net/downloads/v2.9.31/SHA256SUMS"
+  }
+}
+

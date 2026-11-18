@@ -4,7 +4,7 @@
 #   install.sh              download the release tarball and install it
 #   install.sh --local      install the files that sit next to this script
 #   install.sh uninstall    remove the user installation
-# Version: 2.9.28
+# Version: 2.9.31
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # Note: /etc/os-release also defines VERSION, so the bridge version uses its
 # own variable name to avoid being overwritten by detect_os().
-BRIDGE_VERSION="2.9.28"
+BRIDGE_VERSION="2.9.31"
 REPO="megaxenon83-server/ompbridge"
 INSTALL_DIR="${HOME}/.local/share/Nimay OMP Chat/bridge"
 BRIDGE_DIR="${INSTALL_DIR}/bridge"

@@ -9,13 +9,13 @@
     a stale bridge.
 
 .PARAMETER Version
-    Version written into the installer (default 2.9.28).
+    Version written into the installer (default 2.9.31).
 
 .PARAMETER OutputDir
     Where the .exe is copied (default: repository root / dist).
 #>
 param(
-    [string]$Version = "2.9.29",
+    [string]$Version = "2.9.31",
     [string]$OutputDir = ""
 )
 

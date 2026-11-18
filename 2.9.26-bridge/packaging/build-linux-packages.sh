@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-VERSION="${1:-2.9.29}"
+VERSION="${1:-2.9.31}"
 OUT_DIR="${2:-dist}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK="$(mktemp -d)"

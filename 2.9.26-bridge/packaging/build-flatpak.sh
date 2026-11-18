@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-VERSION="${1:-2.9.29}"
+VERSION="${1:-2.9.31}"
 OUT_DIR="${2:-dist}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$(mkdir -p "${OUT_DIR}" && cd "${OUT_DIR}" && pwd)"

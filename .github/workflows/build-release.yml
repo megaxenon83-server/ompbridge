@@ -12,7 +12,7 @@ on:
         type: string
 
 env:
-  ANDROID_VERSION: 4.2.6
+  ANDROID_VERSION: 4.2.7
   REPO: megaxenon83-server/ompbridge
   ANDROID_PROJECT: android-source/nimayomp-chatgpt-ui-4.2.3
 
@@ -281,6 +281,7 @@ jobs:
             - **Flatpak:** `com.nimay.OMPChat-${{ needs.linux-build.outputs.version }}.flatpak`
             - **Universal tarball:** `nimay-omp-chat-bridge-linux-x86_64.tar.gz`
             - **Android:** `nimay-omp-chat-android-${{ needs.android-build.outputs.version }}.apk`
+            - **Update manifest:** `https://omp.nimay.net/updates/latest.json` (primary, GitHub fallback)
 
             ### Installation
             **Windows:** run the `.exe` installer (per-user, no admin rights needed).
@@ -311,4 +312,94 @@ jobs:
             artifacts/**/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ------------------------------------------------------------ OMP SITE DEPLOY
+  deploy-omp-site:
+    name: Deploy site, downloads and update manifest
+    runs-on: ubuntu-latest
+    needs: [create-release, android-build, linux-build, windows-build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: Prepare release payload and update manifest
+        id: prep
+        env:
+          TAG: ${{ github.ref_name }}
+          ANDROID_VERSION: ${{ needs.android-build.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p deploy/downloads/"$TAG" deploy/downloads/latest deploy/updates deploy/site
+
+          # Collect release artifacts
+          find artifacts -type f \
+            \( -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' \
+               -o -name '*.tar.gz' -o -name '*.apk' -o -name '*SHA256SUMS*' \) -print0 |
+          while IFS= read -r -d '' f; do
+            base="$(basename "$f")"
+            case "$base" in
+              *.sha256) ;; # skip individual sha files from site downloads
+              *) cp "$f" "deploy/downloads/$TAG/$base" ;;
+            esac
+          done
+
+          # Ensure SHA256SUMS present in versioned/latest downloads
+          if [ ! -f "deploy/downloads/$TAG/SHA256SUMS" ]; then
+            find artifacts -name 'SHA256SUMS' -type f -exec cp {} "deploy/downloads/$TAG/SHA256SUMS" \; -quit || true
+          fi
+          cp -f deploy/downloads/"$TAG"/* deploy/downloads/latest/ || true
+
+          # Android versionCode (best effort)
+          ANDROID_CODE="$(grep -m1 'versionCode' "${ANDROID_PROJECT}/app/build.gradle" | grep -oE '[0-9]+' | head -1 || echo 0)"
+
+          node scripts/generate-omp-update-manifest.mjs \
+            --artifacts artifacts \
+            --tag "$TAG" \
+            --android-version "$ANDROID_VERSION" \
+            --android-version-code "$ANDROID_CODE" \
+            --base-url "https://omp.nimay.net" \
+            --out deploy/updates/latest.json
+
+          # Site content from repo
+          if [ -d site ]; then cp -a site/. deploy/site/; fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to omp.nimay.net host
+        if: ${{ secrets.OMP_SITE_SSH_HOST != '' && secrets.OMP_SITE_SSH_USER != '' && secrets.OMP_SITE_SSH_KEY != '' && secrets.OMP_SITE_TARGET_DIR != '' }}
+        env:
+          SSH_HOST: ${{ secrets.OMP_SITE_SSH_HOST }}
+          SSH_USER: ${{ secrets.OMP_SITE_SSH_USER }}
+          SSH_KEY: ${{ secrets.OMP_SITE_SSH_KEY }}
+          TARGET_DIR: ${{ secrets.OMP_SITE_TARGET_DIR }}
+          SSH_PORT: ${{ secrets.OMP_SITE_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${SSH_PORT:-22}"
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/omp_site_key
+          chmod 600 ~/.ssh/omp_site_key
+          ssh-keyscan -p "$PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          ssh -i ~/.ssh/omp_site_key -p "$PORT" -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" "mkdir -p '$TARGET_DIR/downloads' '$TARGET_DIR/updates' '$TARGET_DIR/site'"
+
+          rsync -az --delete -e "ssh -i ~/.ssh/omp_site_key -p $PORT -o StrictHostKeyChecking=no" deploy/site/ "$SSH_USER@$SSH_HOST:$TARGET_DIR/site/"
+          rsync -az -e "ssh -i ~/.ssh/omp_site_key -p $PORT -o StrictHostKeyChecking=no" deploy/downloads/ "$SSH_USER@$SSH_HOST:$TARGET_DIR/downloads/"
+          rsync -az -e "ssh -i ~/.ssh/omp_site_key -p $PORT -o StrictHostKeyChecking=no" deploy/updates/ "$SSH_USER@$SSH_HOST:$TARGET_DIR/updates/"
+
+          echo "Deployed ${{ github.ref_name }} to $SSH_HOST:$TARGET_DIR"
+
+      - name: Skip deploy (secrets not configured)
+        if: ${{ !(secrets.OMP_SITE_SSH_HOST != '' && secrets.OMP_SITE_SSH_USER != '' && secrets.OMP_SITE_SSH_KEY != '' && secrets.OMP_SITE_TARGET_DIR != '') }}
+        run: |
+          echo "OMP site deploy skipped: configure OMP_SITE_SSH_HOST, OMP_SITE_SSH_USER, OMP_SITE_SSH_KEY, OMP_SITE_TARGET_DIR (and optional OMP_SITE_SSH_PORT) secrets to enable automatic publishing to omp.nimay.net."
 

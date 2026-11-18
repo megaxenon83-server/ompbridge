@@ -70,6 +70,8 @@ import com.omp.chat.data.AppSettings
 import com.omp.chat.data.ModelInfo
 import com.omp.chat.data.RepoState
 import com.omp.chat.data.VoiceEngineList
+import com.omp.chat.data.update.UpdateCheckState
+import com.omp.chat.data.update.UpdateUiState
 import com.omp.chat.ui.LocalStrings
 import com.omp.chat.ui.components.ModelSheet
 import com.omp.chat.ui.components.OmpIcons
@@ -85,6 +87,9 @@ import com.omp.chat.ui.theme.VariantColors.sidebar
 import com.omp.chat.ui.theme.VariantColors.textPrimary
 import com.omp.chat.ui.theme.VariantColors.textSecondary
 import com.omp.chat.ui.theme.VariantColors.userBubble
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -121,7 +126,11 @@ fun SettingsScreen(
     onPinMessagesEnabled: (Boolean) -> Unit = {},
     onWolServiceUrl: (String) -> Unit = {},
     onActivityDetailLevel: (Int) -> Unit = {},
-    onOpenApiProviders: () -> Unit = {}
+    onOpenApiProviders: () -> Unit = {},
+    updateState: UpdateUiState = UpdateUiState(),
+    onCheckUpdates: () -> Unit = {},
+    onInstallUpdate: () -> Unit = {},
+    onOpenRelease: () -> Unit = {}
 ) {
     val strings = LocalStrings.current
     val scope = rememberCoroutineScope()
@@ -140,9 +149,7 @@ fun SettingsScreen(
     var gotifyShowToken by remember { mutableStateOf(false) }
     var gotifyStatus by remember { mutableStateOf("") }
 
-    var updateStatus by remember { mutableStateOf("") }
-    var updateInfo by remember { mutableStateOf<com.omp.chat.data.UpdateInfo?>(null) }
-    var showUpdate by remember { mutableStateOf(false) }
+    // Update state is provided by ViewModel (omp.nimay.net primary, GitHub fallback)
 
     // Vis stemmer fra bridge (oppdateres når brukeren laster dem inn)
     LaunchedEffect(state.voiceEngines) {
@@ -429,71 +436,6 @@ fun SettingsScreen(
                         onCheckedChange = { onActivityDetailLevel(if (it) 1 else 0) }
                     )
                 }
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Oppdateringer", style = MaterialTheme.typography.bodyMedium, color = scheme.onSurface)
-                        Text(
-                            updateInfo?.let { "Nyeste: ${it.androidVersion} (kode ${it.androidVersionCode})" }
-                                ?: "Installert: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = scheme.onSurface
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = {
-                            scope.launch {
-                                val info = withContext(Dispatchers.IO) {
-                                    com.omp.chat.data.UpdateChecker.fetch(ctx)
-                                }
-                                updateInfo = info
-                                if (info == null) {
-                                    updateStatus = "Kunne ikke hente oppdateringer"
-                                } else if (info.error.isNotBlank()) {
-                                    updateStatus = "Kunne ikke hente oppdateringer: ${info.error}"
-                                } else if (info.available) {
-                                    updateStatus = "Ny versjon ${info.androidVersion} tilgjengelig"
-                                } else {
-                                    updateStatus = "Du har nyeste versjon"
-                                }
-                                showUpdate = true
-                            }
-                        }) { Text("Se etter oppdateringer", color = VariantColors.accent) }
-                        val currentInfo = updateInfo
-                        if (currentInfo?.available == true && currentInfo.androidUrl.isNotBlank()) {
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        updateStatus = "Laster ned oppdatering…"
-                                        val file = withContext(Dispatchers.IO) {
-                                            com.omp.chat.data.UpdateChecker.downloadApk(ctx, currentInfo!!.androidUrl)
-                                        }
-                                        if (file != null) {
-                                            com.omp.chat.data.UpdateChecker.installApk(ctx, file)
-                                        } else {
-                                            updateStatus = "Nedlasting mislyktes"
-                                        }
-                                    }
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Installer", style = MaterialTheme.typography.labelMedium)
-                            }
-                        }
-                    }
-                    if (updateStatus.isNotBlank()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            updateStatus,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = scheme.onSurface
-                        )
-                    }
-                }
-                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.6f))
                 HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.6f))
                 Row(
                     Modifier
@@ -513,6 +455,97 @@ fun SettingsScreen(
                         MiniChoice("nb-NO", settings.speechLanguage == "nb-NO") { onSpeechLanguage("nb-NO") }
                         MiniChoice("en-US", settings.speechLanguage == "en-US") { onSpeechLanguage("en-US") }
                     }
+                }
+            }
+
+            // ----------------------------------------------------- updates
+            SectionLabel(if (strings.lang == "en") "Updates" else "Oppdateringer", Modifier.padding(top = 10.dp))
+            SettingsCard {
+                val res = updateState.result
+                val fmt = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+                val lastChecked = if (updateState.lastCheckedAt > 0L) fmt.format(Date(updateState.lastCheckedAt)) else (if (strings.lang == "en") "Never" else "Aldri")
+
+                Text(if (strings.lang == "en") "Android app" else "Android-app", style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
+                Text(
+                    (if (strings.lang == "en") "Installed: " else "Installert: ") + "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant
+                )
+                val appStatus = when {
+                    updateState.checking -> if (strings.lang == "en") "Checking for updates?" else "Sjekker etter oppdateringer?"
+                    res?.error?.isNotBlank() == true && res.manifest == null -> if (strings.lang == "en") "Could not check updates" else "Kunne ikke sjekke oppdateringer"
+                    res?.appUpdateAvailable == true -> (if (strings.lang == "en") "New version available: " else "Ny versjon tilgjengelig: ") + res.latestAppVersion
+                    res != null -> if (strings.lang == "en") "Up to date" else "Oppdatert"
+                    else -> if (strings.lang == "en") "Not checked yet" else "Ikke sjekket enn?"
+                }
+                Text(appStatus, style = MaterialTheme.typography.labelSmall, color = if (res?.appUpdateAvailable == true) VariantColors.accent else scheme.onSurface)
+
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = scheme.outlineVariant.copy(alpha = 0.6f))
+                Spacer(Modifier.height(10.dp))
+
+                Text(if (strings.lang == "en") "Bridge (PC)" else "Bridge (PC)", style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
+                val installedBridge = state.bridgeVersion.ifBlank { if (strings.lang == "en") "Unknown (not connected)" else "Ukjent (ikke tilkoblet)" }
+                Text(
+                    (if (strings.lang == "en") "Installed on PC: " else "Installert p? PC: ") + installedBridge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant
+                )
+                val bridgeStatus = when {
+                    updateState.checking -> if (strings.lang == "en") "Checking?" else "Sjekker?"
+                    res?.latestBridgeVersion?.isNotBlank() == true && res.bridgeUpdateAvailable -> (if (strings.lang == "en") "New bridge version available: " else "Ny bridge-versjon tilgjengelig: ") + res.latestBridgeVersion
+                    res?.latestBridgeVersion?.isNotBlank() == true && state.bridgeVersion.isNotBlank() -> (if (strings.lang == "en") "Up to date (${res.latestBridgeVersion})" else "Oppdatert (${res.latestBridgeVersion})")
+                    res?.latestBridgeVersion?.isNotBlank() == true -> (if (strings.lang == "en") "Latest available: ${res.latestBridgeVersion} (connect to compare)" else "Nyeste tilgjengelig: ${res.latestBridgeVersion} (koble til for ? sammenligne)")
+                    res?.error?.isNotBlank() == true && res.manifest == null -> if (strings.lang == "en") "Could not check updates" else "Kunne ikke sjekke oppdateringer"
+                    else -> if (strings.lang == "en") "Not checked yet" else "Ikke sjekket enn?"
+                }
+                Text(bridgeStatus, style = MaterialTheme.typography.labelSmall, color = if (res?.bridgeUpdateAvailable == true) VariantColors.accent else scheme.onSurface)
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    (if (strings.lang == "en") "Last checked: " else "Sist sjekket: ") + lastChecked,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant
+                )
+                if (res?.error?.isNotBlank() == true) {
+                    Text(res.error, style = MaterialTheme.typography.labelSmall, color = VariantColors.error)
+                }
+                if (updateState.installProgress.isNotBlank()) {
+                    Text(updateState.installProgress, style = MaterialTheme.typography.labelSmall, color = scheme.onSurfaceVariant)
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = onCheckUpdates,
+                        enabled = !updateState.checking,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (updateState.checking) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (strings.lang == "en") "Check for updates" else "Sjekk etter oppdateringer", style = MaterialTheme.typography.labelMedium)
+                    }
+                    if (res?.appUpdateAvailable == true && res.manifest?.app?.url?.isNotBlank() == true) {
+                        OutlinedButton(
+                            onClick = onInstallUpdate,
+                            enabled = !updateState.installing,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if (strings.lang == "en") "Download & install" else "Last ned og installer", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+                if (res?.bridgeUpdateAvailable == true) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (strings.lang == "en") "A new bridge version is available for your PC. Install it from https://omp.nimay.net or GitHub Releases." else "En ny bridge-versjon er tilgjengelig for PC-en din. Installer fra https://omp.nimay.net eller GitHub Releases.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant
+                    )
                 }
             }
 

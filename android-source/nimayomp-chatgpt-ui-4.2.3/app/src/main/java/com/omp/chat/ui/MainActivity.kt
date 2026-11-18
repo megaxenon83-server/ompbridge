@@ -165,49 +165,6 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            var updateInfo by remember { mutableStateOf<com.omp.chat.data.UpdateInfo?>(null) }
-
-            LaunchedEffect(Unit) {
-                val info = withContext(Dispatchers.IO) {
-                    com.omp.chat.data.UpdateChecker.fetch(this@MainActivity)
-                }
-                if (info != null && info.available) {
-                    updateInfo = info
-                }
-            }
-
-            if (updateInfo != null) {
-                androidx.compose.material3.AlertDialog(
-                    onDismissRequest = { updateInfo = null },
-                    title = { Text("Ny versjon tilgjengelig") },
-                    confirmButton = {
-                        androidx.compose.material3.TextButton(
-                            onClick = {
-                                val info = updateInfo
-                                updateInfo = null
-                                val url = info!!.androidUrl
-                                if (url.isNotBlank()) {
-                                    val intent = android.content.Intent(Intent.ACTION_VIEW).apply {
-                                        data = android.net.Uri.parse(url)
-                                    }
-                                    startActivity(intent)
-                                }
-                            }
-                        ) { Text("Last ned") }
-                    },
-                    dismissButton = {
-                        androidx.compose.material3.TextButton(onClick = { updateInfo = null }) { Text("Senere") }
-                    },
-                    text = {
-                        val info = updateInfo
-                        Text(
-                            "Versjon ${info!!.androidVersion} (kode ${info!!.androidVersionCode}) er tilgjengelig.",
-                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                )
-            }
-
             AppRoot(
                 viewModel = viewModel,
                 speechText = speechText,

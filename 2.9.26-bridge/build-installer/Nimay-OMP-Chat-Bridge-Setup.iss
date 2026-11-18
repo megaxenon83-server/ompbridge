@@ -1,10 +1,10 @@
 ﻿; ---------------------------------------------------------------------------
-; Nimay OMP Chat Bridge v2.9.29 - clean per-user installer
+; Nimay OMP Chat Bridge v2.9.31 - clean per-user installer
 ; No voice/STT/TTS installers, admin, SYSTEM service or Program Files.
 ; ---------------------------------------------------------------------------
 
 #define MyAppName "Nimay OMP Chat Bridge"
-#define MyAppVersion "2.9.28"
+#define MyAppVersion "2.9.31"
 #define MyAppPublisher "Nimay"
 #define Payload "payload"
 

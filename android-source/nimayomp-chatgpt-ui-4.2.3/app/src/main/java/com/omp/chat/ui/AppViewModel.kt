@@ -18,6 +18,10 @@ import com.omp.chat.data.TerminalTab
 import com.omp.chat.data.WolSender
 import com.omp.chat.data.SettingsStore
 import com.omp.chat.data.VoiceCallEngine
+import com.omp.chat.data.update.ReleaseUpdateChecker
+import com.omp.chat.data.update.UpdateCheckState
+import com.omp.chat.data.update.UpdateUiState
+import com.omp.chat.util.Notifier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.omp.chat.ui.components.Attachment
@@ -66,6 +70,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _modelsLoading = MutableStateFlow(false)
     val modelsLoading: StateFlow<Boolean> = _modelsLoading.asStateFlow()
+
+    private val _updateState = MutableStateFlow(UpdateUiState(lastCheckedAt = ReleaseUpdateChecker.lastCheckAt(application)))
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
 
     init {
         // Migrer eksisterende enkelt-PC til profil-listen.
@@ -121,15 +128,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
-        // Periodisk oppdateringssjekk (Etappe 8)
+        // Autosjekk for oppdateringer ved start (24t cooldown)
         viewModelScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(6 * 60 * 60 * 1000L)
-                com.omp.chat.data.UpdateChecker.fetch(application)?.let { info ->
-                    if (info.androidVersionCode > 0) {
-                        // notify via toast if newer (simple check: version name differs)
-                        _toast.value = "Ny versjon tilgjengelig: ${info.androidVersion}"
-                    }
+            maybeAutoCheckUpdates()
+        }
+        // Re-evaluer bridge-oppdatering når bridge-versjon blir kjent
+        viewModelScope.launch {
+            state.collect { st ->
+                if (st.connected && st.bridgeVersion.isNotBlank()) {
+                    maybeNotifyBridgeUpdate(st.bridgeVersion)
                 }
             }
         }
@@ -789,6 +796,106 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // also try active bridge via repository (fallback)
             repository.saveGotifyConfig(enabled, server, effectiveToken, events)
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Updates (omp.nimay.net primary, GitHub fallback)
+    // -----------------------------------------------------------------------
+
+    fun maybeAutoCheckUpdates() {
+        val ctx = getApplication<Application>()
+        if (!ReleaseUpdateChecker.shouldAutoCheck(ctx)) return
+        checkForUpdates(showDialogIfAvailable = true)
+    }
+
+    fun checkForUpdates(showDialogIfAvailable: Boolean = false) {
+        val ctx = getApplication<Application>()
+        val installedBridge = state.value.bridgeVersion
+        viewModelScope.launch {
+            _updateState.value = _updateState.value.copy(checking = true, state = UpdateCheckState.CHECKING, installProgress = "")
+            val result = withContext(Dispatchers.IO) {
+                ReleaseUpdateChecker.check(ctx, installedBridge)
+            }
+            val hasAny = result.appUpdateAvailable || result.bridgeUpdateAvailable
+            val newState = when {
+                result.error.isNotBlank() && result.manifest == null -> UpdateCheckState.ERROR
+                hasAny -> UpdateCheckState.UPDATE_AVAILABLE
+                else -> UpdateCheckState.UP_TO_DATE
+            }
+            val showDialog = showDialogIfAvailable &&
+                (result.appUpdateAvailable || result.bridgeUpdateAvailable) &&
+                !_updateState.value.startupDialogDismissedThisSession
+            _updateState.value = _updateState.value.copy(
+                checking = false,
+                state = newState,
+                result = result,
+                lastCheckedAt = ReleaseUpdateChecker.lastCheckAt(ctx),
+                showStartupDialog = showDialog
+            )
+            if (result.bridgeUpdateAvailable) {
+                maybeNotifyBridgeUpdate(result.latestBridgeVersion, result = result)
+            }
+        }
+    }
+
+    fun dismissStartupUpdateDialog() {
+        _updateState.value = _updateState.value.copy(showStartupDialog = false, startupDialogDismissedThisSession = true)
+    }
+
+    fun consumeStartupUpdateDialogForSettings() {
+        _updateState.value = _updateState.value.copy(showStartupDialog = false)
+    }
+
+    fun installAppUpdate() {
+        val ctx = getApplication<Application>()
+        val info = _updateState.value.result?.manifest?.app ?: return
+        if (info.url.isBlank()) {
+            _toast.value = "No download URL available"
+            return
+        }
+        viewModelScope.launch {
+            _updateState.value = _updateState.value.copy(installing = true, installProgress = "Preparing download…")
+            val file = withContext(Dispatchers.IO) {
+                ReleaseUpdateChecker.downloadApk(ctx, info.url) { msg ->
+                    viewModelScope.launch { _updateState.value = _updateState.value.copy(installProgress = msg) }
+                }
+            }
+            if (file == null) {
+                _updateState.value = _updateState.value.copy(installing = false, installProgress = "Download failed")
+                _toast.value = "Download failed"
+                return@launch
+            }
+            if (info.sha256.isNotBlank()) {
+                val actual = withContext(Dispatchers.IO) { ReleaseUpdateChecker.sha256(file) }
+                if (!actual.equals(info.sha256, ignoreCase = true)) {
+                    _updateState.value = _updateState.value.copy(installing = false, installProgress = "Checksum mismatch")
+                    _toast.value = "Update verification failed (checksum mismatch)"
+                    return@launch
+                }
+            }
+            _updateState.value = _updateState.value.copy(installing = false, installProgress = "Starting installer…")
+            ReleaseUpdateChecker.installApk(ctx, file)
+        }
+    }
+
+    private fun maybeNotifyBridgeUpdate(installedOrLatestBridge: String, result: com.omp.chat.data.update.UpdateCheckResult? = _updateState.value.result) {
+        val ctx = getApplication<Application>()
+        val latest = result?.latestBridgeVersion?.ifBlank { null } ?: run {
+            val r = result ?: return
+            r.latestBridgeVersion
+        }
+        if (latest.isBlank()) return
+        val installed = state.value.bridgeVersion
+        val isNewerThanInstalled = installed.isBlank() || ReleaseUpdateChecker.isVersionNewer(latest, installed)
+        if (!isNewerThanInstalled) return
+        val notified = ReleaseUpdateChecker.notifiedBridgeVersion(ctx)
+        if (notified == latest) return
+        ReleaseUpdateChecker.setNotifiedBridgeVersion(ctx, latest)
+        Notifier.notify(
+            ctx,
+            "Ny bridge-versjon tilgjengelig",
+            "Nimay OMP Chat Bridge $latest er tilgjengelig for PC-en din."
+        )
     }
 
     override fun onCleared() {

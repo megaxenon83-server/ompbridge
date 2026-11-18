@@ -23,7 +23,7 @@ import crypto from "node:crypto";
 import { spawn, exec, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const VERSION = "2.9.28";
+const VERSION = "2.9.31";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // Resource monitoring state
@@ -3335,9 +3335,9 @@ async function handle(req, res) {
       case "POST /api/approval": {
         const body = await readBody(req);
         const raw = String(body.mode || "").trim();
-        // OMP forstÃ¥r bare always-ask | always-ask-cached | write | yolo.
+        // OMP forst?r bare always-ask | always-ask-cached | write | yolo.
         // Gamle app-verdier ("default"/"ask") mappes til de reelle modusene,
-        // ellers falt OMP tilbake til Ã¥ spÃ¸rre om alt.
+        // ellers falt OMP tilbake til ? sp?rre om alt.
         const legacy = { default: "write", ask: "yolo" };
         const mode = legacy[raw] || raw;
         const valid = ["always-ask", "always-ask-cached", "write", "yolo"];
@@ -3347,13 +3347,52 @@ async function handle(req, res) {
         CONFIG.approvalMode = mode;
         writeConfig();
         log("info", `Godkjenningsmodus endret til: ${mode}`);
-        // KjÃ¸rende runtimes fikk modus satt ved oppstart: restart de som er
-        // ledig (pÃ¥gÃ¥ende oppgaver berÃ¸res ikke; nye runder bruker ny modus).
+
+        let autoApproved = 0;
+        const pickAllowOption = (request) => {
+          const options = Array.isArray(request?.options) ? request.options.map(String) : [];
+          if (!options.length) return "";
+          const denyRe = /(deny|reject|refuse|decline|cancel|avsl|avvis|nei|no\b)/i;
+          const allowRe = /(allow|approve|accept|yes|always|permit|godkjenn|tillat|ja\b)/i;
+          return options.find((o) => allowRe.test(o) && !denyRe.test(o))
+            || options.find((o) => !denyRe.test(o))
+            || options[0];
+        };
+
+        // N?r "Tillat alt" (yolo) aktiveres: godkjenn ventende
+        // godkjenningsforesp?rsler (confirm/select) slik at blokkerte ?kter
+        // ikke blir st?ende fast. Sp?rsm?l som krever brukerinput
+        // (input/editor/ask) besvares ikke automatisk.
+        if (mode === "yolo") {
+          for (const runtime of runtimes.values()) {
+            if (!runtime.pendingUi || runtime.pendingUi.size === 0) continue;
+            for (const [id, pending] of [...runtime.pendingUi.entries()]) {
+              const method = String(pending?.method || "");
+              let frame = null;
+              if (method === "confirm") {
+                frame = { type: "extension_ui_response", id, confirmed: true };
+              } else if (method === "select") {
+                frame = { type: "extension_ui_response", id, value: pickAllowOption(pending) };
+              }
+              if (!frame) continue;
+              try { runtime.write(frame); } catch {}
+              runtime.pendingUi.delete(id);
+              autoApproved++;
+            }
+          }
+          if (autoApproved > 0) {
+            log("info", `Auto-godkjente ${autoApproved} ventende foresp?rsel(er) etter bytte til yolo`);
+          }
+        }
+
+        // Kj?rende runtimes fikk modus satt ved oppstart: restart de som er
+        // ledige n? (etter eventuell auto-godkjenning). P?g?ende/streamende
+        // oppgaver ber?res ikke; nye runder bruker ny modus.
         let restarted = 0;
         let busyLeft = 0;
         for (const [key, runtime] of runtimes) {
           const busy = Boolean(runtime.state?.isStreaming) || runtime.restarting ||
-            runtime.pendingUi?.size > 0;
+            (runtime.pendingUi?.size > 0);
           if (busy) { busyLeft++; continue; }
           runtime.ready = false;
           try { runtime.child?.kill(); } catch {}
@@ -3361,7 +3400,7 @@ async function handle(req, res) {
           if (runtime.pendingUi) runtime.pendingUi.clear();
           restarted++;
         }
-        return json(res, 200, { ok: true, approvalMode: mode, restarted, runningTasks: busyLeft });
+        return json(res, 200, { ok: true, approvalMode: mode, restarted, runningTasks: busyLeft, autoApproved });
       }
 
       // ---------------------------------------------------------------------------
@@ -3600,7 +3639,7 @@ async function handle(req, res) {
       }
 
       // =========================================================================
-ï»¿      // =========================================================================
+      // =========================================================================
       // Git + filredigering (Etappe 6)
       // =========================================================================
 
