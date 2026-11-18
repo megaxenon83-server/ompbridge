@@ -374,8 +374,7 @@ jobs:
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy to omp.nimay.net host
-        if: ${{ secrets.OMP_SITE_SSH_HOST != '' && secrets.OMP_SITE_SSH_USER != '' && secrets.OMP_SITE_SSH_KEY != '' && secrets.OMP_SITE_TARGET_DIR != '' }}
+      - name: Deploy to omp.nimay.net host (if configured)
         env:
           SSH_HOST: ${{ secrets.OMP_SITE_SSH_HOST }}
           SSH_USER: ${{ secrets.OMP_SITE_SSH_USER }}
@@ -384,6 +383,10 @@ jobs:
           SSH_PORT: ${{ secrets.OMP_SITE_SSH_PORT }}
         run: |
           set -euo pipefail
+          if [ -z "${SSH_HOST:-}" ] || [ -z "${SSH_USER:-}" ] || [ -z "${SSH_KEY:-}" ] || [ -z "${TARGET_DIR:-}" ]; then
+            echo "OMP site deploy skipped: configure OMP_SITE_SSH_HOST, OMP_SITE_SSH_USER, OMP_SITE_SSH_KEY, OMP_SITE_TARGET_DIR (and optional OMP_SITE_SSH_PORT) secrets to enable automatic publishing to omp.nimay.net."
+            exit 0
+          fi
           PORT="${SSH_PORT:-22}"
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/omp_site_key
@@ -397,9 +400,4 @@ jobs:
           rsync -az -e "ssh -i ~/.ssh/omp_site_key -p $PORT -o StrictHostKeyChecking=no" deploy/updates/ "$SSH_USER@$SSH_HOST:$TARGET_DIR/updates/"
 
           echo "Deployed ${{ github.ref_name }} to $SSH_HOST:$TARGET_DIR"
-
-      - name: Skip deploy (secrets not configured)
-        if: ${{ !(secrets.OMP_SITE_SSH_HOST != '' && secrets.OMP_SITE_SSH_USER != '' && secrets.OMP_SITE_SSH_KEY != '' && secrets.OMP_SITE_TARGET_DIR != '') }}
-        run: |
-          echo "OMP site deploy skipped: configure OMP_SITE_SSH_HOST, OMP_SITE_SSH_USER, OMP_SITE_SSH_KEY, OMP_SITE_TARGET_DIR (and optional OMP_SITE_SSH_PORT) secrets to enable automatic publishing to omp.nimay.net."
 
