@@ -4,7 +4,7 @@
 
 Bruk Windows 10 eller 11. Installer [Node.js](https://nodejs.org/) 22 eller nyere, [Oh My Pi](https://github.com/can1357/oh-my-pi) og eventuelt [Git](https://git-scm.com/). Bekreft at `node --version` og `omp --version` virker i en ny terminal.
 
-Kjør installasjonsprogrammet fra [releasen](https://github.com/megaxenon83-server/ompbridge/releases/tag/omp-desktop-0.7.1). Det installerer for gjeldende bruker i `%LOCALAPPDATA%\Nimay\OMPBridge`, starter bridgen med én gang og velger automatisk oppstart som standard. Etter en omstart starter bridgen når denne Windows-brukeren logger inn. Du kan også velge **Start OMP Bridge** i Start-menyen.
+Kjør installasjonsprogrammet fra [releasen](https://github.com/megaxenon83-server/ompbridge/releases/tag/omp-desktop-0.7.2). Det installerer for gjeldende bruker i `%LOCALAPPDATA%\Nimay\OMPBridge`, starter bridgen med én gang og velger automatisk oppstart som standard. Etter en omstart starter bridgen når denne Windows-brukeren logger inn. Du kan også velge **Start OMP Bridge** i Start-menyen.
 
 Windows kan spørre om nettverkstilgang for Node.js. Tillat den på det private nettverket der PC og mobil skal kommunisere. På nye installasjoner er bridge-adressen lokalt `http://127.0.0.1:7778`.
 

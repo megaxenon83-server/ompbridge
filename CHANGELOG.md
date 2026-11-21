@@ -1,5 +1,10 @@
 # Endringslogg
 
+## OMP Desktop 0.7.2 · Android 0.1.7
+
+- **Kopier** og **Les opp** under hver tekstmelding. Opplesingen bruker en lokal systemstemme og kan stoppes fra meldingen.
+- Oppgavelisten vises rett under samtalehodet når tråden har OMP-oppgaver. Den viser ferdige og gjenstående oppgaver og foldes sammen når alt er avsluttet.
+
 ## OMP Desktop 0.7.1 · Android 0.1.6 · OMP Bridge 2.9.33
 
 - Desktop-versjonen vises i topplinjen.

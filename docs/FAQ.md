@@ -18,6 +18,10 @@ Hold inne samtalen på Android eller trykk **⋯**. Gi den nytt navn, arkiver de
 
 En ny prosjektmappe som opprettes fra Android, får Git automatisk når Git er tilgjengelig på PC-en. Mapper inni et repo bruker det repoet.
 
+### Hvordan kopierer jeg en melding eller får den lest opp?
+
+Velg **Kopier** eller **Les opp** under meldingen. Under opplesing vises **Stopp opplesing** på samme sted. Appen bruker en installert lokal systemstemme. Hvis opplesing mangler en stemme, kan du legge til en i taleinnstillingene på enheten.
+
 ### Må jeg legge modellnøkler på telefonen?
 
 Modellene konfigureres i OMP på PC-en. Chat OMP OMP bruker den tilkoblede bridgen. Bruk QR-koden fra Desktop for å pare telefonen.
