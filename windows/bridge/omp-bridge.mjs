@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import turnModule from "./omp-turn-changes.cjs";
 import workspaceModule from "./omp-workspace.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.34";
+const VERSION = "2.9.35";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -849,6 +849,7 @@ class OmpRuntime {
     // Interactive requests (tool approvals, questions) that OMP is waiting on.
     // Kept so a reconnecting app can answer instead of leaving OMP blocked.
     this.pendingUi = new Map();
+    this.working = false;
     this.subscribers = new Set();
     this.ready = false;
     this.sessionFile = "";
@@ -909,6 +910,7 @@ class OmpRuntime {
       }
       this.pending.clear();
       this.pendingUi.clear();
+      this.working = false;
       this.broadcast({ type: "backend", status: "offline", cwd: this.cwd, error: this.stderrTail.slice(-3).join("\n") });
       if (gotifyEnabledFor("omp_error")) sendGotify("OMP frakoblet", `OMP-prosessen stoppet pÃ¥ ${this.cwd}`, 7, `offline:${this.cwd}`).catch(() => {});
     });
@@ -966,7 +968,11 @@ class OmpRuntime {
         !frame.isError && Array.isArray(frame.result?.details?.phases)) {
       this.broadcast({ type: "todo_phases", cwd: this.cwd, sessionFile: this.sessionFile, phases: frame.result.details.phases });
     }
-    if (frame.type === "agent_end" || frame.type === "prompt_result" || frame.type === "session_settled") finishTurn(this);
+    if (frame.type === "agent_start") this.working = true;
+    if (frame.type === "agent_end" || frame.type === "prompt_result" || frame.type === "session_settled") {
+      this.working = false;
+      finishTurn(this);
+    }
     switch (frame.type) {
       case "ready": {
         this.ready = true;
@@ -1369,6 +1375,12 @@ function summariseMessage(message, messageId) {
 // ---------------------------------------------------------------------------
 
 const runtimes = new Map();
+
+function sessionActivity(runtime) {
+  if (!runtime?.ready || !runtime.sessionFile) return null;
+  if (runtime.pendingUi.size) return "waiting";
+  return runtime.working ? "working" : null;
+}
 /* OMP shared chat management */
 const managingProjects = new Set();
 const creatingProjects = new Set();
@@ -2945,7 +2957,18 @@ async function handle(req, res) {
         const sliced = limit == null
           ? sessions.slice(offset)
           : sessions.slice(offset, offset + limit);
-        return json(res, 200, { sessions: sliced, total });
+        const activityByFile = new Map();
+        for (const runtime of runtimes.values()) {
+          const activity = sessionActivity(runtime);
+          if (activity) activityByFile.set(IS_WINDOWS ? runtime.sessionFile.toLowerCase() : runtime.sessionFile, activity);
+        }
+        return json(res, 200, {
+          sessions: sliced.map(session => ({
+            ...session,
+            activity: activityByFile.get(IS_WINDOWS ? session.file.toLowerCase() : session.file) || null,
+          })),
+          total,
+        });
       }
 
       case "GET /api/omp/turns":
@@ -3031,6 +3054,14 @@ async function handle(req, res) {
         }
         try {
           const runtime = await getRuntime(cwd);
+          if (sessionActivity(runtime)) {
+            const isCurrent = samePath(runtime.sessionFile, file);
+            return json(res, 200, {
+              session, messages, cwd: runtime.cwd, readOnly: !isCurrent,
+              state: isCurrent ? { ...publicState(runtime.state), isStreaming: true } : null,
+              reason: isCurrent ? undefined : "OMP jobber i en annen samtale i denne mappen.",
+            });
+          }
           const result = await runtime.rpc("switch_session", { sessionPath: file }, 60000);
           if (result?.cancelled) {
             // OMP refused because the session is bound to a working folder the
@@ -3077,6 +3108,7 @@ async function handle(req, res) {
           });
         }
         const runtime = await getRuntime(cwd);
+        if (sessionActivity(runtime)) return json(res, 409, { error: "OMP jobber allerede i denne mappen." });
         await runtime.rpc("new_session", body.parentSession ? { parentSession: body.parentSession } : {}, 60000);
         const state = await runtime.refreshState();
         const file = runtime.sessionFile;
@@ -3356,10 +3388,6 @@ async function handle(req, res) {
               if (target) break;
             }
           }
-          // Safe fallback: use runtime.sessionFile only if it matches
-          if (!target && runtime.sessionFile && path.resolve(runtime.sessionFile) === resolvedFile) {
-            target = loadSession(resolvedFile);
-          }
           if (!target) return json(res, 404, { error: "Fant ikke samtalen" });
           if (target.cwd && !samePath(target.cwd, cwd)) {
             return json(res, 409, {
@@ -3368,6 +3396,10 @@ async function handle(req, res) {
           }
         }
         const runtime = await getRuntime(cwd);
+        const activity = sessionActivity(runtime);
+        if (activity && (!body.streamingBehavior || (target && !samePath(body.file, runtime.sessionFile)))) {
+          return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
+        }
         if (target && path.resolve(body.file) !== path.resolve(runtime.sessionFile || "")) {
           const switched = await runtime.rpc("switch_session", { sessionPath: path.resolve(body.file) }, 60000);
           if (switched?.cancelled) {
@@ -3391,11 +3423,18 @@ async function handle(req, res) {
           } catch (error) { log("warn", "Endringskort: " + error.message); }
         }
         let ack;
+        if (!inProgress) runtime.working = true;
         try {
           ack = await runtime.rpc("prompt", { message: body.text, ...(images.length ? { images } : {}), ...(body.streamingBehavior ? { streamingBehavior: body.streamingBehavior } : {}) }, 60000);
-          if (ack?.agentInvoked === false && !inProgress) turnChanges.cancel(runtime);
+          if (ack?.agentInvoked === false && !inProgress) {
+            runtime.working = false;
+            turnChanges.cancel(runtime);
+          }
         } catch (error) {
-          if (!inProgress) turnChanges.cancel(runtime);
+          if (!inProgress) {
+            runtime.working = false;
+            turnChanges.cancel(runtime);
+          }
           throw error;
         }
         runtime.lastUsed = Date.now();

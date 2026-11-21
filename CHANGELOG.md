@@ -1,5 +1,11 @@
 # Endringslogg
 
+## OMP Desktop 0.8.1 · Android 0.2.1 · Bridge 2.9.35
+
+- **Aktive samtaler** vises øverst i sidemenyen på Windows og Android. Samtaler som venter på svar fra deg kommer først.
+- Statusen synkroniseres via Bridge. Når OMP er ferdig, går samtalen tilbake til den vanlige prosjektlisten.
+- Samtaler i ulike prosjekter kan kjøre samtidig når det ikke krever at en modell i bruk lastes ut.
+
 ## OMP Desktop 0.8.0 · Android 0.2.0 · Bridge 2.9.34
 
 - Prosjektmapper registrert fra Windows eller Android vises i begge klienter. Delte samtaler oppdateres i den samme tråden.

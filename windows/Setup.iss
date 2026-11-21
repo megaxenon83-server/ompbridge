@@ -1,4 +1,4 @@
-#define BridgeVersion "2.9.34"
+#define BridgeVersion "2.9.35"
 
 [Setup]
 AppId=ChatOmpOmpBridge
