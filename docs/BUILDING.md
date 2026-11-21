@@ -4,4 +4,4 @@ Installer Inno Setup og kompiler `windows/Setup.iss` med `ISCC.exe`. Den ferdige
 
 Kjør `node --check windows/bridge/omp-bridge.mjs` før bygg. Test i en egen installasjonsmappe med en ledig port, og verifiser autostart-snarveien, helseendepunktet og avinstallasjon. Test også at en aktiv OMP-oppgave kan fullføre før en oppgradering.
 
-Releasen bruker separat tagg `chat-omp-omp-v0.1.5` for å skille publiseringen fra den eldre automatiske releaserutinen. SHA-256-summer følger med nedlastingene.
+Releasen bruker separat tagg `chat-omp-omp-v0.1.6` for å skille publiseringen fra den eldre automatiske releaserutinen. SHA-256-summer følger med nedlastingene.

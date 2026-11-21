@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 import turnModule from "./omp-turn-changes.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.32";
+const VERSION = "2.9.33";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -2882,6 +2882,7 @@ async function handle(req, res) {
       }
 
       case "GET /api/omp/turns":
+      case "POST /api/omp/turn-check":
       case "GET /api/omp/turn-diff":
       case "POST /api/omp/turn-undo": {
         const body = req.method === "POST" ? await readBody(req) : null;
@@ -2899,7 +2900,16 @@ async function handle(req, res) {
           return json(res, 404, { error: "Fant ikke den delte tråden." });
         }
         if (route === "GET /api/omp/turns") {
-          return json(res, 200, { cards: turnChanges.list(file), todos: turnModule.todoFromEntries(entriesFor(file)) });
+          return json(res, 200, {
+            cards: turnChanges.list(file), todos: turnModule.todoFromEntries(entriesFor(file)), checks: turnChanges.checks(file)
+          });
+        }
+        /* OMP shared project checks */
+        if (route === "POST /api/omp/turn-check") {
+          const userTurns = toAppMessages(entriesFor(file)).filter(item => item.role === "user").length;
+          if (body.check?.userIndex > userTurns) return json(res, 400, { error: "Fant ikke svaret for denne testkjøringen." });
+          try { return json(res, 200, { check: turnChanges.saveCheck(file, body.check) }); }
+          catch (error) { return json(res, 400, { error: error.message }); }
         }
         try {
           if (route === "GET /api/omp/turn-diff") {

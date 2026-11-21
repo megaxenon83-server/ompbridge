@@ -1,14 +1,14 @@
 <h1 align="center">Chat OMP OMP</h1>
 <p align="center"><strong>Oh My Pi på Windows. Prosjektene dine tilgjengelige fra Android.</strong></p>
-<p align="center"><a href="https://megaxenon83-server.github.io/ompbridge/">Prosjektsiden</a> · <a href="https://github.com/megaxenon83-server/ompbridge/releases/tag/chat-omp-omp-v0.1.5">Ny release</a> · <a href="docs/FAQ.md">Vanlige spørsmål</a></p>
+<p align="center"><a href="https://megaxenon83-server.github.io/ompbridge/">Prosjektsiden</a> · <a href="https://github.com/megaxenon83-server/ompbridge/releases/tag/chat-omp-omp-v0.1.6">Ny release</a> · <a href="docs/FAQ.md">Vanlige spørsmål</a></p>
 
 ## Last ned
 
 | Komponent | Bruk |
 | --- | --- |
-| [OMP Bridge 2.9.32 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.5/OMP-Bridge-Setup-2.9.32.exe) | Installerer bridgen per bruker og starter den automatisk når du logger på Windows. |
-| [Chat OMP OMP 0.1.5 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.5/Chat-OMP-OMP-Android-0.1.5.apk) | Åpne og fortsett samtaler, gjennomgå kodeendringer og administrer prosjekter fra mobilen. |
-| [OMP Desktop 0.6.1 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.5/OMP-Desktop-0.6.1-win-x64.zip) | Bruk OMP på PC-en og generer en engangskode for Android. |
+| [OMP Bridge 2.9.33 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.6/OMP-Bridge-Setup-2.9.33.exe) | Installerer bridgen per bruker og starter den automatisk når du logger på Windows. |
+| [Chat OMP OMP 0.1.6 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.6/Chat-OMP-OMP-Android-0.1.6.apk) | Åpne og fortsett samtaler, gjennomgå kodeendringer og administrer prosjekter fra mobilen. |
+| [OMP Desktop 0.7.0 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.6/OMP-Desktop-0.7.0-win-x64.zip) | Bruk OMP på PC-en og generer en engangskode for Android. |
 
 ## Kom i gang
 
@@ -19,10 +19,13 @@
 
 ## Fra første melding til kodegjennomgang
 
+- **Kjør prosjekt → Pek og be om endring → Gjennomgå.** Opplev lokale nettsider i Desktop-panelet, send et merket element som kontekst og åpne diffen ved siden av samtalen.
+- Kjør prosjektets tester i panelet og åpne det delte utfallet fra Android. Dette krever Bridge 2.9.33 og Android 0.1.6.
+
 - Fortsett samme samtale på PC og mobil. Navnebytter går begge veier, og arkiv og papirkurv oppdaterer samtalelisten på PC-en.
 - Se OMPs oppgaveliste mens den jobber. Åpne endringskort for å se diff og antall linjer lagt til og fjernet per fil.
 - Opprett en prosjektmappe på PC-en med Androids mappevelger. Nye mapper får lokal Git-sporing der Git er tilgjengelig.
 
-[Installasjonsveiledning](docs/INSTALL.md) · [FAQ](docs/FAQ.md) · [Sikkerhet](SECURITY.md) · [Bygg installer](docs/BUILDING.md)
+[Installasjonsveiledning](docs/INSTALL.md) · [Prosjektpanelet](docs/PROJECT-PANEL.md) · [FAQ](docs/FAQ.md) · [Sikkerhet](SECURITY.md) · [Bygg installer](docs/BUILDING.md)
 
 Bridge gir en paret klient tilgang til OMP og prosjektfiler på Windows. Bruk et betrodd lokalnett eller VPN. Hold bridge-porten utenfor offentlig internett.

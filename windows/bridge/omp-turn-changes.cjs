@@ -162,6 +162,22 @@ function createTurnChanges(directory) {
   }
 
   return {
+    checks(session) {
+      try { return read(path.join(vault(session), 'checks.json')); }
+      catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+    },
+    saveCheck(session, check) {
+      const { id, at, duration, exitCode, userIndex } = check || {};
+      if (!/^[a-f0-9-]{36}$/.test(id || '') || !Number.isSafeInteger(at) || at < 0 ||
+          !Number.isSafeInteger(duration) || duration < 0 ||
+          !(exitCode === null || (Number.isSafeInteger(exitCode) && exitCode >= 0)) ||
+          !Number.isSafeInteger(userIndex) || userIndex < 0) throw new Error('Ugyldig testresultat.');
+      const record = { id, at, duration, exitCode, userIndex };
+      const checks = this.checks(session).filter(item => item.id !== id);
+      fs.mkdirSync(vault(session), { recursive: true });
+      writeRecord(path.join(vault(session), 'checks.json'), [...checks, record].sort((a, b) => a.at - b.at).slice(-24));
+      return record;
+    },
     isActive(owner) { return active.has(owner); },
     invalidate(owner) { if (active.has(owner)) active.get(owner).uncertain = true; },
     start(owner, cwd, userIndex) {
