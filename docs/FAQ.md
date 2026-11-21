@@ -22,6 +22,10 @@ En ny prosjektmappe som opprettes fra Android, får Git automatisk når Git er t
 
 Velg **Kopier** eller **Les opp** under meldingen. Under opplesing vises **Stopp opplesing** på samme sted. Appen bruker en installert lokal systemstemme. Hvis opplesing mangler en stemme, kan du legge til en i taleinnstillingene på enheten.
 
+### Hvordan slår jeg på enhetsstyring?
+
+Oppgrader til Bridge 2.9.34 og velg et delt prosjekt. Slå på **Enhetsstyring** under **Plugins**, og be OMP om en konkret handling. Bekreft handlingen i klienten. På Windows velger du vinduet som ligger fremst. Android krever én tilkoblet og godkjent ADB-enhet eller emulator på PC-en. Godkjente skjermbilder behandles av modellen du har valgt.
+
 ### Må jeg legge modellnøkler på telefonen?
 
 Modellene konfigureres i OMP på PC-en. Chat OMP OMP bruker den tilkoblede bridgen. Bruk QR-koden fra Desktop for å pare telefonen.

@@ -24,8 +24,9 @@ import { spawn, exec, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import turnModule from "./omp-turn-changes.cjs";
+import workspaceModule from "./omp-workspace.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.33";
+const VERSION = "2.9.34";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -175,6 +176,7 @@ const OMP_BIN = (() => {
 const _ompBinParts = OMP_BIN.includes("|") ? OMP_BIN.split("|") : [OMP_BIN, null];
 const OMP_BIN_EXEC = _ompBinParts[0];
 const OMP_BIN_ENTRY = _ompBinParts[1];
+const workspace = workspaceModule.createWorkspace(HERE, OMP_BIN_EXEC, OMP_BIN_ENTRY);
 const HOME = os.homedir();
 let SESSIONS_ROOT = path.join(HOME, ".omp", "agent", "sessions");
 let TRASH_ROOT = path.join(SESSIONS_ROOT, "_ompchat-trash");
@@ -871,6 +873,8 @@ class OmpRuntime {
     const args = OMP_BIN_ENTRY
       ? [OMP_BIN_ENTRY, "--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT]
       : ["--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT];
+    const resources = workspace.spawnOptions(this.cwd);
+    args.push(...resources.args);
     // OMP-moduser: always-ask | always-ask-cached | write | yolo ("write" =
     // spÃ¸r ved sletting/store endringer; "yolo" = godkjenn alt automatisk).
     if (CONFIG.approvalMode && CONFIG.approvalMode !== "default") {
@@ -879,7 +883,7 @@ class OmpRuntime {
     log("info", `spawning omp rpc for ${this.cwd} (approval=${CONFIG.approvalMode}) using ${OMP_BIN_EXEC}`);
     const child = spawn(OMP_BIN_EXEC, args, {
       cwd: this.cwd,
-      env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      env: { ...process.env, ...resources.env, NO_COLOR: "1", FORCE_COLOR: "0" },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -952,6 +956,10 @@ class OmpRuntime {
   }
 
   onFrame(frame) {
+    if (frame.type === "command_output" && this.commandOutput) {
+      this.commandOutput.push(frame.text || "");
+      return;
+    }
     this.lastUsed = Date.now();
     turnChanges.observe(this, frame);
     if (frame.type === "tool_execution_end" && frame.toolName === "todo" &&
@@ -1127,6 +1135,16 @@ class OmpRuntime {
     }
   }
 
+  async localCommand(message) {
+    if (this.commandOutput) throw new Error("En OMP-administrasjonskommando pågår.");
+    this.commandOutput = [];
+    try {
+      const result = await this.rpc("prompt", { message });
+      if (result?.agentInvoked !== false) throw new Error("OMP returnerte ikke et lokalt kommandosvar.");
+      return this.commandOutput.join("\n");
+    } finally { this.commandOutput = null; }
+  }
+
   onUiRequest(frame) {
     const method = frame.method;
     if (method === "cancel") {
@@ -1167,7 +1185,7 @@ class OmpRuntime {
     };
     this.pendingUi.set(frame.id, request);
     this.broadcast(request);
-    if (gotifyEnabledFor("approval") && (method === "select" || method === "confirm")) {
+    if (frame.title !== "Enhetsstyring · godkjenning" && gotifyEnabledFor("approval") && (method === "select" || method === "confirm")) {
       sendGotify("Godkjenning nÃ¸dvendig", `${frame.title || "OMP"}: ${frame.message || ""}`.trim(), 7, `approval:${this.cwd}:${frame.id}`).catch(() => {});
     }
     if (gotifyEnabledFor("agent_waiting") && (method === "input" || method === "editor" || method === "ask")) {
@@ -1211,7 +1229,7 @@ class OmpRuntime {
   }
 
   broadcast(event) {
-    const payload = { ...event, ts: Date.now() };
+    const payload = { sessionFile: this.sessionFile || undefined, ...event, ts: Date.now() };
     for (const subscriber of this.subscribers) {
       try {
         subscriber(payload);
@@ -2548,6 +2566,7 @@ async function handle(req, res) {
           approvalMode: CONFIG.approvalMode,
           allowBash: CONFIG.allowBash,
           sharedChatManagement: true,
+          sharedWorkspace: true,
           runtimes: [...runtimes.values()].map((r) => ({
             cwd: r.cwd,
             ready: r.ready,
@@ -2572,7 +2591,55 @@ async function handle(req, res) {
         return json(res, 200, { projects: projects() });
 
       case "GET /api/projects/registry": {
-        return json(res, 200, { projects: registeredProjects() });
+        return json(res, 200, { projects: registeredProjects(), sharedWorkspace: true });
+      }
+
+      case "POST /api/projects/register": {
+        const body = await readBody(req);
+        const dir = existingDir(body.path);
+        if (!dir || samePath(dir, path.parse(dir).root) ||
+            (process.env.SystemRoot && (samePath(dir, process.env.SystemRoot) ||
+              managedProjectKey(dir).startsWith(managedProjectKey(process.env.SystemRoot) + path.sep)))) {
+          return json(res, 400, { error: "Velg en eksisterende prosjektmappe på PC-en." });
+        }
+        const list = loadProjects();
+        let project = list.find(item => samePath(item.path, dir));
+        if (!project) {
+          project = { id: "proj-" + crypto.randomUUID(), name: path.basename(dir), path: dir,
+            hidden: false, auto: false, createdAt: Date.now() };
+          list.push(project);
+          saveProjects(list);
+        }
+        return json(res, 200, { project });
+      }
+
+      case "GET /api/omp/workspace/resources":
+      case "POST /api/omp/workspace/resources":
+      case "GET /api/omp/workspace/plugins":
+      case "POST /api/omp/workspace/plugins": {
+        const request = req.method === "POST" ? await readBody(req) : null;
+        const cwd = existingDir(request?.cwd || url.searchParams.get("cwd"));
+        if (!cwd) return json(res, 400, { error: "Velg et prosjekt først." });
+        const plugins = url.pathname.endsWith("/plugins");
+        if (plugins && !request) return json(res, 200, await workspace.plugins(cwd));
+        const runtime = await getRuntime(cwd);
+        const key = managedProjectKey(cwd);
+        if (managingProjects.has(key) || runtime.state?.isStreaming || runtime.pendingUi.size || turnChanges.isActive(runtime)) {
+          return json(res, 409, { error: "Vent til OMP er ferdig i dette prosjektet." });
+        }
+        managingProjects.add(key);
+        try {
+          const agent = process.env.PI_CODING_AGENT_DIR || OMP_AGENT_DIR;
+          if (!request) return json(res, 200, await workspace.resources(runtime, agent));
+          if (plugins) await workspace.plugins(cwd, request);
+          else await workspace.toggle(runtime, request, agent);
+          await runtime.stop();
+          if (runtimes.get(runtimeKey(cwd)) === runtime) runtimes.delete(runtimeKey(cwd));
+          workspace.pruneOverlays(cwd);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 400, { error: error.message });
+        } finally { managingProjects.delete(key); }
       }
 
       case "POST /api/projects/create": {
@@ -3499,6 +3566,7 @@ async function handle(req, res) {
           for (const runtime of runtimes.values()) {
             if (!runtime.pendingUi || runtime.pendingUi.size === 0) continue;
             for (const [id, pending] of [...runtime.pendingUi.entries()]) {
+              if (pending.title === "Enhetsstyring · godkjenning") continue;
               const method = String(pending?.method || "");
               let frame = null;
               if (method === "confirm") {

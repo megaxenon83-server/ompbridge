@@ -1,4 +1,4 @@
-#define BridgeVersion "2.9.33"
+#define BridgeVersion "2.9.34"
 
 [Setup]
 AppId=ChatOmpOmpBridge
@@ -32,6 +32,10 @@ Source: "Bridge.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Bridge.ps1"; Flags: dontcopy
 Source: "bridge\omp-bridge.mjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\omp-turn-changes.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "bridge\omp-workspace.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "bridge\workspace-extension.mjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "bridge\device-action.ps1"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "bridge\skills\device-control\SKILL.md"; DestDir: "{app}\bridge\skills\device-control"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

@@ -1,5 +1,11 @@
 # Endringslogg
 
+## OMP Desktop 0.8.0 · Android 0.2.0 · Bridge 2.9.34
+
+- Prosjektmapper registrert fra Windows eller Android vises i begge klienter. Delte samtaler oppdateres i den samme tråden.
+- Delte tråder har innstillinger for OMP-skills, MCP-servere og verktøy i begge klienter.
+- Installerte OMP-plugins kan slås av og på. Den innebygde Enhetsstyring-pluginen legger til en OMP-skill og et verktøy for godkjente skjermbilder og inndata.
+
 ## OMP Desktop 0.7.2 · Android 0.1.7
 
 - **Kopier** og **Les opp** under hver tekstmelding. Opplesingen bruker en lokal systemstemme og kan stoppes fra meldingen.
