@@ -1,14 +1,14 @@
 <h1 align="center">Chat OMP OMP</h1>
 <p align="center"><strong>Oh My Pi på Windows. Prosjektene dine tilgjengelige fra Android.</strong></p>
-<p align="center"><a href="https://megaxenon83-server.github.io/ompbridge/">Prosjektsiden</a> · <a href="https://github.com/megaxenon83-server/ompbridge/releases/tag/chat-omp-omp-v0.1.6">Ny release</a> · <a href="docs/FAQ.md">Vanlige spørsmål</a></p>
+<p align="center"><a href="https://megaxenon83-server.github.io/ompbridge/">Prosjektsiden</a> · <a href="https://github.com/megaxenon83-server/ompbridge/releases/tag/omp-desktop-0.7.1">Ny release</a> · <a href="docs/FAQ.md">Vanlige spørsmål</a></p>
 
 ## Last ned
 
 | Komponent | Bruk |
 | --- | --- |
-| [OMP Bridge 2.9.33 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.6/OMP-Bridge-Setup-2.9.33.exe) | Installerer bridgen per bruker og starter den automatisk når du logger på Windows. |
-| [Chat OMP OMP 0.1.6 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.6/Chat-OMP-OMP-Android-0.1.6.apk) | Åpne og fortsett samtaler, gjennomgå kodeendringer og administrer prosjekter fra mobilen. |
-| [OMP Desktop 0.7.0 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.6/OMP-Desktop-0.7.0-win-x64.zip) | Bruk OMP på PC-en og generer en engangskode for Android. |
+| [OMP Bridge 2.9.33 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.7.1/OMP-Bridge-Setup-2.9.33.exe) | Installerer bridgen per bruker og starter den automatisk når du logger på Windows. |
+| [Chat OMP OMP 0.1.6 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.7.1/Chat-OMP-OMP-Android-0.1.6.apk) | Åpne og fortsett samtaler, gjennomgå kodeendringer og administrer prosjekter fra mobilen. |
+| [OMP Desktop 0.7.1 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.7.1/OMP-Desktop-0.7.1-win-x64.zip) | Bruk OMP på PC-en og generer en engangskode for Android. |
 
 ## Kom i gang
 
