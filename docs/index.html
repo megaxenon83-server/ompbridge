@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Chat OMP OMP kobler Android til Oh My Pi på Windows. Last ned OMP Bridge, Android-appen og OMP Desktop.">
+  <meta name="theme-color" content="#0d1320">
+  <title>Chat OMP OMP · Oh My Pi på Windows og Android</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar wrap">
+  <a class="brand" href="./"><span class="mark" aria-hidden="true">O</span> Chat OMP OMP</a>
+  <nav aria-label="Hovedmeny"><a href="#start">Kom i gang</a><a href="#faq">FAQ</a><a href="https://github.com/megaxenon83-server/ompbridge">GitHub</a></nav>
+</header>
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <p class="label">OH MY PI · WINDOWS + ANDROID</p>
+      <h1>Start på PC-en.<br><span>Fortsett på mobilen.</span></h1>
+      <p class="intro">Åpne de samme OMP-samtalene, følg oppgaver mens agenten jobber og gå gjennom kodeendringer fra Android. OMP Bridge kobler mobilen til PC-en din.</p>
+      <div class="buttons">
+        <a class="primary" href="https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.5/OMP-Bridge-Setup-2.9.32.exe">Last ned Windows-installer <span aria-hidden="true">↓</span></a>
+        <a class="secondary" href="https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.5/Chat-OMP-OMP-Android-0.1.5.apk">Last ned Android APK <span aria-hidden="true">↓</span></a>
+      </div>
+      <p class="versions">Bridge 2.9.32 · Android 0.1.5 · Desktop 0.6.1</p>
+    </div>
+    <div class="preview" aria-label="Illustrasjon av en delt OMP-samtale">
+      <div class="preview-title"><span class="mark small" aria-hidden="true">O</span><div><strong>Samtale i OMP</strong><span class="caption">Delt mellom PC og Android</span></div></div>
+      <div class="bubble">Oppdater prosjektets startside.</div>
+      <div class="sample">
+        <div class="row"><strong>2 filer endret</strong><span><span class="plus">+24</span> <span class="minus">−8</span></span></div>
+        <div class="row file"><span>index.html</span><span class="plus">+16</span></div>
+        <div class="row file"><span>style.css</span><span><span class="plus">+8</span> <span class="minus">−8</span></span></div>
+      </div>
+      <div class="sample task"><strong>Oppgaver</strong><span><span class="plus" aria-hidden="true">✓</span> Oppdater layout</span><span><span class="pending" aria-hidden="true">◌</span> Kontroller mobilvisning</span></div>
+    </div>
+  </section>
+  <section class="features" aria-label="Funksjoner">
+    <article><h2>Delte samtaler</h2><p>Bytt navn fra begge enheter. Arkiver eller gjenopprett samtaler fra Android.</p></article>
+    <article><h2>Diff og oppgaver</h2><p>Se endringer per svar og følg OMPs oppgaveliste mens den jobber.</p></article>
+    <article><h2>Prosjekter og Git</h2><p>Opprett mapper på PC-en med Androids mappevelger. Nye mapper får lokal Git-sporing dersom Git er tilgjengelig.</p></article>
+  </section>
+  <section class="start" id="start">
+    <h2>Kom i gang</h2>
+    <ol>
+      <li><strong>Installer Bridge på PC-en.</strong> Du trenger Windows 10 eller 11, Node.js 22+ og Oh My Pi. Bridge starter ved pålogging.</li>
+      <li><strong>Åpne OMP Desktop.</strong> Velg Innstillinger → Tilkobling → Vis QR-kode. <a href="https://github.com/megaxenon83-server/ompbridge/releases/download/chat-omp-omp-v0.1.5/OMP-Desktop-0.6.1-win-x64.zip">Last ned Desktop for Windows x64</a>.</li>
+      <li><strong>Skann koden fra Android.</strong> Installer APK-en og koble telefon og PC til samme betrodde nettverk.</li>
+    </ol>
+    <a href="https://github.com/megaxenon83-server/ompbridge/blob/main/docs/INSTALL.md">Full installasjonsveiledning →</a>
+  </section>
+  <section class="start" id="faq">
+    <h2>Vanlige spørsmål</h2>
+    <details><summary>Må PC-en være på?</summary><p>Ja. PC-en må være våken og Windows-brukeren innlogget. Bridge starter automatisk ved pålogging etter omstart.</p></details>
+    <details><summary>Hvor ligger samtalene?</summary><p>Bridge bruker OMP-samtalene som ligger på PC-en. Android kobles til med en kortvarig QR-kode.</p></details>
+    <details><summary>Kan jeg bruke appen hjemmefra og på farten?</summary><p>På lokalnettet kobler du til PC-adressen. Utenfor hjemmet trenger du et betrodd VPN som gir tilgang til PC-en.</p></details>
+    <a href="https://github.com/megaxenon83-server/ompbridge/blob/main/docs/FAQ.md">Les hele FAQ-en →</a>
+  </section>
+</main>
+<footer class="wrap footer"><strong>Chat OMP OMP</strong><a href="https://github.com/megaxenon83-server/ompbridge/releases/tag/chat-omp-omp-v0.1.5">Versjonsnotater og SHA-256</a><a href="https://github.com/megaxenon83-server/ompbridge/blob/main/SECURITY.md">Sikkerhet</a></footer>
+</body>
+</html>
