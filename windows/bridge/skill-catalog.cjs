@@ -24,7 +24,13 @@ const portable = value => segment.test(value) && !value.endsWith('.') && !/^(con
 
 function parseRef(input) {
   if (typeof input !== 'string' || input.length > 350) throw new Error('Lim inn en gyldig skills.sh-lenke.');
-  let ref = input.trim();
+  let ref = input.trim().replace(/^((?:npx\s+skills\s+add\s+)?["']?https)\\:/, '$1:');
+  if (/^npx\s/.test(ref)) {
+    const command = /^npx\s+skills\s+add\s+["']?(https:\/\/github\.com\/[\w.-]+\/[\w.-]+)["']?\s+--skill(?:\s+|=)["']?([a-z0-9-]+)["']?$/i.exec(ref);
+    if (!command) throw new Error('Lim inn én skills.sh-lenke eller «npx skills add … --skill navn».');
+    const url = new URL(command[1]);
+    ref = url.pathname.slice(1).replace(/\.git$/i, '') + '/' + command[2];
+  }
   if (ref.startsWith('https://')) {
     const url = new URL(ref);
     if (!['skills.sh', 'www.skills.sh'].includes(url.hostname) || url.username || url.password || url.port) {

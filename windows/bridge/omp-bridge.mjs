@@ -27,7 +27,7 @@ import turnModule from "./omp-turn-changes.cjs";
 import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.37";
+const VERSION = "2.9.38";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -876,7 +876,7 @@ class OmpRuntime {
       ? [OMP_BIN_ENTRY, "--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT]
       : ["--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT];
     let resources;
-    try { resources = await workspace.spawnOptions(this.cwd); }
+    try { resources = await workspace.spawnOptions(this.cwd, this.workspaceSession); }
     catch (error) {
       const pending = this.readyPromise;
       this.readyPromise = null;
@@ -1439,23 +1439,27 @@ function runtimeKey(cwd) {
   return path.resolve(cwd);
 }
 
-async function getRuntime(cwd, { create = true } = {}) {
+async function getRuntime(cwd, { create = true, sessionFile } = {}) {
   if (managingProjects.has(managedProjectKey(cwd))) throw new Error("En samtale oppdateres. Prøv igjen om et øyeblikk.");
   const key = runtimeKey(cwd);
-  if (refreshingWorkspaces.has(key)) return refreshingWorkspaces.get(key);
+  if (refreshingWorkspaces.has(key)) {
+    await refreshingWorkspaces.get(key);
+    return getRuntime(cwd, { create, sessionFile });
+  }
   let runtime = runtimes.get(key);
   if (!runtime && !create) return null;
-  if (runtime?.ready && runtime.workspaceSignature !== workspace.signature(cwd) &&
+  const intended = sessionFile ?? runtime?.sessionFile;
+  if (runtime?.ready && runtime.workspaceSignature !== workspace.signature(cwd, intended) &&
       !runtime.working && !runtime.pendingUi.size && !runtime.pending.size && !runtime.state?.isStreaming && !turnChanges.isActive(runtime)) {
     const previous = runtime;
     const refresh = (async () => {
-      const session = previous.sessionFile;
       await previous.stop();
       const replacement = new OmpRuntime(key);
+      replacement.workspaceSession = intended;
       runtimes.set(key, replacement);
       await replacement.start();
-      if (session && fs.existsSync(session)) {
-        const switched = await replacement.rpc('switch_session', { sessionPath: session });
+      if (intended && fs.existsSync(intended)) {
+        const switched = await replacement.rpc('switch_session', { sessionPath: intended });
         if (!switched?.cancelled) await replacement.refreshState();
       }
       return replacement;
@@ -1467,9 +1471,14 @@ async function getRuntime(cwd, { create = true } = {}) {
     const stat = fs.statSync(key, { throwIfNoEntry: false });
     if (!stat || !stat.isDirectory()) throw new Error(`Prosjektmappen finnes ikke: ${key}`);
     runtime = new OmpRuntime(key);
+    runtime.workspaceSession = intended;
     runtimes.set(key, runtime);
   }
   await runtime.start();
+  if (intended && runtime.workspaceSession === intended && !runtime.sessionFile && fs.existsSync(intended)) {
+    const switched = await runtime.rpc('switch_session', { sessionPath: intended });
+    if (!switched?.cancelled) await runtime.refreshState();
+  }
   runtime.lastUsed = Date.now();
   await evictIdle();
   return runtime;
@@ -2671,7 +2680,22 @@ async function handle(req, res) {
         const cwd = existingDir(request?.cwd || url.searchParams.get("cwd"));
         if (!cwd) return json(res, 400, { error: "Velg et prosjekt først." });
         const plugins = url.pathname.endsWith("/plugins");
-        if (plugins && !request) return json(res, 200, await workspace.plugins(cwd));
+        const inputFile = plugins && (request?.file || url.searchParams.get('file'));
+        const session = inputFile ? managedChatFile(inputFile, SESSIONS_ROOT) : '';
+        if (inputFile && (!session || !samePath(loadSession(session)?.cwd, cwd))) {
+          return json(res, 400, { error: 'Samtalen finnes ikke i dette prosjektet.' });
+        }
+        if (plugins && !request) return json(res, 200, await workspace.plugins(cwd, {}, session));
+        if (plugins && ['set-skill-scope', 'test-skill'].includes(request?.action)) {
+          try {
+            const runtime = request.action === 'test-skill' ? await getRuntime(cwd, { sessionFile: session }) : null;
+            if (runtime && (runtime.working || runtime.pendingUi.size || runtime.state?.isStreaming ||
+                runtime.workspaceSignature !== workspace.signature(cwd, session))) {
+              return json(res, 409, { error: 'Vent til OMP er ferdig før du tester skillen.' });
+            }
+            return json(res, 200, await workspace.skillScope(cwd, session, request, runtime));
+          } catch (error) { return json(res, 400, { error: error.message }); }
+        }
         if (plugins && skillActions.has(request?.action)) {
           try {
             let runtime = runtimes.get(runtimeKey(cwd));
@@ -3112,7 +3136,7 @@ async function handle(req, res) {
           });
         }
         try {
-          const runtime = await getRuntime(cwd);
+          const runtime = await getRuntime(cwd, { sessionFile: file });
           if (sessionActivity(runtime)) {
             const isCurrent = samePath(runtime.sessionFile, file);
             return json(res, 200, {
@@ -3166,7 +3190,7 @@ async function handle(req, res) {
             error: "Prosjektmappen finnes ikke eller er ikke en mappe. Velg en gyldig mappe.",
           });
         }
-        const runtime = await getRuntime(cwd);
+        const runtime = await getRuntime(cwd, { sessionFile: '' });
         if (sessionActivity(runtime)) return json(res, 409, { error: "OMP jobber allerede i denne mappen." });
         await runtime.rpc("new_session", body.parentSession ? { parentSession: body.parentSession } : {}, 60000);
         const state = await runtime.refreshState();
@@ -3454,7 +3478,7 @@ async function handle(req, res) {
             });
           }
         }
-        const runtime = await getRuntime(cwd);
+        const runtime = await getRuntime(cwd, { sessionFile: target?.file });
         const activity = sessionActivity(runtime);
         if (activity && (!body.streamingBehavior || (target && !samePath(body.file, runtime.sessionFile)))) {
           return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });

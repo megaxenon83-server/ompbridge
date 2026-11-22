@@ -8,12 +8,38 @@ using System.Text;
 public static class OmpDevice {
     [StructLayout(LayoutKind.Sequential)]
     public struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput { public ushort VirtualKey, Scan; public uint Flags, Time; public UIntPtr Extra; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput { public int X, Y; public uint Data, Flags, Time; public UIntPtr Extra; }
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputValue {
+        [FieldOffset(0)] public KeyboardInput Keyboard;
+        [FieldOffset(0)] public MouseInput Mouse;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input { public uint Type; public InputValue Value; }
+    [DllImport("user32.dll", SetLastError=true)] private static extern uint SendInput(uint count, Input[] events, int size);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int limit);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint action, uint x, uint y, uint data, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    private static void SendKey(IntPtr window, ushort key, ushort scan, uint flags) {
+        if (GetForegroundWindow() != window) throw new InvalidOperationException("Target window lost focus.");
+        var down = new Input { Type = 1, Value = new InputValue {
+            Keyboard = new KeyboardInput { VirtualKey = key, Scan = scan, Flags = flags }
+        } };
+        var up = down;
+        up.Value.Keyboard.Flags |= 2;
+        if (SendInput(2, new [] { down, up }, Marshal.SizeOf(typeof(Input))) != 2)
+            throw new InvalidOperationException("Windows did not accept the keyboard input.");
+    }
+    public static void TypeText(IntPtr window, string text) {
+        foreach (char letter in text) SendKey(window, 0, letter, 4);
+    }
+    public static void PressKey(IntPtr window, ushort key) { SendKey(window, key, 0, key >= 37 && key <= 40 ? 1u : 0u); }
 }
 '@
 [void][OmpDevice]::SetProcessDPIAware()
@@ -56,13 +82,12 @@ switch ($request.action) {
         [OmpDevice]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
     }
     'type' {
-        $text = [regex]::Replace($request.text, '[+^%~(){}\[\]]', { param($match) '{' + $match.Value + '}' })
-        if ([OmpDevice]::GetForegroundWindow() -ne $handle -or $text -match '[\r\n]') { throw 'Vinduet mistet fokus eller teksten har linjeskift.' }
-        [Windows.Forms.SendKeys]::SendWait($text)
+        if ([OmpDevice]::GetForegroundWindow() -ne $handle -or $request.text -match '[\r\n]') { throw 'Vinduet mistet fokus eller teksten har linjeskift.' }
+        [OmpDevice]::TypeText($handle, $request.text)
     }
     'key' {
         if ([OmpDevice]::GetForegroundWindow() -ne $handle) { throw 'Vinduet mistet fokus.' }
-        [Windows.Forms.SendKeys]::SendWait($request.systemKey)
+        [OmpDevice]::PressKey($handle, [uint16]$request.systemKey)
     }
     default { throw 'Ukjent handling.' }
 }

@@ -22,6 +22,11 @@ function createWorkspace(directory, executable, entry) {
   const key = cwd => createHash('sha256').update(process.platform === 'win32' ? cwd.toLowerCase() : cwd).digest('hex');
   const file = cwd => path.join(root, key(cwd) + '.json');
   const overlay = (cwd, id) => path.join(root, key(cwd) + '.' + id + '.config.json');
+  const scopeFile = session => path.join(root, session ? key(session) + '.skill-scope.json' : 'global-skill-scope.json');
+  const scopeSettings = session => {
+    try { return JSON.parse(fs.readFileSync(scopeFile(session), 'utf8')); }
+    catch (error) { if (error.code === 'ENOENT') return { choices: {}, tests: {} }; throw error; }
+  };
   const script = path.join(directory, 'workspace-extension.mjs');
   const activePlugins = info => new Set([...(info.plugins || []), ...(info.deviceControl ? [devicePlugin] : [])]);
   const settings = cwd => {
@@ -29,8 +34,13 @@ function createWorkspace(directory, executable, entry) {
     catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
   };
   const library = createSkillLibrary(root, settings);
-  const layout = cwd => library.list(cwd).filter(skill => skill.enabled);
-  const signature = (cwd, skills = layout(cwd)) => JSON.stringify(skills.map(({ name, sha, scope }) => [name, sha, scope]));
+  const choices = session => ({ ...scopeSettings('').choices, ...(session ? scopeSettings(session).choices : {}) });
+  const layout = (cwd, selected = {}) => library.list(cwd).filter(skill => selected[skill.name] ?? skill.enabled);
+  const signature = (cwd, session) => {
+    const selected = choices(session);
+    return JSON.stringify([layout(cwd, selected).map(({ name, sha, scope }) => [name, sha, scope]),
+      Object.entries(selected).sort(([a], [b]) => a.localeCompare(b))]);
+  };
   const managed = cwd => library.list(cwd).map(({ folder, ...skill }) => skill);
   function write(target, value) {
     fs.mkdirSync(root, { recursive: true });
@@ -74,11 +84,45 @@ function createWorkspace(directory, executable, entry) {
   return {
     settings,
     signature,
+    async skillScope(cwd, session, input, runtime) {
+      const key = input.target;
+      if (typeof key !== 'string' || !resourceName.test(key) || Object.hasOwn(Object.prototype, key)) throw new Error('Ugyldig skillnavn.');
+      const info = settings(cwd);
+      const skills = [...await listSkills(cwd, info.disabledExtensions ?? await disabled(cwd, 'disabledExtensions')), ...managed(cwd)];
+      const skill = skills.find(item => item.name === key);
+      if (!skill) throw new Error('OMP fant ikke denne skillen.');
+      const global = scopeSettings('');
+      const local = session ? scopeSettings(session) : { choices: {}, tests: {} };
+      if (input.action === 'test-skill') {
+        if (!runtime) throw new Error('Åpne en samtale for å teste skillen.');
+        const { commands = [] } = await runtime.rpc('get_available_commands');
+        const active = commands.some(command => command.source === 'skill' && command.name.replace(/^skill:/, '') === key);
+        const test = { ok: active, detail: active ? 'OMP har lastet og registrert skillen.' : 'OMP har ikke lastet skillen i denne samtalen.',
+          enabled: local.choices[key] ?? global.choices[key] ?? skill.enabled,
+          at: new Date().toISOString() };
+        const log = scopeSettings(session);
+        log.tests[key] = test;
+        write(scopeFile(session), log);
+        return test;
+      }
+      if (!['global', 'session'].includes(input.scope) || (input.scope === 'session' && !session) ||
+          (input.enabled !== null && typeof input.enabled !== 'boolean')) throw new Error('Velg globalt eller en lagret samtale.');
+      const target = input.scope === 'session' ? local : global;
+      if (input.enabled === null) delete target.choices[key];
+      else target.choices[key] = input.enabled;
+      delete target.tests[key];
+      if (session) {
+        delete local.tests[key];
+        write(scopeFile(session), local);
+      }
+      if (input.scope === 'global') write(scopeFile(''), global);
+      return { ok: true };
+    },
     isManagedSkill: (cwd, name) => managed(cwd).some(item => item.name === name),
     async skillAction(cwd, input, runtime, known) {
       if (input.action === 'skill-library') {
         const summary = library.summary(cwd, known);
-        return { ...summary, pending: !!runtime && runtime.workspaceSignature !== signature(cwd),
+        return { ...summary, pending: !!runtime && runtime.workspaceSignature !== signature(cwd, runtime.sessionFile),
           loaded: runtime?.loadedSkills || [], blocked: runtime?.blockedSkills || [] };
       }
       if (input.action === 'catalog') return { entries: catalog.catalog };
@@ -89,13 +133,14 @@ function createWorkspace(directory, executable, entry) {
       }
       const native = input.action === 'install-skill' ? (await listSkills(cwd, [])).map(item => item.name) : [];
       const result = await library.change(cwd, input, native, known);
-      return { ...result, pending: !!runtime && runtime.workspaceSignature !== signature(cwd) };
+      return { ...result, pending: !!runtime && runtime.workspaceSignature !== signature(cwd, runtime.sessionFile) };
     },
     async testPlugin(runtime, id) {
       if (!activePlugins(settings(runtime.cwd)).has(id) || !bundled.some(item => item.id === id)) throw new Error('Aktiver pluginen først.');
       const names = { 'agent-memory': 'omp_agent_memory', 'project-status': 'omp_project_status',
         'git-overview': 'omp_git_overview', 'device-control': 'omp_device' };
       const snapshot = await runtime.localCommand('/tools');
+      const start = performance.now();
       let result;
       try {
         if (!snapshot.split('\n').some(line => line.startsWith('* ' + names[id]) && line.split(/\s+/)[1] === names[id])) {
@@ -106,7 +151,7 @@ function createWorkspace(directory, executable, entry) {
       } catch (error) { result = { ok: false, detail: error.message }; }
       const info = settings(runtime.cwd);
       info.pluginTests ||= {};
-      info.pluginTests[id] = { ...result, at: new Date().toISOString() };
+      info.pluginTests[id] = { ...result, duration: Math.round(performance.now() - start), at: new Date().toISOString() };
       write(file(runtime.cwd), info);
       return info.pluginTests[id];
     },
@@ -120,18 +165,26 @@ function createWorkspace(directory, executable, entry) {
         }
       }
     },
-    async spawnOptions(cwd) {
+    async spawnOptions(cwd, session) {
       const info = settings(cwd);
       const plugins = activePlugins(info);
-      const skills = layout(cwd);
+      const selected = choices(session);
+      const skills = layout(cwd, selected);
       const native = skills.length ? new Set((await listSkills(cwd, [])).map(item => item.name)) : new Set();
       const usable = skills.filter(item => !native.has(item.name));
       const folders = usable.map(item => item.folder);
       if (plugins.has(devicePlugin)) folders.push(path.join(directory, 'skills'));
       const args = [];
-      if (folders.length || info.disabledExtensions !== undefined) {
+      if (folders.length || info.disabledExtensions !== undefined || Object.keys(selected).length) {
         const value = {};
-        if (info.disabledExtensions !== undefined) value.disabledExtensions = info.disabledExtensions;
+        if (info.disabledExtensions !== undefined || Object.keys(selected).length) {
+          const inactive = new Set(info.disabledExtensions ?? await disabled(cwd, 'disabledExtensions'));
+          for (const [name, enabled] of Object.entries(selected)) {
+            if (enabled) inactive.delete('skill:' + name);
+            else inactive.add('skill:' + name);
+          }
+          value.disabledExtensions = [...inactive];
+        }
         if (folders.length) value.skills = { customDirectories: [...new Set([...(await disabled(cwd, 'skills.customDirectories')), ...folders])] };
         const config = overlay(cwd, randomUUID());
         this.pruneOverlays(cwd);
@@ -139,7 +192,7 @@ function createWorkspace(directory, executable, entry) {
         args.push('--config', config);
       }
       if (info.disabledTools?.length || info.enabledTools?.length || plugins.size) args.push('--extension', script);
-      return { args, signature: signature(cwd, skills), blocked: skills.filter(item => native.has(item.name)).map(item => item.name),
+      return { args, signature: signature(cwd, session), blocked: skills.filter(item => native.has(item.name)).map(item => item.name),
         skills: usable.map(({ name, sha, scope }) => ({ name, sha, scope })), env: {
         OMP_BRIDGE_RESOURCE_OPTIONS: JSON.stringify({
           disabled: info.disabledTools || [], enabled: info.enabledTools || [], deviceControl: plugins.has(devicePlugin),
@@ -158,7 +211,7 @@ function createWorkspace(directory, executable, entry) {
       }));
       for (const skill of await listSkills(cwd, inactive)) if (!skills.has(skill.name)) skills.set(skill.name, skill);
       for (const skill of managed(cwd)) skills.set(skill.name, { ...skill, loaded: skills.get(skill.name)?.loaded === true,
-        pending: runtime.workspaceSignature !== signature(cwd) });
+        pending: runtime.workspaceSignature !== signature(cwd, runtime.sessionFile) });
       for (const entry of inactive) {
         if (typeof entry !== 'string' || !entry.startsWith('skill:')) continue;
         const name = entry.slice(6);
@@ -213,7 +266,7 @@ function createWorkspace(directory, executable, entry) {
       }
       write(file(cwd), info);
     },
-    async plugins(cwd, input = {}) {
+    async plugins(cwd, input = {}, session) {
       const { action = 'list', target, scope } = input;
       if (action === 'list') {
         const info = settings(cwd);
@@ -223,8 +276,16 @@ function createWorkspace(directory, executable, entry) {
           info.disabledExtensions ?? disabled(cwd, 'disabledExtensions')
         ]);
         const data = output.startsWith('{') ? JSON.parse(output) : {};
-        return { ...data, builtIn: bundled.map(item => ({ ...item, enabled: active.has(item.id), test: info.pluginTests?.[item.id] })),
-          skills: [...await listSkills(cwd, inactive), ...managed(cwd)] };
+        const global = scopeSettings('');
+        const local = session ? scopeSettings(session) : { choices: {}, tests: {} };
+        return { ...data, sessionScoped: !!session, builtIn: bundled.map(item => ({ ...item, enabled: active.has(item.id), test: info.pluginTests?.[item.id] })),
+          skills: [...await listSkills(cwd, inactive), ...managed(cwd)].map(skill => {
+            const globalEnabled = global.choices[skill.name] ?? skill.enabled;
+            const sessionEnabled = local.choices[skill.name] ?? null;
+            const test = local.tests[skill.name] || (!session && global.tests[skill.name]);
+            const enabled = sessionEnabled ?? globalEnabled;
+            return { ...skill, globalEnabled, sessionEnabled, enabled, test: test?.enabled === enabled ? test : undefined };
+          }) };
       }
       if (!['enable', 'disable'].includes(action) || typeof target !== 'string' ||
           !resourceName.test(target) || target.startsWith('-')) throw new Error('Ugyldig pluginhandling.');

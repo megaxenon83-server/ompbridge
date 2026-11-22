@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import adb from './adb.cjs';
@@ -92,11 +93,15 @@ export function registerProjectPlugins(pi, options) {
 
 export async function testProjectPlugin(id, cwd) {
   if (id === 'device-control') {
-    const state = await adb.status();
-    if (!state.running || state.devices.filter(device => device.reachable).length !== 1) {
-      throw new Error('ADB må nå nøyaktig én godkjent Android-enhet.');
-    }
-    return 'ADB når den godkjente Android-enheten.';
+    const file = join(dirname(fileURLToPath(import.meta.url)), 'device-action.ps1');
+    const { stdout } = await exec('powershell.exe', ['-NoProfile', '-STA', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], {
+      env: { ...process.env, OMP_DEVICE_REQUEST: JSON.stringify({ action: 'foreground' }) }, windowsHide: true, timeout: 15000
+    });
+    if (!JSON.parse(stdout).title) throw new Error('Windows-testen fant ikke et aktivt vindu.');
+    const device = await adb.device(AbortSignal.timeout(15000));
+    const { stdout: png } = await device.run(['exec-out', 'screencap', '-p'], { encoding: 'buffer' });
+    if (png.length < 24 || png.readUInt32BE(0) !== 0x89504e47) throw new Error('Android svarte via ADB, men gav ikke et gyldig skjermbilde.');
+    return 'Windows svarte på vindustesten. Android leverte et gyldig skjermbilde via ADB.';
   }
   const temporary = await fs.mkdtemp(join(tmpdir(), 'omp-plugin-test-'));
   try {

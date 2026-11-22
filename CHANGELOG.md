@@ -1,5 +1,12 @@
 # Changelog
 
+## OMP Desktop 0.8.4 · Android 0.2.4 · Bridge 2.9.38
+
+- Fixed Windows Device Control typing and key presses. The device self-test checks the Windows foreground window and validates an ADB screenshot.
+- Moved copy and read-aloud controls below messages on Desktop and Android.
+- The local Skills page accepts copied skills.sh installation commands without running them. It confirms valid sources, marks installed skills, and uses switches for activation.
+- Added global skill activation, per-conversation overrides, and checks for skills loaded by OMP. Built-in plugin self-tests report measured duration.
+
 ## OMP Desktop 0.8.3 · Android 0.2.3 · Bridge 2.9.37
 
 - Added a localhost Skills page with reviewed batch imports, project and global scopes, project overrides, update previews, rollback, lockfiles, reusable packs, and editable prompts with Try in OMP.

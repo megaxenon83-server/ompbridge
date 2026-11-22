@@ -8,9 +8,9 @@ import { registerProjectPlugins } from './project-plugins.mjs';
 const exec = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const options = JSON.parse(process.env.OMP_BRIDGE_RESOURCE_OPTIONS || '{}');
-const keys = { enter: ['{ENTER}', '66'], escape: ['{ESC}', '111'], tab: ['{TAB}', '61'],
-  up: ['{UP}', '19'], down: ['{DOWN}', '20'], left: ['{LEFT}', '21'], right: ['{RIGHT}', '22'],
-  backspace: ['{BACKSPACE}', '67'] };
+const keys = { enter: [13, '66'], escape: [27, '111'], tab: [9, '61'],
+  up: [38, '19'], down: [40, '20'], left: [37, '21'], right: [39, '22'],
+  backspace: [8, '67'] };
 const response = text => ({ content: [{ type: 'text', text }], details: {} });
 
 async function windows(input, signal) {
