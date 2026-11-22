@@ -25,8 +25,9 @@ import { fileURLToPath } from "node:url";
 
 import turnModule from "./omp-turn-changes.cjs";
 import workspaceModule from "./omp-workspace.cjs";
+import adb from "./adb.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.35";
+const VERSION = "2.9.36";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -2625,6 +2626,11 @@ async function handle(req, res) {
         return json(res, 200, { project });
       }
 
+      case "GET /api/adb/status":
+        return json(res, 200, await adb.status(url.searchParams.get("identity")));
+      case "POST /api/adb/install":
+        return json(res, 200, await adb.install());
+
       case "GET /api/omp/workspace/resources":
       case "POST /api/omp/workspace/resources":
       case "GET /api/omp/workspace/plugins":
@@ -2634,21 +2640,24 @@ async function handle(req, res) {
         if (!cwd) return json(res, 400, { error: "Velg et prosjekt først." });
         const plugins = url.pathname.endsWith("/plugins");
         if (plugins && !request) return json(res, 200, await workspace.plugins(cwd));
+        if (plugins && ["catalog", "preview-skill"].includes(request?.action)) {
+          try { return json(res, 200, await workspace.plugins(cwd, request)); }
+          catch (error) { return json(res, 400, { error: error.message }); }
+        }
         const runtime = await getRuntime(cwd);
         const key = managedProjectKey(cwd);
-        if (managingProjects.has(key) || runtime.state?.isStreaming || runtime.pendingUi.size || turnChanges.isActive(runtime)) {
+        if (managingProjects.has(key) || sessionActivity(runtime) || runtime.state?.isStreaming || turnChanges.isActive(runtime)) {
           return json(res, 409, { error: "Vent til OMP er ferdig i dette prosjektet." });
         }
         managingProjects.add(key);
         try {
           const agent = process.env.PI_CODING_AGENT_DIR || OMP_AGENT_DIR;
           if (!request) return json(res, 200, await workspace.resources(runtime, agent));
-          if (plugins) await workspace.plugins(cwd, request);
-          else await workspace.toggle(runtime, request, agent);
+          const result = plugins ? await workspace.plugins(cwd, request) : await workspace.toggle(runtime, request, agent);
           await runtime.stop();
           if (runtimes.get(runtimeKey(cwd)) === runtime) runtimes.delete(runtimeKey(cwd));
           workspace.pruneOverlays(cwd);
-          return json(res, 200, { ok: true });
+          return json(res, 200, result || { ok: true });
         } catch (error) {
           return json(res, 400, { error: error.message });
         } finally { managingProjects.delete(key); }

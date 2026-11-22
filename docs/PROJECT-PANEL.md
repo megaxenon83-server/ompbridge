@@ -1,12 +1,12 @@
-# Jobb med et nettprosjekt i OMP Desktop
+# Work on a web project in OMP Desktop
 
-1. Velg en prosjektmappe og åpne en samtale. Trykk **Kjør prosjekt** i trådlinjen.
-2. For et prosjekt med utviklingsserver kan du bruke kommandoen `npm.cmd run dev` og en lokal adresse som `http://localhost:5173`. Hvis serveren kjører fra før, velg **Åpne adresse**. For statisk HTML lar du kommandoen stå tom og bruker en sti som `/` eller `/docs/`.
-3. Bytt til **Mobilbredde** for en smalere visning. Velg **Pek og be om endring** og klikk på det du vil endre. Elementet legges i utkastet slik at du kan skrive hva du vil gjøre før du sender.
-4. Åpne en fil fra endringskortet for å se diffen ved siden av samtalen. Bruk **Tester** for å kjøre en kommando som `npm.cmd test` og se utdata, resultat og varighet.
+1. Select a project folder and open a conversation. Choose **Kjør prosjekt** (Run project) in the conversation header.
+2. For a development server, enter a command such as `npm.cmd run dev` and a local address such as `http://localhost:5173`. If the server is already running, choose **Åpne adresse** (Open address). For static HTML, leave the command empty and enter a path such as `/` or `/docs/`.
+3. Select **Mobilbredde** (Mobile width) for a narrower preview. Use **Pek og be om endring** (Point and request a change) and click the element to add it to your draft.
+4. Open a file in its change card to view the diff beside the conversation. Use **Tester** (Tests) to run a command such as `npm.cmd test` and see its output, result, and duration.
 
-## Fortsett på Android
+## Continue on Android
 
-Når du har kjørt en test for en delt samtale, velg **Gjennomgå på Android** og skann QR-koden med en paret telefon. Testutfallet ligger ved svaret i samtalen. Dette krever Bridge 2.9.33 og Chat OMP OMP 0.1.6. Testkommandoen og terminalutdataene vises på PC-en.
+After running a test for a shared conversation, choose **Gjennomgå på Android** (Review on Android) and scan the code on a paired phone. The result appears beside the response in the same conversation. This requires Bridge 2.9.33 and Chat OMP OMP 0.1.6 or later. The command and terminal output stay in the PC panel.
 
-Panelet husker bredde, fane og kommandoer per prosjekt. Utviklingsserveren som Desktop startet, kan du stoppe fra forhåndsvisningen.
+Desktop remembers the panel width, tab, and commands for each project. You can stop a development server started by Desktop from the preview.

@@ -1,24 +1,28 @@
-# Installer Chat OMP OMP
+# Install OMP Desktop and Chat OMP OMP
 
 ## Windows
 
-Bruk Windows 10 eller 11. Installer [Node.js](https://nodejs.org/) 22 eller nyere, [Oh My Pi](https://github.com/can1357/oh-my-pi) og eventuelt [Git](https://git-scm.com/). Bekreft at `node --version` og `omp --version` virker i en ny terminal.
+Use Windows 10 or 11. Install [Node.js](https://nodejs.org/) 22 or newer, [Oh My Pi](https://github.com/can1357/oh-my-pi), and optionally [Git](https://git-scm.com/). Confirm that `node --version` and `omp --version` work in a new terminal.
 
-Kjør installasjonsprogrammet fra [releasen](https://github.com/megaxenon83-server/ompbridge/releases/tag/omp-desktop-0.8.1). Det installerer for gjeldende bruker i `%LOCALAPPDATA%\Nimay\OMPBridge`, starter bridgen med én gang og velger automatisk oppstart som standard. Etter en omstart starter bridgen når denne Windows-brukeren logger inn. Du kan også velge **Start OMP Bridge** i Start-menyen.
+Run the [Bridge installer](https://github.com/megaxenon83-server/ompbridge/releases/latest). It installs for the current user under `%LOCALAPPDATA%NimayOMPBridge`, starts Bridge immediately, and enables startup at Windows sign-in by default. You can also use **Start OMP Bridge** from the Start menu.
 
-Windows kan spørre om nettverkstilgang for Node.js. Tillat den på det private nettverket der PC og mobil skal kommunisere. På nye installasjoner er bridge-adressen lokalt `http://127.0.0.1:7778`.
+Allow Node.js on the private network that Windows and Android will use. A new installation listens locally at `http://127.0.0.1:7778`.
 
-## Android og paring
+## Pair Android
 
-1. Pakk ut Windows ZIP-filen. Åpne `OMP Desktop.exe` fra den utpakkede mappen.
-2. Åpne **Innstillinger → Tilkobling** i Desktop. Koble til bridgen, velg **Vis QR-kode** og velg PC-adressen som mobilen når.
-3. Installer APK-en på Android 8.0 eller nyere. Android kan be om tillatelse til å installere fra nettleseren eller filbehandleren som åpnet APK-en.
-4. Åpne Chat OMP OMP, velg **Skann QR-kode** og bekreft tilkoblingen. Koden er gyldig i to minutter og kan brukes én gang.
+1. Extract the Desktop ZIP and open `OMP Desktop.exe`.
+2. Open **Innstillinger → Tilkobling** (Settings → Connection), connect to Bridge, and select **Vis QR-kode** (Show QR code). Select the PC address your phone can reach.
+3. Install the APK on Android 8.0 or newer. Android may ask you to allow installation from the browser or file manager that opened the file.
+4. Open Chat OMP OMP, select **Skann QR-kode** (Scan QR code), and confirm. The one-time code expires in two minutes.
 
-## Oppgradering og feilsøking
+## Verify ADB device control
 
-Vent til aktive OMP-oppgaver er ferdige før oppgradering. Installeren bevarer eksisterende bridge-konfigurasjon på standard installasjonssti, inkludert porten og nøkkelen. Har du en eldre Bridge i en annen mappe, avslutt den før du setter opp den nye dersom de bruker samme port.
+Open **Enheter** (Devices) in Desktop or **Enheter og ADB** (Devices and ADB) on Android. The panel checks whether ADB runs on Windows, which devices respond, and whether the Android app can confirm its own device through ADB. Use the install action if Windows needs SDK Platform Tools. On Android, turn on USB or wireless debugging in Developer options and approve the PC.
 
-Ved oppstartsfeil, sjekk `bridge\bridge.stderr.log` under installasjonsmappen. Ved tilkoblingsfeil, sjekk at PC-en er våken, at du valgte riktig IP-adresse og at Windows tillater trafikk på det private nettverket.
+## Upgrade and troubleshoot
 
-Avinstaller **OMP Bridge for Chat OMP OMP** fra Windows Innstillinger. Det stopper bridgen og fjerner oppstartssnarveien. Konfigurasjon og OMP-prosjekter beholdes.
+Let active OMP work finish before upgrading. The installer preserves existing configuration at the default installation path. Stop any separate Bridge installation using the same port before running the installer.
+
+For startup failures, check `bridgeridge.stderr.log` under the installation directory. For connection problems, verify that the PC is awake, the address is reachable from Android, and Windows allows traffic on the private network.
+
+Uninstall **OMP Bridge for Chat OMP OMP** from Windows Settings. This stops Bridge and removes its startup shortcut while preserving configuration and OMP projects.

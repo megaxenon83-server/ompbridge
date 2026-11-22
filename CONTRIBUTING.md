@@ -1,5 +1,5 @@
-# Bidra
+# Contributing
 
-Bruk GitHub Issues for feil og forslag. Ta med versjon på Windows-installeren, Desktop eller Android, samt trinnene som viser problemet. Fjern nøkler, lokale stier og samtaleinnhold fra logger før du legger dem ved.
+Use GitHub Issues for bugs and suggestions. Include the affected Bridge, Desktop, or Android version and steps to reproduce the problem. Remove access keys, private paths, and conversation contents from attached logs.
 
-[Bygg Windows-installeren](docs/BUILDING.md) · [Rapporter sikkerhetsproblemer privat](SECURITY.md)
+[Build the Windows installer](docs/BUILDING.md) · [Report a security issue privately](SECURITY.md)

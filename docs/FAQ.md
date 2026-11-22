@@ -1,39 +1,41 @@
-# Vanlige spørsmål
+# Frequently asked questions
 
-### Må Windows-PC-en være på?
+### Does my Windows PC need to be on?
 
-Ja. OMP kjører på PC-en. Mobilen når bridgen når PC-en er våken, Windows-brukeren er innlogget og nettverket er tilgjengelig. Etter en omstart starter bridgen automatisk ved innlogging.
+Yes. Keep it awake, signed in, and reachable from Android. Bridge starts automatically at Windows sign-in by default.
 
-### Hvordan fortsetter jeg en samtale på mobilen?
+### How do I continue a conversation on my phone?
 
-Bruk en delt samtale i OMP Desktop. Åpne samtalelisten i Chat OMP OMP og velg den samme tråden. Vent til en pågående oppgave er ferdig før du sender fra den andre enheten.
+Use a shared conversation in OMP Desktop. Open the conversation list in Chat OMP OMP and choose the same thread. Active conversations appear at the top, with requests that need your input first.
 
-### Kan jeg endre navn, arkivere eller slette?
+### Can I rename, archive, or restore a conversation?
 
-Hold inne samtalen på Android eller trykk **⋯**. Gi den nytt navn, arkiver den eller flytt den til papirkurven. Bruk arkivikonet i sidemenyen for å hente den tilbake. Endringene gjenspeiles i OMP Desktop; navnebytte virker også fra PC til mobil.
+Long-press the conversation on Android or use its **⋯** menu. You can rename it, archive it, or move it to the trash. The archive button in the sidebar opens the restore options. Changes are shared with Desktop.
 
-### Hva gjør Git-panelet?
+### What does the Git panel do?
 
-**Arbeidsdiff** viser endringer som ennå ikke er klargjort. **Stage fil** velger endringene som skal med i neste commit, og **Staget diff** viser utvalget. **Fjern fra staging** beholder endringene i arbeidsmappen. Bruk Git på PC-en for å lage en commit.
+The working diff shows unstaged changes. Staging selects changes for the next commit. Unstaging preserves the edits in your working directory. New project folders made from Android use Git tracking when Git is available. A subfolder inside an existing repository uses that repository.
 
-En ny prosjektmappe som opprettes fra Android, får Git automatisk når Git er tilgjengelig på PC-en. Mapper inni et repo bruker det repoet.
+### How do I copy a message or listen to it?
 
-### Hvordan kopierer jeg en melding eller får den lest opp?
+Use the copy or speaker icon below the message. The speaker changes to a stop icon during playback. Read-aloud uses a local system voice.
 
-Velg **Kopier** eller **Les opp** under meldingen. Under opplesing vises **Stopp opplesing** på samme sted. Appen bruker en installert lokal systemstemme. Hvis opplesing mangler en stemme, kan du legge til en i taleinnstillingene på enheten.
+### How do I import skills?
 
-### Hvordan slår jeg på enhetsstyring?
+Open **Plugins → Skills.sh-katalog** in a shared project. Choose a catalog entry or paste a skills.sh link for a GitHub skill. Review the Markdown and revision before installing, then enable the skill with its switch. Script files and separate program dependencies are outside the Markdown import.
 
-Oppgrader til Bridge 2.9.34 og velg et delt prosjekt. Slå på **Enhetsstyring** under **Plugins**, og be OMP om en konkret handling. Bekreft handlingen i klienten. På Windows velger du vinduet som ligger fremst. Android krever én tilkoblet og godkjent ADB-enhet eller emulator på PC-en. Godkjente skjermbilder behandles av modellen du har valgt.
+### How does Device Control work?
 
-### Må jeg legge modellnøkler på telefonen?
+In a shared project, enable **Enhetsstyring** (Device Control) under **Plugins** and ask OMP for a specific action. Approve each action in the client. For Android, connect and authorize exactly one ADB device or emulator. The Devices panel checks whether the Android app can confirm its own device through ADB. Approved screenshots go to the model selected for the conversation.
 
-Modellene konfigureres i OMP på PC-en. Chat OMP OMP bruker den tilkoblede bridgen. Bruk QR-koden fra Desktop for å pare telefonen.
+### Do model keys go on the phone?
 
-### Kan jeg koble til utenfor hjemmet?
+Configure providers in OMP on Windows. Android pairs with Bridge using the QR code from Desktop.
 
-Bruk et betrodd VPN der mobilen når PC-ens adresse. Unngå å videresende bridge-porten direkte til internett.
+### Can I connect away from home?
 
-### Erstatter APK-en den gamle Nimay-appen?
+Use a trusted VPN that can reach the Windows PC. Keep the Bridge port off the public internet.
 
-Chat OMP OMP bruker sin egen Android-pakke. Installer den som en egen app og par den på nytt. Samtalene som OMP Bridge gir tilgang til ligger på PC-en.
+### Does this APK replace the old Nimay app?
+
+Chat OMP OMP has its own Android package. Install and pair it separately. Existing OMP conversations stay on the PC.

@@ -3,10 +3,18 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
+const catalog = require('./skill-catalog.cjs');
+const adb = require('./adb.cjs');
 
 const exec = promisify(execFile);
 const resourceName = /^[\p{L}\p{N}_:.@/-]{1,160}$/u;
 const devicePlugin = 'device-control';
+const bundled = [
+  { id: 'agent-memory', name: 'Agent Memory', description: 'Husk godkjente prosjektbeslutninger på tvers av samtaler.' },
+  { id: 'project-status', name: 'Project Status MD', description: 'Les og oppdater PROJECT_STATUS.md etter godkjenning.' },
+  { id: 'git-overview', name: 'Git-oversikt', description: 'Vis gren, filendringer og de fem siste commitene.' },
+  { id: devicePlugin, name: 'Enhetsstyring', description: 'Åpne apper, se skjerm og styr en autorisert Android-enhet eller PC. Henter ADB hvis Windows mangler det.' }
+];
 
 function createWorkspace(directory, executable, entry) {
   const root = path.join(directory, 'workspace-settings');
@@ -14,6 +22,10 @@ function createWorkspace(directory, executable, entry) {
   const file = cwd => path.join(root, key(cwd) + '.json');
   const overlay = (cwd, id) => path.join(root, key(cwd) + '.' + id + '.config.json');
   const script = path.join(directory, 'workspace-extension.mjs');
+  const activePlugins = info => new Set([...(info.plugins || []), ...(info.deviceControl ? [devicePlugin] : [])]);
+  const skillStorage = cwd => path.join(root, key(cwd) + '.skills');
+  const externalSkills = info => (info.externalSkills || []).map(item => ({ ...item, kind: 'skill', source: 'skills.sh',
+    detail: item.ref + ' · ' + item.sha.slice(0, 8) }));
   const settings = cwd => {
     try { return JSON.parse(fs.readFileSync(file(cwd), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
@@ -53,11 +65,18 @@ function createWorkspace(directory, executable, entry) {
   function saveOverlay(cwd, info) {
     const value = {};
     if (info.disabledExtensions !== undefined) value.disabledExtensions = info.disabledExtensions;
-    if (info.deviceControl) value.skills = {
-      customDirectories: [...new Set([...(info.skillDirectories || []), path.join(directory, 'skills')])]
-    };
+    const folders = externalSkills(info).filter(item => item.enabled).map(item => path.join(skillStorage(cwd), item.name));
+    if (activePlugins(info).has(devicePlugin)) folders.push(path.join(directory, 'skills'));
+    if (folders.length) value.skills = { customDirectories: [...new Set([...(info.skillDirectories || []), ...folders])] };
     info.overlay = randomUUID();
     write(overlay(cwd, info.overlay), value);
+  }
+  async function listSkills(cwd, inactive) {
+    const { skills = [] } = JSON.parse(await omp(cwd, ['skill', 'list', '--json']));
+    return skills.filter(item => item.name).map(item => ({
+      name: item.name, kind: 'skill', detail: item.description, source: item.source,
+      enabled: !inactive.includes('skill:' + item.name)
+    }));
   }
   return {
     settings,
@@ -73,12 +92,14 @@ function createWorkspace(directory, executable, entry) {
     },
     spawnOptions(cwd) {
       const info = settings(cwd);
-      const hasOverlay = info.disabledExtensions !== undefined || info.deviceControl;
+      const plugins = activePlugins(info);
+      const hasOverlay = info.disabledExtensions !== undefined || plugins.has(devicePlugin) || externalSkills(info).some(item => item.enabled);
       const args = hasOverlay && /^[a-f0-9-]{36}$/.test(info.overlay || '') ? ['--config', overlay(cwd, info.overlay)] : [];
-      if (info.disabledTools?.length || info.enabledTools?.length || info.deviceControl) args.push('--extension', script);
+      if (info.disabledTools?.length || info.enabledTools?.length || plugins.size) args.push('--extension', script);
       return { args, env: {
         OMP_BRIDGE_RESOURCE_OPTIONS: JSON.stringify({
-          disabled: info.disabledTools || [], enabled: info.enabledTools || [], deviceControl: !!info.deviceControl
+          disabled: info.disabledTools || [], enabled: info.enabledTools || [], deviceControl: plugins.has(devicePlugin),
+          plugins: [...plugins], memoryFile: path.join(root, key(cwd) + '.memory.md')
         })
       } };
     },
@@ -89,8 +110,10 @@ function createWorkspace(directory, executable, entry) {
       const inactive = info.disabledExtensions ?? await disabled(cwd, 'disabledExtensions');
       const skills = new Map(commands.filter(command => command.source === 'skill').map(command => {
         const name = command.name.replace(/^skill:/, '');
-        return [name, { name, kind: 'skill', detail: command.description, enabled: !inactive.includes('skill:' + name) }];
+        return [name, { name, kind: 'skill', detail: command.description, loaded: true, enabled: !inactive.includes('skill:' + name) }];
       }));
+      for (const skill of await listSkills(cwd, inactive)) if (!skills.has(skill.name)) skills.set(skill.name, skill);
+      for (const skill of externalSkills(info)) skills.set(skill.name, { ...skill, loaded: skills.get(skill.name)?.loaded === true });
       for (const entry of inactive) {
         if (typeof entry !== 'string' || !entry.startsWith('skill:')) continue;
         const name = entry.slice(6);
@@ -127,6 +150,14 @@ function createWorkspace(directory, executable, entry) {
         return;
       }
       const info = settings(cwd);
+      const external = info.externalSkills?.find(item => item.name === name);
+      if (kind === 'skill' && external) {
+        external.enabled = enabled;
+        if (enabled) info.skillDirectories = await disabled(cwd, 'skills.customDirectories');
+        saveOverlay(cwd, info);
+        write(file(cwd), info);
+        return;
+      }
       function set(list, value, include) {
         const names = new Set(list || []);
         if (include) names.add(value);
@@ -145,17 +176,40 @@ function createWorkspace(directory, executable, entry) {
     async plugins(cwd, input = {}) {
       const { action = 'list', target, scope } = input;
       if (action === 'list') {
-        const output = await omp(cwd, ['plugin', 'list', '--json']);
+        const info = settings(cwd);
+        const active = activePlugins(info);
+        const [output, inactive] = await Promise.all([
+          omp(cwd, ['plugin', 'list', '--json']),
+          info.disabledExtensions ?? disabled(cwd, 'disabledExtensions')
+        ]);
         const data = output.startsWith('{') ? JSON.parse(output) : {};
-        return { ...data, builtIn: [{ id: devicePlugin, name: 'Enhetsstyring',
-          enabled: !!settings(cwd).deviceControl, description: 'Skjerm og inndata på PC og autorisert Android via ADB.' }] };
+        return { ...data, builtIn: bundled.map(item => ({ ...item, enabled: active.has(item.id) })),
+          skills: [...await listSkills(cwd, inactive), ...externalSkills(info)] };
+      }
+      if (action === 'catalog') return { entries: catalog.catalog };
+      if (action === 'preview-skill') return catalog.preview(cwd, target);
+      if (action === 'install-skill') {
+        const info = settings(cwd);
+        const local = await listSkills(cwd, []);
+        const item = await catalog.install(cwd, target, skillStorage(cwd), [...local, ...externalSkills(info)].map(item => item.name));
+        info.externalSkills = [...(info.externalSkills || []), item];
+        write(file(cwd), info);
+        return { ok: true, skill: item };
       }
       if (!['enable', 'disable'].includes(action) || typeof target !== 'string' ||
           !resourceName.test(target) || target.startsWith('-')) throw new Error('Ugyldig pluginhandling.');
-      if (target === devicePlugin) {
-        const info = { ...settings(cwd), deviceControl: action === 'enable' };
-        if (info.deviceControl) info.skillDirectories = await disabled(cwd, 'skills.customDirectories');
-        saveOverlay(cwd, info);
+      if (bundled.some(item => item.id === target)) {
+        const info = settings(cwd);
+        const active = activePlugins(info);
+        if (target === devicePlugin && action === 'enable' && process.platform === 'win32') await adb.install();
+        if (action === 'enable') active.add(target);
+        else active.delete(target);
+        info.plugins = [...active];
+        delete info.deviceControl;
+        if (target === devicePlugin) {
+          if (active.has(devicePlugin)) info.skillDirectories = await disabled(cwd, 'skills.customDirectories');
+          saveOverlay(cwd, info);
+        }
         write(file(cwd), info);
       } else {
         await omp(cwd, ['plugin', action, target, '--scope=' + (scope === 'user' ? 'user' : 'project')]);

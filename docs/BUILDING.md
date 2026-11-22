@@ -1,7 +1,7 @@
-# Bygg Windows-installeren
+# Build the Windows installer
 
-Installer Inno Setup og kompiler `windows/Setup.iss` med `ISCC.exe`. Den ferdige EXE-en ligger i `windows/dist`. Installeren pakker Bridge-koden og Windows-oppstarteren. Node.js, Oh My Pi og Git installeres separat.
+Install Inno Setup and compile `windows/Setup.iss` with `ISCC.exe`. The executable is written to `windows/dist`. The installer packages Bridge and its Windows launcher. Install Node.js, Oh My Pi, and Git separately.
 
-Kjør `node --check windows/bridge/omp-bridge.mjs` før bygg. Test i en egen installasjonsmappe med en ledig port, og verifiser autostart-snarveien, helseendepunktet og avinstallasjon. Test også at en aktiv OMP-oppgave kan fullføre før en oppgradering.
+Run `node --check windows/bridge/omp-bridge.mjs` before compiling. Test in a separate installation with an unused port. Check the startup shortcut, the health endpoint, configuration preservation, and uninstallation.
 
-Releasen bruker separat tagg `omp-desktop-0.8.1` for å skille publiseringen fra den eldre automatiske releaserutinen. SHA-256-summer følger med nedlastingene.
+Desktop releases use the `omp-desktop-<version>` tag. The release includes SHA-256 checksums for its downloads.

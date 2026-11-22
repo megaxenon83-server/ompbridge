@@ -1,7 +1,9 @@
-# Sikkerhet
+# Security
 
-Bruk **Security → Report a vulnerability** i GitHub hvis privat rapportering er aktivert. Kontakt ellers vedlikeholderen privat. Oppgi versjon, berørt komponent og nok detaljer til å undersøke problemet uten å sende nøkler eller samtalefiler.
+Use **Security → Report a vulnerability** on GitHub when private reporting is available. Otherwise contact the maintainer privately. Include the version, affected component, and enough information to investigate. Keep credentials and conversation files out of reports.
 
-OMP Bridge kjører med rettighetene til den innloggede Windows-brukeren. Bruk den på et betrodd privat nettverk eller VPN, og hold port 7778 utenfor offentlig internett. Ta vare på QR-koder og konfigurasjonen i `%LOCALAPPDATA%\Nimay\OMPBridge\bridge\config.json`. Android pares med en kortvarig engangskode.
+OMP Bridge runs with the signed-in Windows user’s privileges. Use a trusted private network or VPN and keep port 7778 off the public internet. Protect the pairing QR code and the file at `%LOCALAPPDATA%NimayOMPBridgeridgeconfig.json`. New installations generate a random key and upgrades preserve it.
 
-Installasjonsprogrammet oppretter en tilfeldig nøkkel for nye installasjoner. Eksisterende konfigurasjon beholdes ved oppgradering. Modelltilgang konfigureres på PC-en. Publiser aldri bridge-konfigurasjon, API-nøkler eller signeringsnøkler.
+Review imported skills before enabling them. The skills.sh catalog imports Markdown from a pinned GitHub revision. Device Control requests approval for each action. A screenshot goes to the model selected for that conversation if you approve it.
+
+Keep Bridge configuration, API keys, and signing keys private.

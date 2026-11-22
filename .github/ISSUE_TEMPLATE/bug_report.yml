@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in OmniDesk does not work as expected
+description: Report a problem with OMP Desktop, Chat OMP OMP, or Bridge
 labels: ["bug"]
 body:
   - type: markdown
@@ -13,10 +13,9 @@ body:
       label: Component
       options:
         - Android app
+        - OMP Desktop
         - Bridge (PC)
         - Windows installer
-        - Linux package (.deb / .rpm / tarball)
-        - Flatpak
         - Provider sync
         - Documentation
     validations:
@@ -26,8 +25,8 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: Bridge version (Settings → PC and bridge) and app version (Settings → About)
-      placeholder: "Bridge 2.9.28, app 4.2.6, Android 14"
+      description: Include the applicable Bridge, Desktop, Android app, and Oh My Pi versions.
+      placeholder: "Bridge 2.9.36, Desktop 0.8.2, app 0.2.2"
     validations:
       required: true
 
@@ -35,7 +34,7 @@ body:
     id: platform
     attributes:
       label: Platform
-      placeholder: "Windows 11 / Ubuntu 24.04 / Fedora 41 / flatpak"
+      placeholder: "Windows 11 and Android 14"
     validations:
       required: true
 
@@ -58,7 +57,7 @@ body:
     id: logs
     attributes:
       label: Bridge log
-      description: Output from Settings → Diagnostics → Fetch log, if the issue is on the PC side
+      description: Relevant lines from bridge.stderr.log for a Windows-side issue
       render: text
 
   - type: checkboxes

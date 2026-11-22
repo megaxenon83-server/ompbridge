@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an improvement for OmniDesk
+description: Suggest an improvement for OMP Desktop, Chat OMP OMP, or Bridge
 labels: ["enhancement"]
 body:
   - type: textarea
@@ -13,7 +13,7 @@ body:
   - type: textarea
     id: proposal
     attributes:
-      label: What would OmniDesk need to do to help?
+      label: What should the app do?
     validations:
       required: true
 
@@ -23,6 +23,7 @@ body:
       label: Component
       options:
         - Android app
+        - OMP Desktop
         - Bridge (PC)
         - Packaging / installers
         - Documentation
