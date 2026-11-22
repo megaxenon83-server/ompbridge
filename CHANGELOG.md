@@ -1,5 +1,11 @@
 # Changelog
 
+## OMP Desktop 0.8.3 · Android 0.2.3 · Bridge 2.9.37
+
+- Added a localhost Skills page with reviewed batch imports, project and global scopes, project overrides, update previews, rollback, lockfiles, reusable packs, and editable prompts with Try in OMP.
+- Redesigned Desktop Plugins, added runnable checks for the bundled project plugins, and refined Android switches.
+- Added a conversation token meter and detailed OMP-reported input, output, and cache usage to both clients.
+
 ## OMP Desktop 0.8.2 · Android 0.2.2 · Bridge 2.9.36
 
 - Replaced copy and read-aloud text buttons with icons. Aligned Desktop Settings with the conversation toolbar and added consistent switches in both clients.

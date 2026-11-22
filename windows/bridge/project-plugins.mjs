@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { tmpdir } from 'node:os';
+import adb from './adb.cjs';
 
 const exec = promisify(execFile);
 const output = text => ({ content: [{ type: 'text', text }], details: {} });
@@ -86,4 +88,36 @@ export function registerProjectPlugins(pi, options) {
       return output(status.stdout.trim() + (history.stdout ? '\n\n' + history.stdout.trim() : ''));
     }
   });
+}
+
+export async function testProjectPlugin(id, cwd) {
+  if (id === 'device-control') {
+    const state = await adb.status();
+    if (!state.running || state.devices.filter(device => device.reachable).length !== 1) {
+      throw new Error('ADB må nå nøyaktig én godkjent Android-enhet.');
+    }
+    return 'ADB når den godkjente Android-enheten.';
+  }
+  const temporary = await fs.mkdtemp(join(tmpdir(), 'omp-plugin-test-'));
+  try {
+    const tools = [];
+    const hooks = new Map();
+    const schema = new Proxy(() => schema, { get: () => schema });
+    registerProjectPlugins({ zod: schema, registerTool: tool => tools.push(tool), on: (name, handler) => hooks.set(name, handler) },
+      { plugins: [id], memoryFile: join(temporary, 'memory.md') });
+    if (!tools.length) throw new Error('Pluginverktøyet ble ikke registrert.');
+    const ctx = { cwd: id === 'git-overview' ? cwd : temporary, hasUI: true, ui: { confirm: async () => true } };
+    const run = input => tools[0].execute('self-test', input, AbortSignal.timeout(15000), undefined, ctx);
+    if (id === 'git-overview') {
+      if (!(await run({})).content[0]?.text) throw new Error('Git gav ingen prosjektstatus.');
+      return 'Gren og Git-status ble lest.';
+    }
+    const text = 'OMP self-test ' + randomUUID();
+    await run({ action: 'write', markdown: text });
+    if ((await run({ action: 'read' })).content[0]?.text.trim() !== text) throw new Error('Kunne ikke lese tilbake det skrevne innholdet.');
+    if (id === 'agent-memory' && !(await hooks.get('before_agent_start')()).message.content.includes(text)) {
+      throw new Error('Prosjektminnet ble ikke lagt til som OMP-kontekst.');
+    }
+    return id === 'agent-memory' ? 'Minne ble lagret, lest og lagt til som kontekst.' : 'En isolert PROJECT_STATUS.md ble skrevet og lest.';
+  } finally { await fs.rm(temporary, { force: true, recursive: true }); }
 }

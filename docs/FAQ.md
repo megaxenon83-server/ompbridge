@@ -22,7 +22,13 @@ Use the copy or speaker icon below the message. The speaker changes to a stop ic
 
 ### How do I import skills?
 
-Open **Plugins → Skills.sh-katalog** in a shared project. Choose a catalog entry or paste a skills.sh link for a GitHub skill. Review the Markdown and revision before installing, then enable the skill with its switch. Script files and separate program dependencies are outside the Markdown import.
+Open **Innstillinger → Plugins → Utforsk skills** (Settings → Plugins → Explore skills) in OMP Desktop. The localhost page opens for the selected project. Pick recommended items or paste links from skills.sh, inspect the Markdown and pinned revisions, and choose **Project** or **Global**. Global skills are available to shared projects on the same Bridge, with a project-level override. Imports start disabled.
+
+Use **Installed** to inspect the loaded revision, preview an update, roll back, or open an editable example with **Try in OMP**. The lockfile records reusable project settings. Review the restore preview before applying it.
+
+### How do I verify a plugin or see token usage?
+
+Enable a bundled project plugin and choose **Test plugin** in Desktop or Android. The result shows whether OMP registered its tool and whether its self-test passed. The conversation header has a token meter with input, output, cache, and most recent model-call totals reported by OMP.
 
 ### How does Device Control work?
 

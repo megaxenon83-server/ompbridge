@@ -3,8 +3,8 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const catalog = [
-  ['vercel-labs/skills/find-skills', 'Finn flere skills'],
-  ['vercel-labs/agent-browser/agent-browser', 'Nettleserautomatisering'],
+  ['vercel-labs/skills/find-skills', 'La OMP finne skills', 'Agenten foreslår relevante skills fra en OMP-samtale.'],
+  ['vercel-labs/agent-browser/agent-browser', 'Nettleserautomatisering', 'Veiledning for å styre nettleseren.', 'agent-browser'],
   ['anthropics/skills/frontend-design', 'Frontend-design'],
   ['obra/superpowers/using-superpowers', 'Superpowers'],
   ['caidanw/skills/karpathy-guidelines', 'Karpathy Guidelines'],
@@ -16,7 +16,7 @@ const catalog = [
   ['mattpocock/skills/code-review', 'Kodegjennomgang'],
   ['cloudflare/skills/workers-best-practices', 'Cloudflare Workers'],
   ['terminalskills/skills/ui-ux-pro-max', 'Design og UX']
-].map(([ref, category]) => ({ ref, category }));
+].map(([ref, category, description, requires]) => ({ ref, category, description, requires }));
 const previews = new Map();
 const maxMarkdown = 256 * 1024;
 const segment = /^[a-z0-9][a-z0-9._-]{0,99}$/i;
@@ -33,7 +33,8 @@ function parseRef(input) {
     ref = url.pathname.replace(/^\/|\/$/g, '');
   }
   const parts = ref.split('/');
-  if (parts.length !== 3 || !parts.every(portable) || !/^[a-z0-9-]+$/.test(parts[2])) throw new Error('Bruk en skills.sh-lenke til én GitHub-skill.');
+  if (parts.length !== 3 || !parts.every(portable) || !/^[a-z0-9-]+$/.test(parts[2]) ||
+      Object.hasOwn(Object.prototype, parts[2])) throw new Error('Bruk en skills.sh-lenke til én GitHub-skill.');
   return parts.join('/');
 }
 
@@ -59,12 +60,13 @@ async function markdown(repo, sha, entry) {
   return new TextDecoder('utf-8', { fatal: true }).decode(file);
 }
 
-async function preview(cwd, input) {
+async function preview(cwd, input, revision) {
   const ref = parseRef(input);
   const name = ref.split('/').at(-1);
   const repo = ref.slice(0, -(name.length + 1));
   const api = 'https://api.github.com/repos/' + repo;
-  const { sha } = JSON.parse(await download(api + '/commits/HEAD', 512 * 1024));
+  if (revision != null && !/^[a-f0-9]{40}$/.test(revision)) throw new Error('Ugyldig GitHub-revisjon.');
+  const sha = revision || JSON.parse(await download(api + '/commits/HEAD', 512 * 1024)).sha;
   if (!/^[a-f0-9]{40}$/.test(sha || '')) throw new Error('GitHub gav ingen gyldig revisjon.');
   const listing = JSON.parse(await download(api + '/git/trees/' + sha + '?recursive=1', 12 * 1024 * 1024));
   if (listing.truncated) throw new Error('Repoet er for stort til å finne skillen sikkert.');
@@ -90,15 +92,22 @@ async function preview(cwd, input) {
   const ticket = randomUUID();
   const info = { cwd, ref, repo, name, sha, document, prefix, extras, created: Date.now() };
   previews.set(ticket, info);
-  return { ticket, ref, name, sha, markdown: document, files: extras.map(item => item.path.slice(prefix.length)),
+  const recommended = catalog.find(item => item.ref === ref);
+  const required = /^allowed-tools:\s*(.+)$/m.exec(header)?.[1];
+  return { ticket, ref, name, sha, markdown: document, requires: recommended?.requires || required || '',
+    files: extras.map(item => item.path.slice(prefix.length)),
     omitted: siblings.length - extras.length };
 }
 
-async function install(cwd, ticket, directory, existing) {
+function selection(cwd, ticket) {
   const item = previews.get(ticket);
   if (!item || item.cwd !== cwd || Date.now() - item.created > 600000) throw new Error('Åpne forhåndsvisningen på nytt før installasjon.');
+  return item;
+}
+
+async function install(cwd, ticket, directory, existing = []) {
+  const item = selection(cwd, ticket);
   if (existing.includes(item.name)) throw new Error('Prosjektet har allerede en skill med dette navnet.');
-  previews.delete(ticket);
   await fs.mkdir(directory, { recursive: true });
   const staging = await fs.mkdtemp(path.join(directory, 'import-'));
   const destination = path.join(staging, item.name);
@@ -116,8 +125,9 @@ async function install(cwd, ticket, directory, existing) {
     }
     const target = path.join(directory, item.name);
     await fs.rename(staging, target);
+    previews.delete(ticket);
     return { name: item.name, ref: item.ref, sha: item.sha, enabled: false };
   } finally { await fs.rm(staging, { force: true, recursive: true }); }
 }
 
-module.exports = { catalog, preview, install };
+module.exports = { catalog, parseRef, preview, selection, install };

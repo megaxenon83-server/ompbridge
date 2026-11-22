@@ -27,7 +27,7 @@ import turnModule from "./omp-turn-changes.cjs";
 import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.36";
+const VERSION = "2.9.37";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -875,7 +875,17 @@ class OmpRuntime {
     const args = OMP_BIN_ENTRY
       ? [OMP_BIN_ENTRY, "--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT]
       : ["--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT];
-    const resources = workspace.spawnOptions(this.cwd);
+    let resources;
+    try { resources = await workspace.spawnOptions(this.cwd); }
+    catch (error) {
+      const pending = this.readyPromise;
+      this.readyPromise = null;
+      this.readyReject?.(error);
+      return pending;
+    }
+    this.workspaceSignature = resources.signature;
+    this.loadedSkills = resources.skills;
+    this.blockedSkills = resources.blocked;
     args.push(...resources.args);
     // OMP-moduser: always-ask | always-ask-cached | write | yolo ("write" =
     // spÃ¸r ved sletting/store endringer; "yolo" = godkjenn alt automatisk).
@@ -1376,6 +1386,9 @@ function summariseMessage(message, messageId) {
 // ---------------------------------------------------------------------------
 
 const runtimes = new Map();
+const refreshingWorkspaces = new Map();
+const skillActions = new Set(['catalog', 'skill-library', 'preview-skill', 'install-skill', 'set-skill',
+  'rollback-skill', 'remove-skill', 'write-lock', 'save-pack']);
 
 function sessionActivity(runtime) {
   if (!runtime?.ready || !runtime.sessionFile) return null;
@@ -1429,8 +1442,27 @@ function runtimeKey(cwd) {
 async function getRuntime(cwd, { create = true } = {}) {
   if (managingProjects.has(managedProjectKey(cwd))) throw new Error("En samtale oppdateres. Prøv igjen om et øyeblikk.");
   const key = runtimeKey(cwd);
+  if (refreshingWorkspaces.has(key)) return refreshingWorkspaces.get(key);
   let runtime = runtimes.get(key);
   if (!runtime && !create) return null;
+  if (runtime?.ready && runtime.workspaceSignature !== workspace.signature(cwd) &&
+      !runtime.working && !runtime.pendingUi.size && !runtime.pending.size && !runtime.state?.isStreaming && !turnChanges.isActive(runtime)) {
+    const previous = runtime;
+    const refresh = (async () => {
+      const session = previous.sessionFile;
+      await previous.stop();
+      const replacement = new OmpRuntime(key);
+      runtimes.set(key, replacement);
+      await replacement.start();
+      if (session && fs.existsSync(session)) {
+        const switched = await replacement.rpc('switch_session', { sessionPath: session });
+        if (!switched?.cancelled) await replacement.refreshState();
+      }
+      return replacement;
+    })().finally(() => refreshingWorkspaces.delete(key));
+    refreshingWorkspaces.set(key, refresh);
+    return refresh;
+  }
   if (!runtime) {
     const stat = fs.statSync(key, { throwIfNoEntry: false });
     if (!stat || !stat.isDirectory()) throw new Error(`Prosjektmappen finnes ikke: ${key}`);
@@ -2640,8 +2672,25 @@ async function handle(req, res) {
         if (!cwd) return json(res, 400, { error: "Velg et prosjekt først." });
         const plugins = url.pathname.endsWith("/plugins");
         if (plugins && !request) return json(res, 200, await workspace.plugins(cwd));
-        if (plugins && ["catalog", "preview-skill"].includes(request?.action)) {
-          try { return json(res, 200, await workspace.plugins(cwd, request)); }
+        if (plugins && skillActions.has(request?.action)) {
+          try {
+            let runtime = runtimes.get(runtimeKey(cwd));
+            if (request.action === 'skill-library' && (!runtime || (runtime.ready && !runtime.working && !runtime.pendingUi.size))) {
+              runtime = await getRuntime(cwd);
+              const { commands = [] } = await runtime.rpc('get_available_commands');
+              const loaded = new Set(commands.filter(command => command.source === 'skill').map(command => command.name.replace(/^skill:/, '')));
+              runtime.loadedSkills = runtime.loadedSkills.filter(item => loaded.has(item.name));
+            }
+            const known = (request.action === 'skill-library' || request.action === 'remove-skill')
+              ? [...loadProjects().map(item => item.path).filter(Boolean), ...runtimes.keys()] : undefined;
+            return json(res, 200, await workspace.skillAction(cwd, request, runtime, known));
+          }
+          catch (error) { return json(res, 400, { error: error.message }); }
+        }
+        if (!plugins && request?.kind === 'skill' && typeof request.enabled === 'boolean' && workspace.isManagedSkill(cwd, request.name)) {
+          try { return json(res, 200, await workspace.skillAction(cwd, {
+            action: 'set-skill', name: request.name, scope: 'project', enabled: request.enabled
+          }, runtimes.get(runtimeKey(cwd)))); }
           catch (error) { return json(res, 400, { error: error.message }); }
         }
         const runtime = await getRuntime(cwd);
@@ -2653,6 +2702,7 @@ async function handle(req, res) {
         try {
           const agent = process.env.PI_CODING_AGENT_DIR || OMP_AGENT_DIR;
           if (!request) return json(res, 200, await workspace.resources(runtime, agent));
+          if (plugins && request.action === 'test') return json(res, 200, await workspace.testPlugin(runtime, request.target));
           const result = plugins ? await workspace.plugins(cwd, request) : await workspace.toggle(runtime, request, agent);
           await runtime.stop();
           if (runtimes.get(runtimeKey(cwd)) === runtime) runtimes.delete(runtimeKey(cwd));

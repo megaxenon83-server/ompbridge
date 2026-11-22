@@ -5,6 +5,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const catalog = require('./skill-catalog.cjs');
 const adb = require('./adb.cjs');
+const { createSkillLibrary } = require('./skill-library.cjs');
 
 const exec = promisify(execFile);
 const resourceName = /^[\p{L}\p{N}_:.@/-]{1,160}$/u;
@@ -23,13 +24,14 @@ function createWorkspace(directory, executable, entry) {
   const overlay = (cwd, id) => path.join(root, key(cwd) + '.' + id + '.config.json');
   const script = path.join(directory, 'workspace-extension.mjs');
   const activePlugins = info => new Set([...(info.plugins || []), ...(info.deviceControl ? [devicePlugin] : [])]);
-  const skillStorage = cwd => path.join(root, key(cwd) + '.skills');
-  const externalSkills = info => (info.externalSkills || []).map(item => ({ ...item, kind: 'skill', source: 'skills.sh',
-    detail: item.ref + ' · ' + item.sha.slice(0, 8) }));
   const settings = cwd => {
     try { return JSON.parse(fs.readFileSync(file(cwd), 'utf8')); }
     catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
   };
+  const library = createSkillLibrary(root, settings);
+  const layout = cwd => library.list(cwd).filter(skill => skill.enabled);
+  const signature = (cwd, skills = layout(cwd)) => JSON.stringify(skills.map(({ name, sha, scope }) => [name, sha, scope]));
+  const managed = cwd => library.list(cwd).map(({ folder, ...skill }) => skill);
   function write(target, value) {
     fs.mkdirSync(root, { recursive: true });
     const temporary = target + '.' + randomUUID() + '.tmp';
@@ -62,15 +64,6 @@ function createWorkspace(directory, executable, entry) {
     }
     return result;
   }
-  function saveOverlay(cwd, info) {
-    const value = {};
-    if (info.disabledExtensions !== undefined) value.disabledExtensions = info.disabledExtensions;
-    const folders = externalSkills(info).filter(item => item.enabled).map(item => path.join(skillStorage(cwd), item.name));
-    if (activePlugins(info).has(devicePlugin)) folders.push(path.join(directory, 'skills'));
-    if (folders.length) value.skills = { customDirectories: [...new Set([...(info.skillDirectories || []), ...folders])] };
-    info.overlay = randomUUID();
-    write(overlay(cwd, info.overlay), value);
-  }
   async function listSkills(cwd, inactive) {
     const { skills = [] } = JSON.parse(await omp(cwd, ['skill', 'list', '--json']));
     return skills.filter(item => item.name).map(item => ({
@@ -80,6 +73,43 @@ function createWorkspace(directory, executable, entry) {
   }
   return {
     settings,
+    signature,
+    isManagedSkill: (cwd, name) => managed(cwd).some(item => item.name === name),
+    async skillAction(cwd, input, runtime, known) {
+      if (input.action === 'skill-library') {
+        const summary = library.summary(cwd, known);
+        return { ...summary, pending: !!runtime && runtime.workspaceSignature !== signature(cwd),
+          loaded: runtime?.loadedSkills || [], blocked: runtime?.blockedSkills || [] };
+      }
+      if (input.action === 'catalog') return { entries: catalog.catalog };
+      if (input.action === 'preview-skill') {
+        if (input.scope != null && !['project', 'global'].includes(input.scope)) throw new Error('Ugyldig installasjonsomfang.');
+        const preview = await catalog.preview(cwd, input.target, input.revision);
+        return { ...preview, previous: library.installedMarkdown(cwd, preview.name, input.scope) };
+      }
+      const native = input.action === 'install-skill' ? (await listSkills(cwd, [])).map(item => item.name) : [];
+      const result = await library.change(cwd, input, native, known);
+      return { ...result, pending: !!runtime && runtime.workspaceSignature !== signature(cwd) };
+    },
+    async testPlugin(runtime, id) {
+      if (!activePlugins(settings(runtime.cwd)).has(id) || !bundled.some(item => item.id === id)) throw new Error('Aktiver pluginen først.');
+      const names = { 'agent-memory': 'omp_agent_memory', 'project-status': 'omp_project_status',
+        'git-overview': 'omp_git_overview', 'device-control': 'omp_device' };
+      const snapshot = await runtime.localCommand('/tools');
+      let result;
+      try {
+        if (!snapshot.split('\n').some(line => line.startsWith('* ' + names[id]) && line.split(/\s+/)[1] === names[id])) {
+          throw new Error('OMP har ikke aktivert pluginverktøyet.');
+        }
+        const { testProjectPlugin } = await import('./project-plugins.mjs');
+        result = { ok: true, detail: await testProjectPlugin(id, runtime.cwd) };
+      } catch (error) { result = { ok: false, detail: error.message }; }
+      const info = settings(runtime.cwd);
+      info.pluginTests ||= {};
+      info.pluginTests[id] = { ...result, at: new Date().toISOString() };
+      write(file(runtime.cwd), info);
+      return info.pluginTests[id];
+    },
     pruneOverlays(cwd) {
       const keep = settings(cwd).overlay;
       if (!fs.existsSync(root)) return;
@@ -90,13 +120,27 @@ function createWorkspace(directory, executable, entry) {
         }
       }
     },
-    spawnOptions(cwd) {
+    async spawnOptions(cwd) {
       const info = settings(cwd);
       const plugins = activePlugins(info);
-      const hasOverlay = info.disabledExtensions !== undefined || plugins.has(devicePlugin) || externalSkills(info).some(item => item.enabled);
-      const args = hasOverlay && /^[a-f0-9-]{36}$/.test(info.overlay || '') ? ['--config', overlay(cwd, info.overlay)] : [];
+      const skills = layout(cwd);
+      const native = skills.length ? new Set((await listSkills(cwd, [])).map(item => item.name)) : new Set();
+      const usable = skills.filter(item => !native.has(item.name));
+      const folders = usable.map(item => item.folder);
+      if (plugins.has(devicePlugin)) folders.push(path.join(directory, 'skills'));
+      const args = [];
+      if (folders.length || info.disabledExtensions !== undefined) {
+        const value = {};
+        if (info.disabledExtensions !== undefined) value.disabledExtensions = info.disabledExtensions;
+        if (folders.length) value.skills = { customDirectories: [...new Set([...(await disabled(cwd, 'skills.customDirectories')), ...folders])] };
+        const config = overlay(cwd, randomUUID());
+        this.pruneOverlays(cwd);
+        write(config, value);
+        args.push('--config', config);
+      }
       if (info.disabledTools?.length || info.enabledTools?.length || plugins.size) args.push('--extension', script);
-      return { args, env: {
+      return { args, signature: signature(cwd, skills), blocked: skills.filter(item => native.has(item.name)).map(item => item.name),
+        skills: usable.map(({ name, sha, scope }) => ({ name, sha, scope })), env: {
         OMP_BRIDGE_RESOURCE_OPTIONS: JSON.stringify({
           disabled: info.disabledTools || [], enabled: info.enabledTools || [], deviceControl: plugins.has(devicePlugin),
           plugins: [...plugins], memoryFile: path.join(root, key(cwd) + '.memory.md')
@@ -113,7 +157,8 @@ function createWorkspace(directory, executable, entry) {
         return [name, { name, kind: 'skill', detail: command.description, loaded: true, enabled: !inactive.includes('skill:' + name) }];
       }));
       for (const skill of await listSkills(cwd, inactive)) if (!skills.has(skill.name)) skills.set(skill.name, skill);
-      for (const skill of externalSkills(info)) skills.set(skill.name, { ...skill, loaded: skills.get(skill.name)?.loaded === true });
+      for (const skill of managed(cwd)) skills.set(skill.name, { ...skill, loaded: skills.get(skill.name)?.loaded === true,
+        pending: runtime.workspaceSignature !== signature(cwd) });
       for (const entry of inactive) {
         if (typeof entry !== 'string' || !entry.startsWith('skill:')) continue;
         const name = entry.slice(6);
@@ -150,13 +195,9 @@ function createWorkspace(directory, executable, entry) {
         return;
       }
       const info = settings(cwd);
-      const external = info.externalSkills?.find(item => item.name === name);
+      const external = managed(cwd).find(item => item.name === name);
       if (kind === 'skill' && external) {
-        external.enabled = enabled;
-        if (enabled) info.skillDirectories = await disabled(cwd, 'skills.customDirectories');
-        saveOverlay(cwd, info);
-        write(file(cwd), info);
-        return;
+        return this.skillAction(cwd, { action: 'set-skill', name, scope: 'project', enabled }, runtime);
       }
       function set(list, value, include) {
         const names = new Set(list || []);
@@ -166,7 +207,6 @@ function createWorkspace(directory, executable, entry) {
       }
       if (kind === 'skill') {
         info.disabledExtensions = set(info.disabledExtensions ?? await disabled(cwd, 'disabledExtensions'), 'skill:' + name, !enabled);
-        saveOverlay(cwd, info);
       } else {
         info.disabledTools = set(info.disabledTools, name, !enabled);
         info.enabledTools = set(info.enabledTools, name, enabled);
@@ -183,18 +223,8 @@ function createWorkspace(directory, executable, entry) {
           info.disabledExtensions ?? disabled(cwd, 'disabledExtensions')
         ]);
         const data = output.startsWith('{') ? JSON.parse(output) : {};
-        return { ...data, builtIn: bundled.map(item => ({ ...item, enabled: active.has(item.id) })),
-          skills: [...await listSkills(cwd, inactive), ...externalSkills(info)] };
-      }
-      if (action === 'catalog') return { entries: catalog.catalog };
-      if (action === 'preview-skill') return catalog.preview(cwd, target);
-      if (action === 'install-skill') {
-        const info = settings(cwd);
-        const local = await listSkills(cwd, []);
-        const item = await catalog.install(cwd, target, skillStorage(cwd), [...local, ...externalSkills(info)].map(item => item.name));
-        info.externalSkills = [...(info.externalSkills || []), item];
-        write(file(cwd), info);
-        return { ok: true, skill: item };
+        return { ...data, builtIn: bundled.map(item => ({ ...item, enabled: active.has(item.id), test: info.pluginTests?.[item.id] })),
+          skills: [...await listSkills(cwd, inactive), ...managed(cwd)] };
       }
       if (!['enable', 'disable'].includes(action) || typeof target !== 'string' ||
           !resourceName.test(target) || target.startsWith('-')) throw new Error('Ugyldig pluginhandling.');
@@ -206,10 +236,7 @@ function createWorkspace(directory, executable, entry) {
         else active.delete(target);
         info.plugins = [...active];
         delete info.deviceControl;
-        if (target === devicePlugin) {
-          if (active.has(devicePlugin)) info.skillDirectories = await disabled(cwd, 'skills.customDirectories');
-          saveOverlay(cwd, info);
-        }
+        if (info.pluginTests) delete info.pluginTests[target];
         write(file(cwd), info);
       } else {
         await omp(cwd, ['plugin', action, target, '--scope=' + (scope === 'user' ? 'user' : 'project')]);
