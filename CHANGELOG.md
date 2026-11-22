@@ -1,5 +1,12 @@
 # Changelog
 
+## OMP Desktop 0.8.5 · Android 0.2.5 · Bridge 2.9.39
+
+- Added optional Norwegian and English voice conversations with spoken interruption.
+- Added Chat, Plan, Build, and Light Context controls for shared conversations in Desktop.
+- Shared local model switching now releases the old model before loading the replacement.
+- Added an animated Android work indicator.
+
 ## OMP Desktop 0.8.4 · Android 0.2.4 · Bridge 2.9.38
 
 - Fixed Windows Device Control typing and key presses. The device self-test checks the Windows foreground window and validates an ADB screenshot.

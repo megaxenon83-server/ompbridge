@@ -26,8 +26,9 @@ import { fileURLToPath } from "node:url";
 import turnModule from "./omp-turn-changes.cjs";
 import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
+import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.38";
+const VERSION = "2.9.39";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -884,9 +885,23 @@ class OmpRuntime {
       return pending;
     }
     this.workspaceSignature = resources.signature;
-    this.loadedSkills = resources.skills;
+    const restricted = this.chatProfile?.light || ["chat", "plan"].includes(this.chatProfile?.mode);
+    this.loadedSkills = restricted ? [] : resources.skills;
     this.blockedSkills = resources.blocked;
-    args.push(...resources.args);
+    let allowedTools;
+    if (this.chatProfile?.mode === "chat") {
+      allowedTools = [];
+      args.push("--no-skills", "--no-extensions", "--no-tools",
+        "--system-prompt", "Answer the user's questions conversationally. Do not make changes.");
+    } else if (this.chatProfile?.mode === "plan" || this.chatProfile?.light) {
+      const planning = this.chatProfile.mode === "plan";
+      allowedTools = planning ? ["read", "grep"] : ["read", "grep", "edit", "write"];
+      args.push("--no-skills", "--no-extensions", planning ? "--tools=read,grep" : "--tools=read,grep,edit,write");
+      args.push("--system-prompt", planning
+        ? "Investigate and propose a concrete plan. Do not modify files or execute the plan."
+        : "Work on the requested task. Use the available tools as needed and keep replies concise.");
+    } else args.push(...resources.args);
+    if (restricted) args.push("--extension", path.join(HERE, "workspace-extension.mjs"));
     // OMP-moduser: always-ask | always-ask-cached | write | yolo ("write" =
     // spÃ¸r ved sletting/store endringer; "yolo" = godkjenn alt automatisk).
     if (CONFIG.approvalMode && CONFIG.approvalMode !== "default") {
@@ -895,7 +910,9 @@ class OmpRuntime {
     log("info", `spawning omp rpc for ${this.cwd} (approval=${CONFIG.approvalMode}) using ${OMP_BIN_EXEC}`);
     const child = spawn(OMP_BIN_EXEC, args, {
       cwd: this.cwd,
-      env: { ...process.env, ...resources.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+      env: { ...process.env, ...resources.env,
+        ...(restricted && { OMP_BRIDGE_RESOURCE_OPTIONS: JSON.stringify({ allowedTools }) }),
+        NO_COLOR: "1", FORCE_COLOR: "0" },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -1386,6 +1403,45 @@ function summariseMessage(message, messageId) {
 // ---------------------------------------------------------------------------
 
 const runtimes = new Map();
+const chatProfiles = new Map();
+const defaultChatProfile = { mode: "build", light: false };
+let residentModel;
+let residentModelSwitch;
+let localCatalog;
+let localCatalogExpires = 0;
+
+async function prepareChatModel(runtime) {
+  while (residentModelSwitch) await residentModelSwitch.catch(() => {});
+  residentModelSwitch = (async () => {
+    const model = runtime.state?.model;
+    if (!model) return;
+    let next;
+    if (localModels.managedForModel(model)) next = { ...model, managed: true };
+    else {
+      if (Date.now() >= localCatalogExpires) {
+        localCatalog = await localModels.discoverLocal();
+        localCatalogExpires = Date.now() + 8000;
+      }
+      next = localModels.matchLocal(model, localCatalog);
+    }
+    const previous = residentModel;
+    if (!previous && !next) return;
+    const same = previous && next && (next.managed
+      ? previous.managed && previous.provider === next.provider && previous.id === next.id
+      : previous.origin === next.origin && previous.id === next.id);
+    if (same) {
+      if (next.managed) await localModels.ensureManaged(next);
+      return;
+    }
+    if ([...runtimes.values()].some(other => other !== runtime && sessionActivity(other))) {
+      throw new Error("Vent til det aktive svaret er ferdig før du bytter lokal modell.");
+    }
+    await localModels.swapMemory(previous, next);
+    residentModel = next;
+  })();
+  try { await residentModelSwitch; }
+  finally { residentModelSwitch = undefined; }
+}
 const refreshingWorkspaces = new Map();
 const skillActions = new Set(['catalog', 'skill-library', 'preview-skill', 'install-skill', 'set-skill',
   'rollback-skill', 'remove-skill', 'write-lock', 'save-pack']);
@@ -1439,23 +1495,26 @@ function runtimeKey(cwd) {
   return path.resolve(cwd);
 }
 
-async function getRuntime(cwd, { create = true, sessionFile } = {}) {
+async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {}) {
   if (managingProjects.has(managedProjectKey(cwd))) throw new Error("En samtale oppdateres. Prøv igjen om et øyeblikk.");
   const key = runtimeKey(cwd);
   if (refreshingWorkspaces.has(key)) {
     await refreshingWorkspaces.get(key);
-    return getRuntime(cwd, { create, sessionFile });
+    return getRuntime(cwd, { create, sessionFile, chatProfile });
   }
   let runtime = runtimes.get(key);
   if (!runtime && !create) return null;
   const intended = sessionFile ?? runtime?.sessionFile;
-  if (runtime?.ready && runtime.workspaceSignature !== workspace.signature(cwd, intended) &&
+  const profile = chatProfile ?? (intended && chatProfiles.get(managedProjectKey(intended))) ?? defaultChatProfile;
+  const profileChanged = JSON.stringify(profile) !== JSON.stringify(runtime?.chatProfile);
+  if (runtime?.ready && (profileChanged || runtime.workspaceSignature !== workspace.signature(cwd, intended)) &&
       !runtime.working && !runtime.pendingUi.size && !runtime.pending.size && !runtime.state?.isStreaming && !turnChanges.isActive(runtime)) {
     const previous = runtime;
     const refresh = (async () => {
       await previous.stop();
       const replacement = new OmpRuntime(key);
       replacement.workspaceSession = intended;
+      replacement.chatProfile = profile;
       runtimes.set(key, replacement);
       await replacement.start();
       if (intended && fs.existsSync(intended)) {
@@ -1472,6 +1531,7 @@ async function getRuntime(cwd, { create = true, sessionFile } = {}) {
     if (!stat || !stat.isDirectory()) throw new Error(`Prosjektmappen finnes ikke: ${key}`);
     runtime = new OmpRuntime(key);
     runtime.workspaceSession = intended;
+    runtime.chatProfile = profile;
     runtimes.set(key, runtime);
   }
   await runtime.start();
@@ -2034,6 +2094,11 @@ function voiceConfig() {
   return readJsonFile(VOICE_CONFIG_FILE);
 }
 
+function localVoiceReady() {
+  const config = voiceConfig();
+  return config?.stt?.id === "whisper-small" && config?.tts?.id === "piper-bilingual" && !!voicePython();
+}
+
 function voiceJob() {
   return readJsonFile(path.join(VOICE_DIR, "install-job.json"));
 }
@@ -2065,6 +2130,7 @@ let voiceInstall = null;
  *  modeller (VibeVoice/Whisper) ikke lastes paa nytt per forespoersel. */
 let voiceWorker = null;
 let voiceWorkerQueue = Promise.resolve();
+let voiceIdleTimer;
 
 function spawnVoiceWorker() {
   const python = voicePython();
@@ -2101,7 +2167,6 @@ function spawnVoiceWorker() {
       const line = child.buf.slice(0, idx).trim();
       child.buf = child.buf.slice(idx + 1);
       if (!line) continue;
-      log("debug", `voice-worker -> ${line.slice(0, 140)}`);
       let parsed = null;
       try { parsed = JSON.parse(line); } catch { continue; }
       if (parsed.engine === "worker" || parsed.bye) continue;
@@ -2122,6 +2187,7 @@ function runVoiceWorker(request, timeoutMs = 480000) {
   // (noen python-launchere relayer pipen forst naaar prosessen avslutter,
   // slik at filen er den troverdige kanalen).
   const run = voiceWorkerQueue.catch(() => {}).then(() => new Promise((resolve) => {
+    clearTimeout(voiceIdleTimer);
     if (!voicePython()) return resolve({ ok: false, error: "Python-miljoet for tale er ikke installert." });
     if (!fs.existsSync(VOICE_RUNTIME)) return resolve({ ok: false, error: "voice_runtime.py mangler." });
     const respFile = (((request.out || request.wav) || "") + ".resp") || "";
@@ -2142,6 +2208,10 @@ function runVoiceWorker(request, timeoutMs = 480000) {
       clearInterval(pollTimer);
       clearTimeout(reply.timer);
       worker.reply = null;
+      voiceIdleTimer = setTimeout(() => {
+        if (voiceWorker === worker && !worker.reply) worker.kill();
+      }, 120000);
+      voiceIdleTimer.unref();
       if (respFile) { try { fs.rmSync(respFile, { force: true }); } catch {} }
       resolve(result);
     };
@@ -3478,7 +3548,7 @@ async function handle(req, res) {
             });
           }
         }
-        const runtime = await getRuntime(cwd, { sessionFile: target?.file });
+        let runtime = await getRuntime(cwd, { sessionFile: target?.file });
         const activity = sessionActivity(runtime);
         if (activity && (!body.streamingBehavior || (target && !samePath(body.file, runtime.sessionFile)))) {
           return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
@@ -3491,6 +3561,23 @@ async function handle(req, res) {
             });
           }
           await runtime.refreshState();
+        }
+        if (!activity && body.chatProfile) {
+          const mode = body.chatProfile.mode;
+          if (!["chat", "plan", "build"].includes(mode) || typeof body.chatProfile.light !== "boolean") {
+            return json(res, 400, { error: "Ugyldig arbeidsmodus." });
+          }
+          const original = runtime.state?.model;
+          const activeSession = runtime.sessionFile;
+          runtime = await getRuntime(cwd, { sessionFile: runtime.sessionFile, chatProfile: { mode, light: body.chatProfile.light } });
+          if (original && (runtime.state?.model?.id !== original.id || runtime.state?.model?.provider !== original.provider)) {
+            await runtime.rpc("set_model", { provider: original.provider, modelId: original.id });
+            await runtime.refreshState();
+          }
+          if (runtime.chatProfile?.mode !== mode || runtime.chatProfile?.light !== body.chatProfile.light) {
+            return json(res, 409, { error: "Kunne ikke bytte arbeidsmodus mens OMP jobber." });
+          }
+          if (activeSession) chatProfiles.set(managedProjectKey(activeSession), runtime.chatProfile);
         }
         if (Array.isArray(body.attachments) && body.attachments.length) {
           await saveAttachments(runtime.cwd, body.attachments);
@@ -3508,6 +3595,7 @@ async function handle(req, res) {
         let ack;
         if (!inProgress) runtime.working = true;
         try {
+          if (!inProgress) await prepareChatModel(runtime);
           ack = await runtime.rpc("prompt", { message: body.text, ...(images.length ? { images } : {}), ...(body.streamingBehavior ? { streamingBehavior: body.streamingBehavior } : {}) }, 60000);
           if (ack?.agentInvoked === false && !inProgress) {
             runtime.working = false;
@@ -3775,6 +3863,30 @@ async function handle(req, res) {
         return json(res, 200, voiceEngineList());
       }
 
+      case "GET /api/voice/local": {
+        return json(res, 200, { ready: localVoiceReady(),
+          installing: !!voiceInstall, error: voiceJob()?.stage === "failed" ? voiceJob()?.error : undefined });
+      }
+
+      case "POST /api/voice/local": {
+        if (voiceInstall) return json(res, 202, { installing: true });
+        if (localVoiceReady()) return json(res, 200, { ready: true });
+        const setup = path.join(VOICE_DIR, "setup-local-voice.ps1");
+        if (!fs.existsSync(setup)) return json(res, 503, { error: "Den lokale talepakken mangler i Bridge." });
+        const logFd = openVoiceLog();
+        writeVoiceJob({ stage: "starting" });
+        const child = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", setup, "-VoiceDir", VOICE_DIR],
+          { cwd: VOICE_DIR, windowsHide: true, stdio: ["ignore", logFd, logFd] });
+        if (typeof logFd === "number") fs.closeSync(logFd);
+        voiceInstall = { child };
+        child.once("error", error => writeVoiceJob({ stage: "failed", error: error.message }));
+        child.once("close", code => {
+          voiceInstall = null;
+          writeVoiceJob(code === 0 ? { stage: "done" } : { stage: "failed", error: "Talepakken kunne ikke installeres. Se voice/install.log på PC-en." });
+        });
+        return json(res, 202, { installing: true });
+      }
+
       case "POST /api/voice/install": {
         const body = await readBody(req);
         const engineId = String(body.engine || "").trim();
@@ -3895,8 +4007,12 @@ async function handle(req, res) {
         fs.mkdirSync(VOICE_OUT, { recursive: true });
         const audioId = `tts-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
         const outPath = path.join(VOICE_OUT, `${audioId}.wav`);
-        const result = await runVoiceWorker({ command: "tts", text, out: outPath });
+        const result = await runVoiceWorker({ command: "tts", text, out: outPath, language: body.language });
         if (!result.ok) return json(res, 503, { error: result.error, installed: Boolean(voiceConfig()?.tts) });
+        if (body.inline === true) {
+          try { return json(res, 200, { audio: fs.readFileSync(outPath).toString("base64") }); }
+          finally { fs.rmSync(outPath, { force: true }); }
+        }
         const token = CONFIG.token;
         log("info", `Genererte tale (${result.data.duration}s) med ${result.data.engine}`);
         return json(res, 200, {
@@ -3916,9 +4032,9 @@ async function handle(req, res) {
           return json(res, 503, { error: "Ingen talegjenkjenning er installert. KjÃ¸r Nimay OMP-installasjonen." });
         }
         fs.mkdirSync(VOICE_OUT, { recursive: true });
-        const wavPath = path.join(VOICE_OUT, `stt-${Date.now()}.wav`);
+        const wavPath = path.join(VOICE_OUT, `stt-${crypto.randomUUID()}.wav`);
         fs.writeFileSync(wavPath, Buffer.from(data, "base64"));
-        const result = await runVoiceWorker({ command: "stt", wav: wavPath }, 240000);
+        const result = await runVoiceWorker({ command: "stt", wav: wavPath, language: body.language }, 240000);
         try { fs.rmSync(wavPath, { force: true }); } catch {}
         if (!result.ok) return json(res, 500, { error: result.error });
         return json(res, 200, { ok: true, text: result.data.text, engine: result.data.engine, duration: result.data.duration });
@@ -3931,6 +4047,10 @@ async function handle(req, res) {
       }
 
       case "POST /api/voice/stop": {
+        clearTimeout(voiceIdleTimer);
+        const child = voiceWorker;
+        await voiceWorkerQueue;
+        if (child && child === voiceWorker) child.kill();
         log("info", "Stoppet tale-strÃ¸m");
         return json(res, 200, { ok: true });
       }

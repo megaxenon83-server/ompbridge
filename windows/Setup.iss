@@ -1,4 +1,4 @@
-#define BridgeVersion "2.9.38"
+#define BridgeVersion "2.9.39"
 
 [Setup]
 AppId=ChatOmpOmpBridge
@@ -33,6 +33,9 @@ Source: "Bridge.ps1"; Flags: dontcopy
 Source: "bridge\omp-bridge.mjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\omp-turn-changes.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\omp-workspace.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "bridge\local-models.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "voice\setup-local-voice.ps1"; DestDir: "{app}\voice"; Flags: ignoreversion
+Source: "voice\voice_runtime.py"; DestDir: "{app}\voice"; Flags: ignoreversion
 Source: "bridge\workspace-extension.mjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\project-plugins.mjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\skill-catalog.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion

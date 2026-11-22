@@ -10,9 +10,9 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 | Component | What it does |
 | --- | --- |
-| [OMP Bridge 2.9.38 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.4/OMP-Bridge-Setup-2.9.38.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
-| [OMP Desktop 0.8.4 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.4/OMP-Desktop-0.8.4-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
-| [Chat OMP OMP 0.2.4 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.4/Chat-OMP-OMP-Android-0.2.4.apk) | Continue conversations, review edits, and manage project folders from your phone. |
+| [OMP Bridge 2.9.39 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.5/OMP-Bridge-Setup-2.9.39.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
+| [OMP Desktop 0.8.5 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.5/OMP-Desktop-0.8.5-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
+| [Chat OMP OMP 0.2.5 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.5/Chat-OMP-OMP-Android-0.2.5.apk) | Continue conversations, review edits, and manage project folders from your phone. |
 
 ## Get started
 
@@ -20,6 +20,14 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 2. Run the Bridge installer. New installations use port **7778**. Upgrades preserve the existing port and pairing configuration.
 3. Extract OMP Desktop and open **Innstillinger → Tilkobling → Vis QR-kode** (Settings → Connection → Show QR code). Choose the PC address that your phone can reach.
 4. Install the APK, open Chat OMP OMP, and scan the code from the same trusted network or VPN.
+
+## What changed in 0.8.5
+
+- Added optional local voice conversations in Norwegian and English. Both clients use the speech pack on the Windows host.
+- Speak during playback to interrupt a reply and submit a follow-up.
+- Desktop adds Chat, Plan, and Build modes for shared conversations and a Light Context switch.
+- Bridge frees a supported local chat model before loading its replacement. Android shows an animated progress indicator while OMP works.
+- Automated interruption, local speech processing, and Android emulator microphone checks passed. Full microphone conversations on physical devices are pending.
 
 ## What changed in 0.8.4
 

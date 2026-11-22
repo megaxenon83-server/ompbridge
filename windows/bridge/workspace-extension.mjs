@@ -61,6 +61,16 @@ async function android(input, device) {
 }
 
 export default function workspaceExtension(pi) {
+  if (options.allowedTools) {
+    const allowed = new Set(options.allowedTools);
+    const apply = () => pi.setActiveTools(pi.getActiveTools().filter(name => allowed.has(name)));
+    pi.on('session_start', apply);
+    pi.on('before_agent_start', apply);
+    pi.on('tool_call', event => {
+      if (!allowed.has(event.toolName)) return { block: true, reason: 'Verktøyet er slått av i denne arbeidsmodusen.' };
+    });
+    return;
+  }
   registerProjectPlugins(pi, options);
   const disabled = new Set(options.disabled || []);
   const enabled = options.enabled || [];
