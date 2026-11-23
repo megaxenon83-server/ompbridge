@@ -3574,16 +3574,33 @@ async function handle(req, res) {
           }
           const original = runtime.state?.model;
           const activeSession = runtime.sessionFile;
-          runtime = await getRuntime(cwd, { sessionFile: runtime.sessionFile, chatProfile: { mode, light } });
-          if (original && (runtime.state?.model?.id !== original.id || runtime.state?.model?.provider !== original.provider)) {
-            await runtime.rpc("set_model", { provider: original.provider, modelId: original.id });
-            await runtime.refreshState();
+          const profileKey = activeSession && managedProjectKey(activeSession);
+          const profile = { mode, light };
+          const previousProfile = profileKey && chatProfiles.get(profileKey);
+          // Background state polling must see the new choice while the runtime reconnects.
+          if (profileKey) chatProfiles.set(profileKey, profile);
+          try {
+            for (let attempt = 0; attempt < 8; attempt++) {
+              runtime = await getRuntime(cwd, { sessionFile: activeSession, chatProfile: profile });
+              if (runtime.chatProfile?.mode === mode && runtime.chatProfile?.light === light) break;
+              if (runtime.working || runtime.pendingUi.size) break;
+              await new Promise(resolve => setTimeout(resolve, 125));
+            }
+            if (runtime.chatProfile?.mode !== mode || runtime.chatProfile?.light !== light) {
+              throw new Error("Kunne ikke bytte arbeidsmodus mens OMP jobber.");
+            }
+            if (original && (runtime.state?.model?.id !== original.id || runtime.state?.model?.provider !== original.provider)) {
+              await runtime.rpc("set_model", { provider: original.provider, modelId: original.id });
+              await runtime.refreshState();
+            }
+          } catch (error) {
+            if (profileKey && chatProfiles.get(profileKey) === profile) {
+              if (previousProfile) chatProfiles.set(profileKey, previousProfile);
+              else chatProfiles.delete(profileKey);
+            }
+            throw error;
           }
-          if (runtime.chatProfile?.mode !== mode || runtime.chatProfile?.light !== light) {
-            return json(res, 409, { error: "Kunne ikke bytte arbeidsmodus mens OMP jobber." });
-          }
-          if (activeSession) {
-            chatProfiles.set(managedProjectKey(activeSession), runtime.chatProfile);
+          if (profileKey) {
             fs.writeFileSync(profileFile + ".tmp", JSON.stringify(Object.fromEntries(chatProfiles)));
             fs.renameSync(profileFile + ".tmp", profileFile);
           }
