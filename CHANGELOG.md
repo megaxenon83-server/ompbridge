@@ -1,5 +1,10 @@
 # Changelog
 
+## OMP Desktop 0.8.7 · Android 0.2.7 · Bridge 2.9.39
+
+- Desktop moves Chat, Plan, and Build into a compact mode picker and keeps the composer full width.
+- Android adds a version label, muted navy launcher icon, and distinct live work states.
+
 ## OMP Desktop 0.8.5 · Android 0.2.5 · Bridge 2.9.39
 
 - Added optional Norwegian and English voice conversations with spoken interruption.

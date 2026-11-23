@@ -10,9 +10,9 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 | Component | What it does |
 | --- | --- |
-| [OMP Bridge 2.9.39 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.5/OMP-Bridge-Setup-2.9.39.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
-| [OMP Desktop 0.8.5 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.5/OMP-Desktop-0.8.5-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
-| [Chat OMP OMP 0.2.5 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.5/Chat-OMP-OMP-Android-0.2.5.apk) | Continue conversations, review edits, and manage project folders from your phone. |
+| [OMP Bridge 2.9.39 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.7/OMP-Bridge-Setup-2.9.39.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
+| [OMP Desktop 0.8.7 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.7/OMP-Desktop-0.8.7-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
+| [Chat OMP OMP 0.2.7 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.7/Chat-OMP-OMP-Android-0.2.7.apk) | Continue conversations, review edits, and manage project folders from your phone. |
 
 ## Get started
 
@@ -20,6 +20,11 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 2. Run the Bridge installer. New installations use port **7778**. Upgrades preserve the existing port and pairing configuration.
 3. Extract OMP Desktop and open **Innstillinger → Tilkobling → Vis QR-kode** (Settings → Connection → Show QR code). Choose the PC address that your phone can reach.
 4. Install the APK, open Chat OMP OMP, and scan the code from the same trusted network or VPN.
+
+## What changed in 0.8.7
+
+- Desktop uses a compact mode picker on the right of the composer and keeps the message field full width. Stop takes the place of Send while OMP runs.
+- Android shows its installed version in Settings, has a muted navy launcher icon, and updates its animated activity indicator from live OMP events.
 
 ## What changed in 0.8.5
 
