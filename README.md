@@ -26,6 +26,10 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 Android Settings includes controls to wake or shut down a paired PC. The encrypted QR pairing supplies the PC's MAC address and relay configuration. Install the [chatompompwol relay](chatompompwol/README.md) on a Linux host that remains online on the same LAN.
 
+Set the relay address and token in Bridge once. OMP Desktop 0.8.11 has no Wake-on-LAN setup form. In Desktop, choose the PC's wired LAN address and display a fresh QR code. Android imports the settings when you scan it.
+
+Shutdown and wake were confirmed from Android on a physical Windows PC. The app confirms when the relay sends the wake packet. Boot progress, Bridge reachability and OMP readiness are not displayed yet.
+
 ## What changed in 0.8.9
 
 - Android saves multiple PCs. Use the PC picker to switch between them or rename a connection. Each PC has its own project list, chats, and drafts.
