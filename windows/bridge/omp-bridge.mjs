@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.45";
+const VERSION = "2.9.46";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -224,18 +224,13 @@ function existingDir(value) {
   } catch {
     return "";
   }
-  return resolved;
+  try { return fs.realpathSync.native(resolved); }
+  catch { return resolved; }
 }
 
 /** Canonical spelling of an existing folder (real casing on Windows). */
 function canonicalDir(value) {
-  const dir = existingDir(value);
-  if (!dir) return "";
-  try {
-    return fs.realpathSync.native(dir);
-  } catch {
-    return dir;
-  }
+  return existingDir(value);
 }
 
 /** Windows paths compare case-insensitively; other platforms stay exact. */
@@ -1521,7 +1516,7 @@ async function manageChat(res, file, action) {
 let ompActive = null;
 
 function runtimeKey(cwd) {
-  return path.resolve(cwd);
+  return existingDir(cwd) || path.resolve(cwd);
 }
 
 async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {}) {
@@ -1953,7 +1948,7 @@ function registeredProjects() {
 function serveEvents(req, res) {
   const url = new URL(req.url, "http://localhost");
   const cwdParam = url.searchParams.get("cwd");
-  const cwd = cwdParam ? path.resolve(cwdParam) : null;
+  const cwd = cwdParam ? runtimeKey(cwdParam) : null;
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache, no-transform",
@@ -1970,7 +1965,7 @@ function serveEvents(req, res) {
 
   // Attach to everything, filtered by project; runtimes may be created later.
   const subscriber = (event) => {
-    if (cwd && event.cwd && path.resolve(event.cwd) !== cwd) return;
+    if (cwd && event.cwd && !samePath(event.cwd, cwd)) return;
     write(event);
   };
   globalSubscribers.add(subscriber);
@@ -3290,7 +3285,9 @@ async function handle(req, res) {
               reason: isCurrent ? undefined : "OMP jobber i en annen samtale i denne mappen.",
             });
           }
-          const result = await runtime.rpc("switch_session", { sessionPath: file }, 60000);
+          const result = samePath(runtime.sessionFile, file)
+            ? null
+            : await runtime.rpc("switch_session", { sessionPath: file }, 60000);
           if (result?.cancelled) {
             // OMP refused because the session is bound to a working folder the
             // runtime does not match. Do not pretend the switch succeeded.
@@ -3303,9 +3300,10 @@ async function handle(req, res) {
               state: null,
             });
           }
-          runtime.sessionFile = result?.sessionFile || file;
-          runtime.sessionId = result?.sessionId || session.id;
           const state = await runtime.refreshState();
+          if (!samePath(runtime.sessionFile, file)) {
+            return json(res, 409, { error: "OMP beholdt ikke den valgte samtalen." });
+          }
           const entries = entriesFor(runtime.sessionFile);
           return json(res, 200, {
             session: loadSession(runtime.sessionFile) || session,
@@ -3619,7 +3617,7 @@ async function handle(req, res) {
             }
           }
           if (!target) return json(res, 404, { error: "Fant ikke samtalen" });
-          if (target.cwd && !samePath(target.cwd, cwd)) {
+          if (target.cwd && !samePath(existingDir(target.cwd), cwd)) {
             return json(res, 409, {
               error: "Samtalen tilhÃ¸rer en annen arbeidsmappe. Ã…pne den pÃ¥ nytt fra listen.",
             });
@@ -3630,7 +3628,7 @@ async function handle(req, res) {
         if (activity && (!body.streamingBehavior || (target && !samePath(body.file, runtime.sessionFile)))) {
           return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
         }
-        if (target && path.resolve(body.file) !== path.resolve(runtime.sessionFile || "")) {
+        if (target && !samePath(body.file, runtime.sessionFile)) {
           const switched = await runtime.rpc("switch_session", { sessionPath: path.resolve(body.file) }, 60000);
           if (switched?.cancelled) {
             return json(res, 409, {
@@ -3702,6 +3700,9 @@ async function handle(req, res) {
             await prepareChatModel(runtime);
             log("info", `model ready in ${Date.now() - start}ms (${runtime.state?.model?.provider || "default"})`);
             runtime.promptTiming = { started, prepared: Date.now() };
+          }
+          if (target && !samePath(runtime.sessionFile, target.file)) {
+            throw new Error("OMP beholdt ikke den valgte samtalen. Åpne den på nytt før du sender.");
           }
           ack = await runtime.rpc("prompt", { message: body.text, ...(images.length ? { images } : {}), ...(body.streamingBehavior ? { streamingBehavior: body.streamingBehavior } : {}) }, 60000);
           if (ack?.agentInvoked === false && !inProgress) {
