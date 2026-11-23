@@ -1,4 +1,4 @@
-#define BridgeVersion "2.9.39"
+#define BridgeVersion "2.9.40"
 
 [Setup]
 AppId=ChatOmpOmpBridge
@@ -50,13 +50,15 @@ Name: "{userstartup}\Chat OMP OMP Bridge"; Filename: "{sys}\WindowsPowerShell\v1
 Name: "{userprograms}\Chat OMP OMP\Start OMP Bridge"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Bridge.ps1"""; Tasks: startmenu
 
 [Code]
-function RunBridge(const Script, Action: String): Boolean;
 var
-  Code: Integer;
+  BridgeExitCode: Integer;
+
+function RunBridge(const Script, Action: String): Boolean;
 begin
+  BridgeExitCode := -1;
   Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -ExecutionPolicy Bypass -File "' + Script + '" -Action ' + Action +
-    ' -InstallDir "' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+    ' -InstallDir "' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, BridgeExitCode) and (BridgeExitCode = 0);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -71,7 +73,12 @@ begin
   end;
   ExtractTemporaryFile('Bridge.ps1');
   if not RunBridge(ExpandConstant('{tmp}\Bridge.ps1'), 'Stop') then
-    Result := 'Bridge kunne ikke stoppes. Vent til aktive OMP-oppgaver er ferdige, og sjekk at porten er ledig.';
+  begin
+    if BridgeExitCode = 2 then
+      Result := 'En annen tjeneste svarer på Bridge-porten, men avviser installasjonens token. Stopp den andre tjenesten, eller velg en ledig port i bridge\config.json.'
+    else
+      Result := 'Bridge kunne ikke stoppes trygt. Vent til aktive oppgaver er ferdige. Sjekk bridge\launcher.log hvis problemet fortsetter.';
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

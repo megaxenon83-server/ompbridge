@@ -241,7 +241,8 @@ async function lifecycle(model, load) {
   throw new Error(label + ' bekreftet ikke at modellen var ' + (load ? 'lastet.' : 'frigjort.'));
 }
 
-async function swapMemory(previous, next) {
+async function swapMemory(previous, next, { warmOllama = true } = {}) {
+  const warmNext = next && (warmOllama || next.mode !== 'ollama');
   const prevManaged = managedForModel(previous);
   const nextManaged = managedForModel(next);
   if (prevManaged || nextManaged) {
@@ -249,7 +250,7 @@ async function swapMemory(previous, next) {
     if (unloadPrevious) await lifecycle(previous, false);
     try {
       await switchManaged(nextManaged ? next : null);
-      if (next && !nextManaged) await lifecycle(next, true);
+      if (warmNext && !nextManaged) await lifecycle(next, true);
     } catch (error) {
       if (previous) await lifecycle(previous, true).catch(() => {});
       throw error;
@@ -258,7 +259,7 @@ async function swapMemory(previous, next) {
   }
   if (previous) await lifecycle(previous, false);
   try {
-    if (next) await lifecycle(next, true);
+    if (warmNext) await lifecycle(next, true);
   } catch (error) {
     if (previous) {
       try { await lifecycle(previous, true); }

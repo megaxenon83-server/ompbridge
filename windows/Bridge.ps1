@@ -13,6 +13,15 @@ function Get-Health {
     catch { $null }
 }
 
+function Get-ListenerId {
+    $port = [int]$config.port
+    foreach ($line in (& netstat.exe -ano -p tcp)) {
+        if ($line -match "^\s*TCP\s+\S+:${port}\s+\S+\s+LISTENING\s+(\d+)\s*$") {
+            return [int]$Matches[1]
+        }
+    }
+}
+
 try {
     if (!(Test-Path -LiteralPath $configFile)) {
         if ($Action -eq 'Stop') { exit 0 }
@@ -37,15 +46,15 @@ try {
 
     if ($Action -eq 'Stop') {
         if (!$health) {
-            if (Get-NetTCPConnection -State Listen -LocalPort $config.port -ErrorAction SilentlyContinue) {
-                throw 'The port is occupied by a service this installer cannot identify.'
+            if (Get-ListenerId) {
+                [Console]::Error.WriteLine("Port $($config.port) is occupied by a process that rejects this Bridge installation's token.")
+                exit 2
             }
             exit 0
         }
         if (!(Test-Path -LiteralPath $pidFile)) { throw 'Cannot verify the running Bridge process.' }
         $processId = [int](Get-Content -LiteralPath $pidFile -Raw)
-        $listener = Get-NetTCPConnection -State Listen -LocalPort $config.port -ErrorAction SilentlyContinue |
-            Where-Object { $_.OwningProcess -eq $processId } | Select-Object -First 1
+        $listener = (Get-ListenerId) -eq $processId
         $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$processId"
         if (!$listener -or $processInfo.Name -ne 'node.exe' -or $processInfo.CommandLine -notmatch 'omp-bridge\.mjs') {
             throw 'Cannot verify the running Bridge process.'
@@ -56,10 +65,12 @@ try {
             if ($state.request -or $state.state.isStreaming) { throw 'Wait for the current OMP task to finish.' }
         }
         Stop-Process -Id $processId
+        Wait-Process -Id $processId -Timeout 10 -ErrorAction SilentlyContinue
         exit 0
     }
 
     if ($health) { exit 0 }
+    if (Get-ListenerId) { throw "Port $($config.port) is already in use. Stop the other service or choose a free port in bridge\config.json." }
     $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
     if (!$node) { throw 'Install Node.js before starting Bridge.' }
     $version = & $node --version
@@ -80,6 +91,8 @@ try {
     }
     throw "Bridge did not start. See $bridgeDir\bridge.stderr.log."
 } catch {
+    try { Add-Content -LiteralPath (Join-Path $bridgeDir 'launcher.log') -Value ("{0:o} {1}" -f (Get-Date), $_.Exception.Message) }
+    catch {}
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
 }

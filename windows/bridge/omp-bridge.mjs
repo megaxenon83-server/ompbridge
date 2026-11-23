@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.39";
+const VERSION = "2.9.40";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -1403,7 +1403,8 @@ function summariseMessage(message, messageId) {
 // ---------------------------------------------------------------------------
 
 const runtimes = new Map();
-const chatProfiles = new Map();
+const profileFile = path.join(HERE, "chat-profiles.json");
+const chatProfiles = new Map(Object.entries(readJsonFile(profileFile) || {}));
 const defaultChatProfile = { mode: "build", light: false };
 let residentModel;
 let residentModelSwitch;
@@ -1417,7 +1418,7 @@ async function prepareChatModel(runtime) {
     if (!model) return;
     let next;
     if (localModels.managedForModel(model)) next = { ...model, managed: true };
-    else {
+    else if (!model.baseUrl || /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?=[:/]|$)/i.test(model.baseUrl)) {
       if (Date.now() >= localCatalogExpires) {
         localCatalog = await localModels.discoverLocal();
         localCatalogExpires = Date.now() + 8000;
@@ -1436,7 +1437,8 @@ async function prepareChatModel(runtime) {
     if ([...runtimes.values()].some(other => other !== runtime && sessionActivity(other))) {
       throw new Error("Vent til det aktive svaret er ferdig før du bytter lokal modell.");
     }
-    await localModels.swapMemory(previous, next);
+    runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd });
+    await localModels.swapMemory(previous, next, { warmOllama: false });
     residentModel = next;
   })();
   try { await residentModelSwitch; }
@@ -3463,6 +3465,7 @@ async function handle(req, res) {
         }
         return json(res, 200, {
           state: publicState(state),
+          chatProfile: runtime.chatProfile,
           sessionFile: runtime.sessionFile,
           request: pending.done ? null : pending.value,
         });
@@ -3563,21 +3566,27 @@ async function handle(req, res) {
           await runtime.refreshState();
         }
         if (!activity && body.chatProfile) {
-          const mode = body.chatProfile.mode;
-          if (!["chat", "plan", "build"].includes(mode) || typeof body.chatProfile.light !== "boolean") {
+          const current = runtime.chatProfile || defaultChatProfile;
+          const mode = body.chatProfile.mode ?? current.mode;
+          const light = body.chatProfile.light ?? current.light;
+          if (!["chat", "plan", "build"].includes(mode) || typeof light !== "boolean") {
             return json(res, 400, { error: "Ugyldig arbeidsmodus." });
           }
           const original = runtime.state?.model;
           const activeSession = runtime.sessionFile;
-          runtime = await getRuntime(cwd, { sessionFile: runtime.sessionFile, chatProfile: { mode, light: body.chatProfile.light } });
+          runtime = await getRuntime(cwd, { sessionFile: runtime.sessionFile, chatProfile: { mode, light } });
           if (original && (runtime.state?.model?.id !== original.id || runtime.state?.model?.provider !== original.provider)) {
             await runtime.rpc("set_model", { provider: original.provider, modelId: original.id });
             await runtime.refreshState();
           }
-          if (runtime.chatProfile?.mode !== mode || runtime.chatProfile?.light !== body.chatProfile.light) {
+          if (runtime.chatProfile?.mode !== mode || runtime.chatProfile?.light !== light) {
             return json(res, 409, { error: "Kunne ikke bytte arbeidsmodus mens OMP jobber." });
           }
-          if (activeSession) chatProfiles.set(managedProjectKey(activeSession), runtime.chatProfile);
+          if (activeSession) {
+            chatProfiles.set(managedProjectKey(activeSession), runtime.chatProfile);
+            fs.writeFileSync(profileFile + ".tmp", JSON.stringify(Object.fromEntries(chatProfiles)));
+            fs.renameSync(profileFile + ".tmp", profileFile);
+          }
         }
         if (Array.isArray(body.attachments) && body.attachments.length) {
           await saveAttachments(runtime.cwd, body.attachments);
@@ -3595,7 +3604,11 @@ async function handle(req, res) {
         let ack;
         if (!inProgress) runtime.working = true;
         try {
-          if (!inProgress) await prepareChatModel(runtime);
+          if (!inProgress) {
+            const start = Date.now();
+            await prepareChatModel(runtime);
+            log("info", `model ready in ${Date.now() - start}ms (${runtime.state?.model?.provider || "default"})`);
+          }
           ack = await runtime.rpc("prompt", { message: body.text, ...(images.length ? { images } : {}), ...(body.streamingBehavior ? { streamingBehavior: body.streamingBehavior } : {}) }, 60000);
           if (ack?.agentInvoked === false && !inProgress) {
             runtime.working = false;
@@ -3609,7 +3622,7 @@ async function handle(req, res) {
           throw error;
         }
         runtime.lastUsed = Date.now();
-        return json(res, 200, { ok: true, ack, sessionFile: runtime.sessionFile });
+        return json(res, 200, { ok: true, ack, sessionFile: runtime.sessionFile, chatProfile: runtime.chatProfile });
       }
 
       case "POST /api/poweroff": {
