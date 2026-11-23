@@ -10,10 +10,10 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 | Component | What it does |
 | --- | --- |
-| [OMP Bridge 2.9.42 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/bridge-2.9.42/OMP-Bridge-Setup-2.9.42.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
-| [OMP Desktop 0.8.9 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.9/OMP-Desktop-Setup-0.8.9-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
-| [OMP Desktop 0.8.9 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.9/OMP-Desktop-0.8.9-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
-| [Chat OMP OMP 0.2.9 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.9/Chat-OMP-OMP-Android-0.2.9.apk) | Continue conversations, review edits, and manage project folders from your phone. |
+| [OMP Bridge 2.9.44 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.11/OMP-Bridge-Setup-2.9.44.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
+| [OMP Desktop 0.8.11 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.11/OMP-Desktop-Setup-0.8.11-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
+| [OMP Desktop 0.8.11 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.11/OMP-Desktop-0.8.11-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
+| [Chat OMP OMP 0.2.12 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.11/Chat-OMP-OMP-Android-0.2.12.apk) | Continue conversations, review edits, and manage project folders from your phone. |
 
 ## Get started
 
@@ -21,6 +21,10 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 2. Run the Bridge installer. New installs and upgrades use port **27778**. Upgrades preserve the pairing credential. Re-pair Android if the port changed.
 3. Extract OMP Desktop and open **Innstillinger → Tilkobling → Vis QR-kode** (Settings → Connection → Show QR code). Choose the PC address that your phone can reach.
 4. Install the APK, open Chat OMP OMP, and scan the code from the same trusted network or VPN.
+
+## Wake-on-LAN
+
+Android Settings includes controls to wake or shut down a paired PC. The encrypted QR pairing supplies the PC's MAC address and relay configuration. Install the [chatompompwol relay](chatompompwol/README.md) on a Linux host that remains online on the same LAN.
 
 ## What changed in 0.8.9
 

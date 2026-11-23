@@ -20,7 +20,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawn, exec, execSync } from "node:child_process";
+import { spawn, exec, execFile, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import turnModule from "./omp-turn-changes.cjs";
@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.42";
+const VERSION = "2.9.44";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -279,6 +279,7 @@ function readConfig() {
     idleMinutes: Number(cfg.idleMinutes || 90),
     projectsFile: cfg.projectsFile || "",
     sessionDir: cfg.sessionDir || "",
+    wol: cfg.wol || {},
     voice: {
       enabled: cfg.voice?.enabled !== false,
       profile: cfg.voice?.profile || "raske",
@@ -877,7 +878,12 @@ class OmpRuntime {
       ? [OMP_BIN_ENTRY, "--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT]
       : ["--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT];
     let resources;
-    try { resources = await workspace.spawnOptions(this.cwd, this.workspaceSession); }
+    const restricted = this.chatProfile?.light || ["chat", "plan"].includes(this.chatProfile?.mode);
+    try {
+      resources = restricted
+        ? { signature: workspace.signature(this.cwd, this.workspaceSession), skills: [], blocked: [], args: [], env: {} }
+        : await workspace.spawnOptions(this.cwd, this.workspaceSession);
+    }
     catch (error) {
       const pending = this.readyPromise;
       this.readyPromise = null;
@@ -885,7 +891,6 @@ class OmpRuntime {
       return pending;
     }
     this.workspaceSignature = resources.signature;
-    const restricted = this.chatProfile?.light || ["chat", "plan"].includes(this.chatProfile?.mode);
     this.loadedSkills = restricted ? [] : resources.skills;
     this.blockedSkills = resources.blocked;
     let allowedTools;
@@ -999,6 +1004,7 @@ class OmpRuntime {
     if (frame.type === "agent_start") this.working = true;
     if (frame.type === "agent_end" || frame.type === "prompt_result" || frame.type === "session_settled") {
       this.working = false;
+      this.promptTiming = null;
       finishTurn(this);
     }
     switch (frame.type) {
@@ -1069,6 +1075,11 @@ class OmpRuntime {
     if (frame.type === "message_update") {
       const event = frame.assistantMessageEvent;
       if (!event) return;
+      if (this.promptTiming && (event.type === "text_delta" || event.type === "thinking_delta") && event.delta) {
+        const timing = this.promptTiming;
+        this.promptTiming = null;
+        log("info", `first output in ${Date.now() - timing.started}ms; preparation ${timing.prepared - timing.started}ms; after sending to OMP ${Date.now() - timing.prepared}ms`);
+      }
       const map = {
         text_delta: "message_delta",
         thinking_delta: "message_delta",
@@ -1281,6 +1292,8 @@ class OmpRuntime {
 
   async stop() {
     this.subscribers.clear();
+    this.working = false;
+    if (this.modelPreparation) this.modelPreparation.cancelled = true;
     if (!this.child) return;
     try {
       this.child.stdin.end();
@@ -1407,26 +1420,42 @@ const profileFile = path.join(HERE, "chat-profiles.json");
 const chatProfiles = new Map(Object.entries(readJsonFile(profileFile) || {}));
 const defaultChatProfile = { mode: "build", light: false };
 let residentModel;
-let residentModelSwitch;
+let localModelOwner;
 let localCatalog;
 let localCatalogExpires = 0;
+let localDiscovery;
 
 async function prepareChatModel(runtime) {
-  while (residentModelSwitch) await residentModelSwitch.catch(() => {});
-  residentModelSwitch = (async () => {
+  const preparation = { cancelled: false, queued: false };
+  runtime.modelPreparation = preparation;
+  try {
     const model = runtime.state?.model;
     if (!model) return;
     let next;
     if (localModels.managedForModel(model)) next = { ...model, managed: true };
     else if (!model.baseUrl || /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?=[:/]|$)/i.test(model.baseUrl)) {
       if (Date.now() >= localCatalogExpires) {
-        localCatalog = await localModels.discoverLocal();
-        localCatalogExpires = Date.now() + 8000;
+        localDiscovery ??= localModels.discoverLocal().then(catalog => {
+          localCatalog = catalog;
+          localCatalogExpires = Date.now() + 8000;
+        }).finally(() => { localDiscovery = undefined; });
+        await localDiscovery;
       }
       next = localModels.matchLocal(model, localCatalog);
     }
+    if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
+    if (!next) return;
+    while (localModelOwner && localModelOwner !== runtime && (localModelOwner.working || localModelOwner.modelPreparation)) {
+      if (!preparation.queued) {
+        preparation.queued = true;
+        runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd, queued: true });
+      }
+      if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
+      await new Promise(resolve => setTimeout(resolve, 150));
+    }
+    if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
+    localModelOwner = runtime;
     const previous = residentModel;
-    if (!previous && !next) return;
     const same = previous && next && (next.managed
       ? previous.managed && previous.provider === next.provider && previous.id === next.id
       : previous.origin === next.origin && previous.id === next.id);
@@ -1434,15 +1463,13 @@ async function prepareChatModel(runtime) {
       if (next.managed) await localModels.ensureManaged(next);
       return;
     }
-    if ([...runtimes.values()].some(other => other !== runtime && sessionActivity(other))) {
-      throw new Error("Vent til det aktive svaret er ferdig før du bytter lokal modell.");
-    }
     runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd });
     await localModels.swapMemory(previous, next, { warmOllama: false });
     residentModel = next;
-  })();
-  try { await residentModelSwitch; }
-  finally { residentModelSwitch = undefined; }
+  } finally {
+    runtime.modelPreparation = undefined;
+    if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
+  }
 }
 const refreshingWorkspaces = new Map();
 const skillActions = new Set(['catalog', 'skill-library', 'preview-skill', 'install-skill', 'set-skill',
@@ -3027,6 +3054,29 @@ async function handle(req, res) {
         const interfaces = networkInterfaces();
         return json(res, 200, { interfaces });
       }
+      case "GET /api/wol/pairing": {
+        if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress)) {
+          return json(res, 403, { error: "Wake-on-LAN oppsett krever lokal paring." });
+        }
+        const address = url.searchParams.get("address");
+        const adapters = Object.entries(os.networkInterfaces())
+          .filter(([name]) => !/tailscale|wireguard|wintun|vpn|virtual|vmware|vethernet|loopback/i.test(name))
+          .flatMap(([, entries]) => entries ?? [])
+          .filter(entry => entry.family === "IPv4" && !entry.internal && entry.mac !== "00:00:00:00:00:00");
+        const mac = String(CONFIG.wol.mac || adapters.find(entry => entry.address === address)?.mac
+          || (adapters.length === 1 ? adapters[0].mac : ""));
+        const relayToken = String(CONFIG.wol.relayToken || "");
+        let relay;
+        try { relay = new URL(CONFIG.wol.relayUrl); } catch {}
+        const validRelay = relay && !relay.username && !relay.password &&
+          (relay.protocol === "https:" || (relay.protocol === "http:" &&
+          /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)[\d.]+$/.test(relay.hostname)));
+        return json(res, 200, {
+          mac: /^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(mac) ? mac : "",
+          ...(validRelay && /^[A-Za-z0-9_-]{32,128}$/.test(relayToken) ? { relayUrl: relay.origin, relayToken } : {}),
+          allowShutdown: CONFIG.wol.allowShutdown === true,
+        });
+      }
       case "GET /api/active": {
         // En nylig rapportert OMP-terminalsesjon er mer autoritativ enn
         // Bridge-runtimen. Rapporter eldre enn 2 minutter regnes som foreldet.
@@ -3525,6 +3575,7 @@ async function handle(req, res) {
         }
       }
       case "POST /api/prompt": {
+        const started = Date.now();
         const body = await readBody(req);
         const cwd = existingDir(body.cwd);
         if (!cwd) return json(res, 400, { error: "Arbeidsmappen finnes ikke. Velg en gyldig mappe." });
@@ -3620,11 +3671,14 @@ async function handle(req, res) {
         }
         let ack;
         if (!inProgress) runtime.working = true;
+        const cancelWait = () => { if (runtime.modelPreparation) runtime.modelPreparation.cancelled = true; };
+        res.once("close", cancelWait);
         try {
           if (!inProgress) {
             const start = Date.now();
             await prepareChatModel(runtime);
             log("info", `model ready in ${Date.now() - start}ms (${runtime.state?.model?.provider || "default"})`);
+            runtime.promptTiming = { started, prepared: Date.now() };
           }
           ack = await runtime.rpc("prompt", { message: body.text, ...(images.length ? { images } : {}), ...(body.streamingBehavior ? { streamingBehavior: body.streamingBehavior } : {}) }, 60000);
           if (ack?.agentInvoked === false && !inProgress) {
@@ -3637,6 +3691,8 @@ async function handle(req, res) {
             turnChanges.cancel(runtime);
           }
           throw error;
+        } finally {
+          res.off("close", cancelWait);
         }
         runtime.lastUsed = Date.now();
         return json(res, 200, { ok: true, ack, sessionFile: runtime.sessionFile, chatProfile: runtime.chatProfile });
@@ -3646,14 +3702,17 @@ async function handle(req, res) {
         // Krev eksplisitt bekreftelse fra klienten.
         const body = await readBody(req);
         if (body.confirm !== true) return json(res, 400, { error: "Bekreftelse mangler" });
-        const cmd = IS_WINDOWS
-          ? "shutdown /s /t 5 /c \"Nimay OMP Chat: slÃ¥r av PC-en\""
-          : "shutdown -h now";
+        if (CONFIG.wol.allowShutdown !== true) return json(res, 403, { error: "Fjernavslåing er ikke aktivert på PC-en." });
+        if ([...runtimes.values()].some(sessionActivity)) {
+          return json(res, 409, { error: "Vent til aktive OMP-samtaler er ferdige." });
+        }
+        if (!IS_WINDOWS) return json(res, 501, { error: "Fjernavslåing krever Windows." });
+        const executable = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "shutdown.exe");
         try {
-          exec(cmd, { windowsHide: true }, (error) => {
-            if (error) log("warn", `poweroff feilet: ${error.message}`);
+          await new Promise((resolve, reject) => {
+            execFile(executable, ["/s", "/t", "0"], { windowsHide: true }, error => error ? reject(error) : resolve());
           });
-          return json(res, 200, { ok: true, message: "SlÃ¥r av PC-en." });
+          return json(res, 200, { ok: true });
         } catch (error) {
           return json(res, 500, { error: String(error?.message || error) });
         }
@@ -3663,6 +3722,13 @@ async function handle(req, res) {
         const body = await readBody(req);
         if (!body.cwd) return json(res, 400, { error: "Mangler cwd" });
         const runtime = await getRuntime(body.cwd);
+        if (body.file && !samePath(body.file, runtime.sessionFile)) {
+          return json(res, 409, { error: "Den valgte samtalen har ingen aktiv oppgave i denne arbeidsmappen." });
+        }
+        if (runtime.modelPreparation) {
+          runtime.modelPreparation.cancelled = true;
+          return json(res, 200, { ok: true });
+        }
         // OMP cannot process `abort` while it waits for an interactive answer,
         // so cancel anything pending first: that unblocks the RPC loop and lets
         // the abort through instead of timing out.
@@ -3689,6 +3755,9 @@ async function handle(req, res) {
           return json(res, 400, { error: "Mangler cwd/entryId/text" });
         }
         const runtime = await getRuntime(body.cwd);
+        if (runtime.working || runtime.state?.isStreaming || runtime.pendingUi.size) {
+          return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
+        }
         if (body.file && path.resolve(body.file) !== path.resolve(runtime.sessionFile || "")) {
           await runtime.rpc("switch_session", { sessionPath: path.resolve(body.file) }, 60000);
           await runtime.refreshState();
@@ -3699,7 +3768,16 @@ async function handle(req, res) {
         if (branch?.cancelled) return json(res, 409, { error: "OMP avbrÃ¸t branching" });
         const message = body.text || branch?.text || "";
         if (!message.trim()) return json(res, 400, { error: "Tom melding etter branching" });
-        const ack = await runtime.rpc("prompt", { message }, 60000);
+        runtime.working = true;
+        let ack;
+        try {
+          await prepareChatModel(runtime);
+          ack = await runtime.rpc("prompt", { message }, 60000);
+          if (ack?.agentInvoked === false) runtime.working = false;
+        } catch (error) {
+          runtime.working = false;
+          throw error;
+        }
         await runtime.refreshState();
         return json(res, 200, { ok: true, ack, sessionFile: runtime.sessionFile, branched: true });
       }

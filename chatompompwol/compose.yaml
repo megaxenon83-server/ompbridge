@@ -1,0 +1,14 @@
+services:
+  chatompompwol:
+    image: chatompompwol
+    build: .
+    container_name: chatompompwol
+    network_mode: host
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      WOL_TOKEN: ${WOL_TOKEN:?Set WOL_TOKEN in .env}
+      WOL_BIND: ${WOL_BIND:?Set WOL_BIND to the relay host LAN address}
+      WOL_BROADCAST: ${WOL_BROADCAST:-255.255.255.255}
