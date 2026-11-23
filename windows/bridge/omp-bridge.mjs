@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.41";
+const VERSION = "2.9.42";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('Start','Stop')][string]$Action = 'Start',
+    [ValidateSet('Start','Stop','CheckUpgradePort','MigratePort')][string]$Action = 'Start',
     [string]$InstallDir = $PSScriptRoot
 )
 $ErrorActionPreference = 'Stop'
@@ -13,8 +13,7 @@ function Get-Health {
     catch { $null }
 }
 
-function Get-ListenerId {
-    $port = [int]$config.port
+function Get-ListenerId([int]$port = [int]$config.port) {
     foreach ($line in (& netstat.exe -ano -p tcp)) {
         if ($line -match "^\s*TCP\s+\S+:${port}\s+\S+\s+LISTENING\s+(\d+)\s*$") {
             return [int]$Matches[1]
@@ -24,7 +23,7 @@ function Get-ListenerId {
 
 try {
     if (!(Test-Path -LiteralPath $configFile)) {
-        if ($Action -eq 'Stop') { exit 0 }
+        if ($Action -ne 'Start') { exit 0 }
         $bytes = New-Object byte[] 32
         $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
         try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
@@ -40,6 +39,17 @@ try {
     }
     $config = Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
     if (!$config.token -or !$config.port) { throw 'Bridge config needs a token and a port.' }
+    if ($Action -in 'CheckUpgradePort','MigratePort') {
+        if ($config.port -eq 27778) { exit 0 }
+        if (Get-ListenerId 27778) { throw 'The new default port 27778 is occupied.' }
+        if ($Action -eq 'MigratePort') {
+            $config.port = 27778
+            $temp = $configFile + '.port-migration'
+            [IO.File]::WriteAllText($temp, ($config | ConvertTo-Json -Depth 40))
+            [IO.File]::Replace($temp, $configFile, ($configFile + '.before-27778'))
+        }
+        exit 0
+    }
     $origin = "http://127.0.0.1:$($config.port)"
     $headers = @{ Authorization = 'Bearer ' + $config.token }
     $health = Get-Health
@@ -48,6 +58,7 @@ try {
         if (!$health) {
             if (Get-ListenerId) {
                 [Console]::Error.WriteLine("Port $($config.port) is occupied by a process that rejects this Bridge installation's token.")
+                if ($config.port -eq 27778) { exit 4 }
                 exit 2
             }
             exit 0

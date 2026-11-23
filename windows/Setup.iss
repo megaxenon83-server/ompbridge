@@ -1,4 +1,4 @@
-#define BridgeVersion "2.9.41"
+#define BridgeVersion "2.9.42"
 
 [Setup]
 AppId=ChatOmpOmpBridge
@@ -72,10 +72,17 @@ begin
     Exit;
   end;
   ExtractTemporaryFile('Bridge.ps1');
+  if not RunBridge(ExpandConstant('{tmp}\Bridge.ps1'), 'CheckUpgradePort') then
+  begin
+    Result := 'Kontroller at port 27778 er ledig og at Bridge-konfigurasjonen kan leses. Se bridge\launcher.log.';
+    Exit;
+  end;
   if not RunBridge(ExpandConstant('{tmp}\Bridge.ps1'), 'Stop') then
   begin
     if BridgeExitCode = 2 then
-      Result := 'En annen tjeneste svarer på Bridge-porten, men avviser installasjonens token. Stopp den andre tjenesten, eller velg en ledig port i bridge\config.json.'
+      Result := ''
+    else if BridgeExitCode = 4 then
+      Result := 'En annen tjeneste svarer på port 27778, men avviser installasjonens token.'
     else
       Result := 'Bridge kunne ikke stoppes trygt. Vent til aktive oppgaver er ferdige. Sjekk bridge\launcher.log hvis problemet fortsetter.';
   end;
@@ -83,8 +90,13 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if (CurStep = ssPostInstall) and not RunBridge(ExpandConstant('{app}\Bridge.ps1'), 'Start') then
-    SuppressibleMsgBox('Bridge kunne ikke starte. Se bridge.stderr.log i installasjonsmappen.', mbError, MB_OK, IDOK);
+  if CurStep = ssPostInstall then
+  begin
+    if not RunBridge(ExpandConstant('{app}\Bridge.ps1'), 'MigratePort') then
+      SuppressibleMsgBox('Kunne ikke flytte Bridge til port 27778. Se bridge\launcher.log.', mbError, MB_OK, IDOK)
+    else if not RunBridge(ExpandConstant('{app}\Bridge.ps1'), 'Start') then
+      SuppressibleMsgBox('Bridge kunne ikke starte. Se bridge.stderr.log i installasjonsmappen.', mbError, MB_OK, IDOK);
+  end;
 end;
 
 function InitializeUninstall: Boolean;
