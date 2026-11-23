@@ -17,6 +17,6 @@ Run `chatompompwol` on an always-on Linux Docker host on the same LAN as the PC 
    ```
 
 4. Restart Bridge. In OMP Desktop, show a mobile pairing QR code and select the target PC's wired LAN address. Scan it in Chat OMP OMP. The encrypted pairing transfers the MAC address and relay settings for that PC automatically. For a PC with several adapters, add a `mac` field to the `wol` entry if the address used for pairing differs from the Ethernet adapter that wakes the PC.
-5. In Android, select the PC and open **Innstillinger → Wake-on-LAN**. **Vekk PC** sends the magic packet. **Slå av PC** requires confirmation and a reachable Bridge.
+5. In Android, select the PC and open **Wake-on-LAN** next to **Innstillinger** in the sidebar. **Vekk PC** sends the magic packet. **Slå av PC** requires confirmation and a reachable Bridge.
 
 Enable Wake-on-LAN in the target PC's UEFI and network-adapter settings. Waking from full shutdown depends on the hardware and power settings. If it works from sleep only, check whether the adapter remains powered after shutdown and whether Windows Fast Startup affects the hardware.
