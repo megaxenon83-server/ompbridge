@@ -10,10 +10,10 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 | Component | What it does |
 | --- | --- |
-| [OMP Bridge 2.9.44 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.12/OMP-Bridge-Setup-2.9.44.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
-| [OMP Desktop 0.8.12 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.12/OMP-Desktop-Setup-0.8.12-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
-| [OMP Desktop 0.8.12 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.12/OMP-Desktop-0.8.12-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
-| [Chat OMP OMP 0.2.13 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.12/Chat-OMP-OMP-Android-0.2.13.apk) | Continue conversations, review edits, and manage project folders from your phone. |
+| [OMP Bridge 2.9.44 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/android-0.2.14/OMP-Bridge-Setup-2.9.44.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
+| [OMP Desktop 0.8.12 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/android-0.2.14/OMP-Desktop-Setup-0.8.12-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
+| [OMP Desktop 0.8.12 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/android-0.2.14/OMP-Desktop-0.8.12-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
+| [Chat OMP OMP 0.2.14 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/android-0.2.14/Chat-OMP-OMP-Android-0.2.14.apk) | Continue conversations, review edits, and manage project folders from your phone. |
 
 ## Get started
 
@@ -32,7 +32,7 @@ The Wake-on-LAN button beside Settings in the Android sidebar opens controls to 
 
 Set the relay address and token in Bridge once. OMP Desktop 0.8.12 has no Wake-on-LAN setup form. In Desktop, choose the PC's wired LAN address and display a fresh QR code. Android imports the settings when you scan it.
 
-Shutdown and wake were confirmed from Android on a physical Windows PC. The app confirms when the relay sends the wake packet. Boot progress, Bridge reachability and OMP readiness are not displayed yet.
+Shutdown and wake were confirmed from Android on a physical Windows PC. After sending the magic packet, the Android app waits for Bridge to answer and reports whether the connection returned. OMP runtime readiness is a separate check and is not displayed.
 
 ## What changed in 0.8.9
 
