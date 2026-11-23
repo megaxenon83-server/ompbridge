@@ -2,21 +2,10 @@
 
 Run `chatompompwol` on an always-on Linux Docker host on the same LAN as the PC you want to wake. For example, use a NAS with Linux host networking or a Raspberry Pi. The relay needs to stay online after the target PC shuts down.
 
-1. In this folder, create an `.env` file. Set `WOL_BIND` to the relay host's LAN IPv4 address and `WOL_TOKEN` to a random secret. You can generate a secret with `openssl rand -hex 32`. If your Docker host has multiple network adapters, set `WOL_BROADCAST` to the broadcast address for the target LAN, such as `192.168.1.255` on a `/24` network.
-2. Run `docker compose up -d --build`. Allow TCP 27779 from your LAN or private VPN. Avoid forwarding the port on a public router. Use HTTPS via a private reverse proxy when the connection crosses an untrusted network.
-3. Add the following `wol` entry to the target PC's installed Bridge configuration in `bridge/config.json`. Use the relay host's address and the same relay secret. Set `allowShutdown` to `true` if you want to shut down this PC from Android.
+1. Run `docker compose up -d --build` once. The relay selects the default network adapter and stores a generated key in a Docker volume. If your Docker host needs another adapter, set `WOL_BIND` to its LAN IPv4 address in `.env`. For an existing installation, keep its `.env` so currently paired phones still work.
+2. On each Windows PC, install OMP Desktop 0.8.13 and Bridge 2.9.45 or newer. Connect the PC by Ethernet. Open **Innstillinger → Wake-on-LAN**, select the relay, then click **Koble til og vis QR-kode**. If discovery fails, paste the relay's local IP address. Enable shutdown only if you want that action on the phone.
+3. Scan the code in Chat OMP OMP. Open **Wake-on-LAN** next to **Innstillinger** in the sidebar. Test **Vekk PC** while the PC is on before testing from shutdown.
 
-   ```json
-   {
-     "wol": {
-       "relayUrl": "http://192.168.1.50:27779",
-       "relayToken": "REPLACE_WITH_YOUR_RANDOM_SECRET",
-       "allowShutdown": true
-     }
-   }
-   ```
-
-4. Restart Bridge. In OMP Desktop, show a mobile pairing QR code and select the target PC's wired LAN address. Scan it in Chat OMP OMP. The encrypted pairing transfers the MAC address and relay settings for that PC automatically. For a PC with several adapters, add a `mac` field to the `wol` entry if the address used for pairing differs from the Ethernet adapter that wakes the PC.
-5. In Android, select the PC and open **Wake-on-LAN** next to **Innstillinger** in the sidebar. **Vekk PC** sends the magic packet. **Slå av PC** requires confirmation and a reachable Bridge.
+Discovery uses UDP 27779 and the relay API uses TCP 27779. Keep these on a trusted LAN. If you use Tailscale away from home, configure access to the relay's LAN address through a subnet route. Initial enrollment checks that the Windows PC's selected Ethernet MAC matches the relay's local neighbor entry.
 
 Enable Wake-on-LAN in the target PC's UEFI and network-adapter settings. Waking from full shutdown depends on the hardware and power settings. If it works from sleep only, check whether the adapter remains powered after shutdown and whether Windows Fast Startup affects the hardware.

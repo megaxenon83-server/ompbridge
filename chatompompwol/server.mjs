@@ -1,13 +1,43 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createSocket } from 'node:dgram';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { isIPv4 } from 'node:net';
+import { hostname, networkInterfaces } from 'node:os';
 
-const { WOL_TOKEN: token, WOL_BIND: bind, WOL_BROADCAST: broadcast = '255.255.255.255' } = process.env;
-if (!/^[A-Za-z0-9_-]{32,128}$/.test(token ?? '') || !isIPv4(bind) || !isIPv4(broadcast)) {
-  throw new Error('Configure WOL_TOKEN, WOL_BIND and an IPv4 WOL_BROADCAST.');
+const defaultInterface = readFileSync('/proc/net/route', 'utf8').split('\n')
+  .map(line => line.trim().split(/\s+/)).find(fields => fields[1] === '00000000')?.[0];
+const bind = process.env.WOL_BIND || networkInterfaces()[defaultInterface]?.find(item => item.family === 'IPv4')?.address;
+const broadcast = process.env.WOL_BROADCAST || '255.255.255.255';
+const legacyToken = process.env.WOL_TOKEN || '';
+if ((legacyToken && !/^[A-Za-z0-9_-]{32,128}$/.test(legacyToken)) || !isIPv4(bind) || !isIPv4(broadcast)) {
+  throw new Error('Set WOL_BIND to the LAN IPv4 address if automatic detection fails.');
 }
-const expected = Buffer.from('Bearer ' + token);
+const keyFile = '/data/relay.key';
+if (!legacyToken) {
+  try { writeFileSync(keyFile, randomBytes(32), { flag: 'wx', mode: 0o600 }); }
+  catch (error) { if (error.code !== 'EEXIST') throw error; }
+}
+const signingKey = legacyToken || readFileSync(keyFile);
+const tokenFor = mac => createHmac('sha256', signingKey).update('chatompompwol:' + mac).digest('base64url');
+const validMac = mac => typeof mac === 'string' && /^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(mac)
+  && !/^(?:00:){5}00$|^(?:ff:){5}ff$/i.test(mac);
+const info = { service: 'chatompompwol', name: hostname(), port: 27779 };
+function deviceOwnsMac(address, mac) {
+  return readFileSync('/proc/net/arp', 'utf8').split('\n').some(line => {
+    const [ip, , flags, neighbor] = line.trim().split(/\s+/);
+    return ip === address && (Number(flags) & 2) !== 0 && neighbor?.toLowerCase() === mac;
+  });
+}
+
+const discovery = createSocket('udp4');
+discovery.on('message', (message, peer) => {
+  if (message.toString() === 'chatompompwol-discover-v1') {
+    discovery.send(JSON.stringify(info), peer.port, peer.address);
+  }
+});
+discovery.on('error', error => console.error('Wake-on-LAN discovery:', error.code));
+discovery.bind(27779);
 let lastWake = 0;
 
 function sendPacket(mac) {
@@ -35,17 +65,14 @@ function sendPacket(mac) {
   });
 }
 
-function reply(res, status, error) {
+function reply(res, status, error, data = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(error ? { ok: false, error } : { ok: true }));
+  res.end(JSON.stringify(error ? { ok: false, error } : { ok: true, ...data }));
 }
 
 createServer({ requestTimeout: 5000, headersTimeout: 5000 }, async (req, res) => {
-  if (req.method !== 'POST' || req.url !== '/wake') return reply(res, 404, 'Ukjent Wake-on-LAN-handling.');
-  const authorization = Buffer.from(req.headers.authorization ?? '');
-  if (authorization.length !== expected.length || !timingSafeEqual(authorization, expected)) {
-    return reply(res, 401, 'Wake-on-LAN-reléet avviste tilkoblingen. Skann en ny QR-kode.');
-  }
+  if (req.method === 'GET' && req.url === '/info') return reply(res, 200, null, info);
+  if (req.method !== 'POST' || !['/wake', '/enroll'].includes(req.url)) return reply(res, 404, 'Ukjent Wake-on-LAN-handling.');
   let mac;
   try {
     let body = '';
@@ -57,9 +84,21 @@ createServer({ requestTimeout: 5000, headersTimeout: 5000 }, async (req, res) =>
   } catch {
     return reply(res, 400, 'Ugyldig Wake-on-LAN-forespørsel.');
   }
-  if (typeof mac !== 'string' || !/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(mac) ||
-    ['00:00:00:00:00:00', 'ff:ff:ff:ff:ff:ff'].includes(mac.toLowerCase())) {
-    return reply(res, 400, 'Ugyldig MAC-adresse.');
+  if (!validMac(mac)) return reply(res, 400, 'Ugyldig MAC-adresse.');
+  mac = mac.toLowerCase();
+  if (req.url === '/enroll') {
+    if (!deviceOwnsMac(req.socket.remoteAddress, mac)) {
+      return reply(res, 403, 'Koble PC-en med Ethernet til samme lokalnett som reléet.');
+    }
+    return reply(res, 200, null, { relayToken: tokenFor(mac) });
+  }
+  const authorization = Buffer.from(req.headers.authorization ?? '');
+  const tokens = legacyToken ? [legacyToken, tokenFor(mac)] : [tokenFor(mac)];
+  if (!tokens.some(token => {
+    const expected = Buffer.from('Bearer ' + token);
+    return authorization.length === expected.length && timingSafeEqual(authorization, expected);
+  })) {
+    return reply(res, 401, 'Wake-on-LAN-reléet avviste tilkoblingen. Skann en ny QR-kode.');
   }
   if (Date.now() - lastWake < 500) return reply(res, 429, 'Vent litt før du prøver igjen.');
   lastWake = Date.now();

@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.44";
+const VERSION = "2.9.45";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -3053,6 +3053,29 @@ async function handle(req, res) {
       case "GET /api/network/interfaces": {
         const interfaces = networkInterfaces();
         return json(res, 200, { interfaces });
+      }
+      case "POST /api/wol/config": {
+        if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress)) {
+          return json(res, 403, { error: "Wake-on-LAN oppsett krever lokal tilkobling." });
+        }
+        const { relayUrl, relayToken, mac, allowShutdown } = await readBody(req);
+        if (typeof relayUrl !== "string" || !/^http:\/\/(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)[\d.]+:27779$/.test(relayUrl) ||
+            typeof relayToken !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(relayToken) ||
+            typeof mac !== "string" || !/^(?:[\da-f]{2}:){5}[\da-f]{2}$/i.test(mac) || typeof allowShutdown !== "boolean") {
+          return json(res, 400, { error: "Ugyldig Wake-on-LAN oppsett." });
+        }
+        const previous = CONFIG.wol;
+        CONFIG.wol = { relayUrl, relayToken, mac, allowShutdown };
+        try {
+          const file = path.join(HERE, "config.json");
+          const temp = file + ".wol-tmp";
+          fs.writeFileSync(temp, JSON.stringify(CONFIG, null, 2), { mode: 0o600 });
+          fs.renameSync(temp, file);
+        } catch (error) {
+          CONFIG.wol = previous;
+          throw error;
+        }
+        return json(res, 200, { ok: true });
       }
       case "GET /api/wol/pairing": {
         if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress)) {
