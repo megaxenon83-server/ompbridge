@@ -6,7 +6,7 @@ Use Windows 10 or 11. Install [Node.js](https://nodejs.org/) 22 or newer, [Oh My
 
 Run the [Bridge installer](https://github.com/megaxenon83-server/ompbridge/releases/latest). It installs for the current user under `%LOCALAPPDATA%NimayOMPBridge`, starts Bridge immediately, and enables startup at Windows sign-in by default. You can also use **Start OMP Bridge** from the Start menu.
 
-Allow Node.js on the private network that Windows and Android will use. A new installation listens locally at `http://127.0.0.1:7778`.
+Allow Node.js on the private network that Windows and Android will use. A new installation listens locally at `http://127.0.0.1:27778`.
 
 ## Pair Android
 

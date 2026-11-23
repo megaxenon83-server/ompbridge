@@ -29,7 +29,7 @@ try {
         $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
         try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
         $config = @{
-            port = 7778
+            port = 27778
             host = '0.0.0.0'
             token = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
             approvalMode = 'always-ask'

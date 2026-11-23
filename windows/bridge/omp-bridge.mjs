@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.40";
+const VERSION = "2.9.41";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -263,7 +263,7 @@ function readConfig() {
     cfg = {};
   }
   const merged = {
-    port: Number(process.env.OMPCHAT_BRIDGE_PORT || cfg.port || 7777),
+    port: Number(process.env.OMPCHAT_BRIDGE_PORT || cfg.port || 27778),
     host: process.env.OMPCHAT_BRIDGE_HOST || cfg.host || "0.0.0.0",
     token: process.env.OMPCHAT_BRIDGE_TOKEN || cfg.token || "",
     approvalMode: cfg.approvalMode || "always-ask",
