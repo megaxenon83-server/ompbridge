@@ -28,8 +28,9 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
+import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.49";
+const VERSION = "2.9.50";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -1567,10 +1568,11 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
   }
   let runtime = runtimes.get(key);
   if (!runtime && !create) return null;
+  const catalogueRevision = modelCatalogue.catalogueRevision(process.env.PI_CODING_AGENT_DIR || OMP_AGENT_DIR);
   const intended = sessionFile ?? runtime?.sessionFile;
   const profile = chatProfile ?? (intended && chatProfiles.get(managedProjectKey(intended))) ?? defaultChatProfile;
   const profileChanged = JSON.stringify(profile) !== JSON.stringify(runtime?.chatProfile);
-  if (runtime?.ready && (profileChanged || runtime.workspaceSignature !== workspace.signature(cwd, intended)) &&
+  if (runtime?.ready && (profileChanged || runtime.catalogueRevision !== catalogueRevision || runtime.workspaceSignature !== workspace.signature(cwd, intended)) &&
       !runtime.working && !runtime.modelPreparation && !runtime.modelSelectionPending && !runtime.pendingUi.size && !runtime.pending.size && !runtime.state?.isStreaming && !turnChanges.isActive(runtime)) {
     const previous = runtime;
     const refresh = (async () => {
@@ -1578,6 +1580,7 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
       const replacement = new OmpRuntime(key);
       replacement.workspaceSession = intended;
       replacement.chatProfile = profile;
+      replacement.catalogueRevision = catalogueRevision;
       runtimes.set(key, replacement);
       await replacement.start();
       if (intended && fs.existsSync(intended)) {
@@ -1595,6 +1598,7 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
     runtime = new OmpRuntime(key);
     runtime.workspaceSession = intended;
     runtime.chatProfile = profile;
+    runtime.catalogueRevision = catalogueRevision;
     runtimes.set(key, runtime);
   }
   await runtime.start();
