@@ -4,10 +4,39 @@ const { setTimeout: delay } = require('node:timers/promises');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const net = require('node:net');
+const { createHash, randomUUID } = require('node:crypto');
+const os = require('node:os');
 
 const exec = promisify(execFile);
 const engines = { ollama: 'Ollama', llama: 'llama.cpp', strata: 'Strata' };
 const MANAGED_CONFIG = 'C:\\Opencode\\Nimay AI control center\\ornith-1.5-9b-sycl\\managed-servers.json';
+const residenceFile = process.env.OMP_GPU_STATE_FILE || path.join(os.homedir(), '.omp', 'agent', 'desktop-gpu.json');
+const pipeKey = createHash('sha256').update(residenceFile.toLowerCase()).digest('hex').slice(0, 16);
+
+function acquireGpu() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer(socket => socket.destroy());
+    server.once('error', error => reject(error.code === 'EADDRINUSE'
+      ? Object.assign(new Error('Vent til den andre lokale modellkjøringen er ferdig.'), { code: 'GPU_BUSY' })
+      : error));
+    const name = process.platform === 'win32' ? '\\\\.\\pipe\\omp-gpu-' + pipeKey : { host: '127.0.0.1', port: 27780 };
+    server.listen(name, () => { server.unref(); resolve(() => server.close()); });
+  });
+}
+
+function readResident() {
+  try { return JSON.parse(fs.readFileSync(residenceFile, 'utf8')).model || null; }
+  catch { return undefined; }
+}
+
+function saveResident(model) {
+  fs.mkdirSync(path.dirname(residenceFile), { recursive: true });
+  const temp = residenceFile + '.' + randomUUID() + '.tmp';
+  fs.writeFileSync(temp, JSON.stringify({ model: model || null }), { mode: 0o600 });
+  try { fs.renameSync(temp, residenceFile); }
+  finally { fs.rmSync(temp, { force: true }); }
+}
 
 function loadManagedServers() {
   try {
@@ -64,6 +93,7 @@ async function stopManagedServer(server) {
     if (!left.length) return;
     await delay(500);
   }
+  throw new Error(`llama.cpp svarte fortsatt på port ${server.port} etter avlasting.`);
 }
 
 async function healthOk(url, timeout = 2000) {
@@ -104,6 +134,7 @@ async function startManagedServer(server) {
     await delay(2000);
   }
   if (!(await healthOk(server.healthUrl, 2000))) {
+    if (child.exitCode === null && child.pid) child.kill();
     throw new Error(`Kunne ikke starte ${server.provider} på port ${server.port}. Sjekk logg: ${errLog}`);
   }
 }
@@ -245,21 +276,10 @@ async function swapMemory(previous, next, { warmOllama = true } = {}) {
   const warmNext = next && (warmOllama || next.mode !== 'ollama');
   const prevManaged = managedForModel(previous);
   const nextManaged = managedForModel(next);
-  if (prevManaged || nextManaged) {
-    const unloadPrevious = previous && !prevManaged && nextManaged;
-    if (unloadPrevious) await lifecycle(previous, false);
-    try {
-      await switchManaged(nextManaged ? next : null);
-      if (warmNext && !nextManaged) await lifecycle(next, true);
-    } catch (error) {
-      if (previous) await lifecycle(previous, true).catch(() => {});
-      throw error;
-    }
-    return;
-  }
   if (previous) await lifecycle(previous, false);
   try {
-    if (warmNext) await lifecycle(next, true);
+    if (prevManaged || nextManaged || !previous) await switchManaged(nextManaged ? next : null);
+    if (warmNext && !nextManaged) await lifecycle(next, true);
   } catch (error) {
     if (previous) {
       try { await lifecycle(previous, true); }
@@ -269,4 +289,5 @@ async function swapMemory(previous, next, { warmOllama = true } = {}) {
   }
 }
 
-module.exports = { discoverLocal, inspect, matchLocal, swapMemory, managedForModel, isManagedModel, switchManaged, ensureManaged };
+module.exports = { discoverLocal, inspect, matchLocal, swapMemory, managedForModel, isManagedModel, switchManaged, ensureManaged,
+  acquireGpu, readResident, saveResident };

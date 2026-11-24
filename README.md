@@ -10,10 +10,10 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 | Component | What it does |
 | --- | --- |
-| [OMP Bridge 2.9.47 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.14/OMP-Bridge-Setup-2.9.47.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
-| [OMP Desktop 0.8.14 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.14/OMP-Desktop-Setup-0.8.14-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
-| [OMP Desktop 0.8.14 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.14/OMP-Desktop-0.8.14-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
-| [Chat OMP OMP 0.2.16 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.14/Chat-OMP-OMP-Android-0.2.16.apk) | Continue conversations, review edits, and manage project folders from your phone. |
+| [OMP Bridge 2.9.48 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.15/OMP-Bridge-Setup-2.9.48.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
+| [OMP Desktop 0.8.15 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.15/OMP-Desktop-Setup-0.8.15-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
+| [OMP Desktop 0.8.15 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.15/OMP-Desktop-0.8.15-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
+| [Chat OMP OMP 0.2.17 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-desktop-0.8.15/Chat-OMP-OMP-Android-0.2.17.apk) | Continue conversations, review edits, and manage project folders from your phone. |
 
 ## Get started
 

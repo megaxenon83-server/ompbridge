@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.47";
+const VERSION = "2.9.48";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -939,6 +939,7 @@ class OmpRuntime {
       this.pending.clear();
       this.pendingUi.clear();
       this.working = false;
+      releaseRuntimeGpu(this);
       this.broadcast({ type: "backend", status: "offline", cwd: this.cwd, error: this.stderrTail.slice(-3).join("\n") });
       if (gotifyEnabledFor("omp_error")) sendGotify("OMP frakoblet", `OMP-prosessen stoppet pÃ¥ ${this.cwd}`, 7, `offline:${this.cwd}`).catch(() => {});
     });
@@ -1004,6 +1005,7 @@ class OmpRuntime {
     if (frame.type === "agent_start") this.working = true;
     if (frame.type === "agent_end" || frame.type === "prompt_result" || frame.type === "session_settled") {
       this.working = false;
+      releaseRuntimeGpu(this);
       this.promptTiming = null;
       finishTurn(this);
     }
@@ -1420,17 +1422,16 @@ const runtimes = new Map();
 const profileFile = path.join(HERE, "chat-profiles.json");
 const chatProfiles = new Map(Object.entries(readJsonFile(profileFile) || {}));
 const defaultChatProfile = { mode: "build", light: false };
-let residentModel;
-let localModelOwner;
 let localCatalog;
 let localCatalogExpires = 0;
 let localDiscovery;
 
-async function prepareChatModel(runtime) {
+async function prepareChatModel(runtime, model = runtime.state?.model, { selection = false } = {}) {
   const preparation = { cancelled: false, queued: false };
   runtime.modelPreparation = preparation;
+  let lease;
+  let retained = false;
   try {
-    const model = runtime.state?.model;
     if (!model) return;
     let next;
     if (localModels.managedForModel(model)) next = { ...model, managed: true };
@@ -1445,8 +1446,13 @@ async function prepareChatModel(runtime) {
       next = localModels.matchLocal(model, localCatalog);
     }
     if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
-    if (!next) return;
-    while (localModelOwner && localModelOwner !== runtime && (localModelOwner.working || localModelOwner.modelPreparation)) {
+    while (!lease) {
+      try { lease = await localModels.acquireGpu(); break; }
+      catch (error) {
+        if (error.code !== 'GPU_BUSY') throw error;
+        // A cloud inference does not need to take the GPU away from a local turn.
+        if (!next && !selection) return;
+      }
       if (!preparation.queued) {
         preparation.queued = true;
         runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd, queued: true });
@@ -1455,22 +1461,33 @@ async function prepareChatModel(runtime) {
       await new Promise(resolve => setTimeout(resolve, 150));
     }
     if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
-    localModelOwner = runtime;
-    const previous = residentModel;
+    const previous = localModels.readResident();
+    if (previous === null && !next && !selection) return;
     const same = previous && next && (next.managed
       ? previous.managed && previous.provider === next.provider && previous.id === next.id
       : previous.origin === next.origin && previous.id === next.id);
-    if (same) {
+    if (same && !(selection && next.mode === 'ollama')) {
       if (next.managed) await localModels.ensureManaged(next);
-      return;
+    } else {
+      runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd, releasing: !!previous && !same });
+      await localModels.swapMemory(same ? null : previous, next, { warmOllama: selection });
+      localModels.saveResident(next);
     }
-    runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd });
-    await localModels.swapMemory(previous, next, { warmOllama: false });
-    residentModel = next;
+    if (next && !selection && !preparation.cancelled) {
+      runtime.releaseGpu = lease;
+      retained = true;
+    }
   } finally {
+    if (!retained) lease?.();
     runtime.modelPreparation = undefined;
     if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
   }
+}
+
+function releaseRuntimeGpu(runtime) {
+  const release = runtime.releaseGpu;
+  runtime.releaseGpu = undefined;
+  release?.();
 }
 const refreshingWorkspaces = new Map();
 const skillActions = new Set(['catalog', 'skill-library', 'preview-skill', 'install-skill', 'set-skill',
@@ -1538,7 +1555,7 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
   const profile = chatProfile ?? (intended && chatProfiles.get(managedProjectKey(intended))) ?? defaultChatProfile;
   const profileChanged = JSON.stringify(profile) !== JSON.stringify(runtime?.chatProfile);
   if (runtime?.ready && (profileChanged || runtime.workspaceSignature !== workspace.signature(cwd, intended)) &&
-      !runtime.working && !runtime.pendingUi.size && !runtime.pending.size && !runtime.state?.isStreaming && !turnChanges.isActive(runtime)) {
+      !runtime.working && !runtime.modelPreparation && !runtime.modelSelectionPending && !runtime.pendingUi.size && !runtime.pending.size && !runtime.state?.isStreaming && !turnChanges.isActive(runtime)) {
     const previous = runtime;
     const refresh = (async () => {
       await previous.stop();
@@ -3571,10 +3588,50 @@ async function handle(req, res) {
       case "POST /api/model": {
         const body = await readBody(req);
         if (!body.cwd || !body.provider || !body.modelId) return json(res, 400, { error: "Mangler cwd/provider/modelId" });
-        const runtime = await getRuntime(body.cwd);
-        const model = await runtime.rpc("set_model", { provider: body.provider, modelId: body.modelId }, 60000);
-        await runtime.refreshState();
-        return json(res, 200, { model: publicModel(model) });
+        const cwd = existingDir(body.cwd);
+        if (!cwd) return json(res, 400, { error: "Arbeidsmappen finnes ikke." });
+        const target = body.file ? loadSession(path.resolve(body.file)) : null;
+        if (body.file && (!target || !samePath(existingDir(target.cwd), cwd))) {
+          return json(res, 409, { error: "Fant ikke samtalen i denne mappen." });
+        }
+        const runtime = await getRuntime(cwd, { sessionFile: body.file });
+        if (runtime.working || sessionActivity(runtime) || runtime.modelPreparation || runtime.modelSelectionPending) {
+          return json(res, 409, { error: "Vent til det aktive svaret eller modellbyttet er ferdig." });
+        }
+        runtime.modelSelectionPending = true;
+        const cancelSelection = () => {
+          if (runtime.modelPreparation) runtime.modelPreparation.cancelled = true;
+        };
+        res.once("close", cancelSelection);
+        let previous;
+        try {
+          if (!runtime.models.length) runtime.models = (await runtime.rpc("get_available_models"))?.models || [];
+          const candidate = runtime.models.find(item => item.provider === body.provider && item.id === body.modelId);
+          if (!candidate) return json(res, 404, { error: "Modellen finnes ikke i OMP." });
+          if (body.stageOnly === true) {
+            await prepareChatModel(runtime, candidate, { selection: true });
+            return json(res, 200, { model: publicModel(candidate), memorySwitched: true });
+          }
+          if (target && !samePath(runtime.sessionFile, target.file)) {
+            await runtime.rpc("switch_session", { sessionPath: target.file }, 60000);
+            await runtime.refreshState();
+            if (!samePath(runtime.sessionFile, target.file)) return json(res, 409, { error: "OMP beholdt ikke samtalen." });
+          }
+          previous = runtime.state?.model;
+          const model = await runtime.rpc("set_model", { provider: body.provider, modelId: body.modelId }, 60000);
+          await runtime.refreshState();
+          await prepareChatModel(runtime, runtime.state?.model || model, { selection: true });
+          return json(res, 200, { model: publicModel(runtime.state?.model || model), memorySwitched: true });
+        } catch (error) {
+          if (previous) {
+            await runtime.rpc("set_model", { provider: previous.provider, modelId: previous.id }, 60000).catch(() => {});
+            await runtime.refreshState().catch(() => {});
+          }
+          throw error;
+        } finally {
+          res.off("close", cancelSelection);
+          runtime.modelSelectionPending = false;
+        }
       }
 
       case "GET /api/omp/providers": {
@@ -3637,6 +3694,7 @@ async function handle(req, res) {
           }
         }
         let runtime = await getRuntime(cwd, { sessionFile: target?.file });
+        if (runtime.modelSelectionPending) return json(res, 409, { error: "Vent til modellbyttet er ferdig." });
         const activity = sessionActivity(runtime);
         if (activity && (!body.streamingBehavior || (target && !samePath(body.file, runtime.sessionFile)))) {
           return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
@@ -3720,11 +3778,13 @@ async function handle(req, res) {
           ack = await runtime.rpc("prompt", { message: body.text, ...(images.length ? { images } : {}), ...(body.streamingBehavior ? { streamingBehavior: body.streamingBehavior } : {}) }, 60000);
           if (ack?.agentInvoked === false && !inProgress) {
             runtime.working = false;
+            releaseRuntimeGpu(runtime);
             turnChanges.cancel(runtime);
           }
         } catch (error) {
           if (!inProgress) {
             runtime.working = false;
+            releaseRuntimeGpu(runtime);
             turnChanges.cancel(runtime);
           }
           throw error;
@@ -3792,7 +3852,7 @@ async function handle(req, res) {
           return json(res, 400, { error: "Mangler cwd/entryId/text" });
         }
         const runtime = await getRuntime(body.cwd);
-        if (runtime.working || runtime.state?.isStreaming || runtime.pendingUi.size) {
+        if (runtime.working || runtime.modelSelectionPending || runtime.state?.isStreaming || runtime.pendingUi.size) {
           return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
         }
         if (body.file && path.resolve(body.file) !== path.resolve(runtime.sessionFile || "")) {
@@ -3810,9 +3870,13 @@ async function handle(req, res) {
         try {
           await prepareChatModel(runtime);
           ack = await runtime.rpc("prompt", { message }, 60000);
-          if (ack?.agentInvoked === false) runtime.working = false;
+          if (ack?.agentInvoked === false) {
+            runtime.working = false;
+            releaseRuntimeGpu(runtime);
+          }
         } catch (error) {
           runtime.working = false;
+          releaseRuntimeGpu(runtime);
           throw error;
         }
         await runtime.refreshState();
