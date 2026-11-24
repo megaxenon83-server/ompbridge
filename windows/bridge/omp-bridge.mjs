@@ -28,7 +28,7 @@ import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.46";
+const VERSION = "2.9.47";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -978,9 +978,14 @@ class OmpRuntime {
         continue;
       }
       try {
+        this.rpcReceivedAt = Date.now();
+        this.ompEventAt = typeof frame.timestamp === "number" ? frame.timestamp : undefined;
         this.onFrame(frame);
       } catch (error) {
         log("warn", `frame handler failed: ${error.message}`);
+      } finally {
+        this.rpcReceivedAt = undefined;
+        this.ompEventAt = undefined;
       }
     }
   }
@@ -1269,7 +1274,8 @@ class OmpRuntime {
   }
 
   broadcast(event) {
-    const payload = { sessionFile: this.sessionFile || undefined, ...event, ts: Date.now() };
+    const payload = { sessionFile: this.sessionFile || undefined, ...event, ts: Date.now(),
+      ...(this.rpcReceivedAt && { trace: { ompAt: this.ompEventAt, bridgeReceivedAt: this.rpcReceivedAt } }) };
     for (const subscriber of this.subscribers) {
       try {
         subscriber(payload);
@@ -1949,17 +1955,24 @@ function serveEvents(req, res) {
   const url = new URL(req.url, "http://localhost");
   const cwdParam = url.searchParams.get("cwd");
   const cwd = cwdParam ? runtimeKey(cwdParam) : null;
+  if (process.env.OMP_BRIDGE_TRACE_EVENTS === "1") log("info", `SSE open ${req.headers["user-agent"] || "unknown"}`);
+  req.socket.setNoDelay(true);
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-cache, no-transform",
     connection: "keep-alive",
     "x-accel-buffering": "no",
   });
+  res.flushHeaders();
   res.write(`: connected ${new Date().toISOString()}\n\n`);
 
   const write = (event) => {
     try {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      const trace = event.trace && { ...event.trace, bridgeSentAt: Date.now() };
+      res.write(`data: ${JSON.stringify(trace ? { ...event, trace } : event)}\n\n`);
+      if (trace && process.env.OMP_BRIDGE_TRACE_EVENTS === "1" && !["state", "message_delta"].includes(event.type)) {
+        log("info", `live ${event.type} ${JSON.stringify(trace)}`);
+      }
     } catch {}
   };
 
