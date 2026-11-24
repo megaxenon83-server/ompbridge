@@ -103,8 +103,9 @@ async function healthOk(url, timeout = 2000) {
   } catch { return false; }
 }
 
-async function startManagedServer(server) {
+async function startManagedServer(server, onProgress = () => {}) {
   if (await healthOk(server.healthUrl, 1500)) return;
+  onProgress('starting', server);
   const outLog = path.join(path.dirname(server.cwd), 'server', `managed-${server.port}.out.log`);
   const errLog = path.join(path.dirname(server.cwd), 'server', `managed-${server.port}.err.log`);
   fs.mkdirSync(path.dirname(outLog), { recursive: true });
@@ -119,6 +120,7 @@ async function startManagedServer(server) {
   let failure;
   child.once('error', error => { failure = error; });
   child.unref();
+  onProgress('loading', server);
   try { fs.closeSync(out); } catch {}
   try { fs.closeSync(err); } catch {}
   for (let i = 0; i < 240; i++) { // up to ~8 min
@@ -139,19 +141,19 @@ async function startManagedServer(server) {
   }
 }
 
-async function switchManaged(targetModel) {
+async function switchManaged(targetModel, onProgress = () => {}) {
   const servers = loadManagedServers();
   const target = managedForModel(targetModel);
   for (const server of servers) {
     if (target && server.port === target.port && server.provider === target.provider) continue;
     await stopManagedServer(server);
   }
-  if (target) await startManagedServer(target);
+  if (target) await startManagedServer(target, onProgress);
 }
 
-async function ensureManaged(model) {
+async function ensureManaged(model, onProgress) {
   const server = managedForModel(model);
-  if (server) await startManagedServer(server);
+  if (server) await startManagedServer(server, onProgress);
 }
 
 async function json(origin, route, payload, timeout = 2000) {
@@ -231,12 +233,12 @@ function matchLocal(model, catalog) {
     (!port && ({ ollama: 'ollama', strata: 'strata', 'llama.cpp': 'llama' })[model.provider] === item.engine)));
 }
 
-async function lifecycle(model, load) {
+async function lifecycle(model, load, onProgress = () => {}) {
   if (!model) return;
   const managed = managedForModel(model);
   if (managed) {
-    if (load) await startManagedServer(managed);
-    else await stopManagedServer(managed);
+    if (load) await startManagedServer(managed, onProgress);
+    else { onProgress('stopping', managed); await stopManagedServer(managed); }
     return;
   }
   const { origin, id, mode, label } = model;
@@ -247,6 +249,7 @@ async function lifecycle(model, load) {
   if (mode === 'ollama') {
     const running = async () => (await json(origin, '/api/ps')).models.some(item => item.name === id || item.model === id);
     if (await running() === load) return;
+    onProgress(load ? 'loading' : 'unloading', model);
     await json(origin, '/api/generate', { model: id, stream: false, keep_alive: load ? '5m' : 0 }, 180000);
     for (let attempt = 0; attempt < 12; attempt++) {
       if (await running() === load) return;
@@ -261,6 +264,7 @@ async function lifecycle(model, load) {
   };
   const desired = load ? 'loaded' : 'unloaded';
   if (await state() === desired) return;
+  onProgress(load ? 'loading' : 'unloading', model);
   const action = load ? 'load' : 'unload';
   await json(origin, mode === 'strata' ? '/v1/' + action : '/models/' + action, mode === 'strata' ? {} : { model: id }, 180000);
   for (let attempt = 0; attempt < 180; attempt++) {
@@ -272,14 +276,18 @@ async function lifecycle(model, load) {
   throw new Error(label + ' bekreftet ikke at modellen var ' + (load ? 'lastet.' : 'frigjort.'));
 }
 
-async function swapMemory(previous, next, { warmOllama = true } = {}) {
+async function swapMemory(previous, next, { warmOllama = true, onProgress = () => {} } = {}) {
   const warmNext = next && (warmOllama || next.mode !== 'ollama');
   const prevManaged = managedForModel(previous);
   const nextManaged = managedForModel(next);
-  if (previous) await lifecycle(previous, false);
+  if (previous) {
+    await lifecycle(previous, false, onProgress);
+    onProgress('unloaded', previous);
+  }
   try {
-    if (prevManaged || nextManaged || !previous) await switchManaged(nextManaged ? next : null);
-    if (warmNext && !nextManaged) await lifecycle(next, true);
+    if (prevManaged || nextManaged || !previous) await switchManaged(nextManaged ? next : null, onProgress);
+    if (warmNext && !nextManaged) await lifecycle(next, true, onProgress);
+    if (warmNext && (nextManaged || next.mode !== 'fixed')) onProgress('ready', next);
   } catch (error) {
     if (previous) {
       try { await lifecycle(previous, true); }

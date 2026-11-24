@@ -1,4 +1,4 @@
-#define BridgeVersion "2.9.48"
+#define BridgeVersion "2.9.49"
 
 [Setup]
 AppId=ChatOmpOmpBridge
@@ -31,6 +31,8 @@ Name: "startmenu"; Description: "Legg til en snarvei i Start-menyen"
 Source: "Bridge.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Bridge.ps1"; Flags: dontcopy
 Source: "bridge\omp-bridge.mjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "bridge\machine-resources.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "bridge\machine-resources.ps1"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\omp-turn-changes.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\omp-workspace.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\local-models.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion

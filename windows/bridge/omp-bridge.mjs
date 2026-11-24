@@ -27,8 +27,9 @@ import turnModule from "./omp-turn-changes.cjs";
 import workspaceModule from "./omp-workspace.cjs";
 import adb from "./adb.cjs";
 import localModels from "./local-models.cjs";
+import machineResources from "./machine-resources.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.48";
+const VERSION = "2.9.49";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -1002,7 +1003,10 @@ class OmpRuntime {
         !frame.isError && Array.isArray(frame.result?.details?.phases)) {
       this.broadcast({ type: "todo_phases", cwd: this.cwd, sessionFile: this.sessionFile, phases: frame.result.details.phases });
     }
-    if (frame.type === "agent_start") this.working = true;
+    if (frame.type === "agent_start") {
+      this.working = true;
+      this.modelPhase = null;
+    }
     if (frame.type === "agent_end" || frame.type === "prompt_result" || frame.type === "session_settled") {
       this.working = false;
       releaseRuntimeGpu(this);
@@ -1426,8 +1430,17 @@ let localCatalog;
 let localCatalogExpires = 0;
 let localDiscovery;
 
-async function prepareChatModel(runtime, model = runtime.state?.model, { selection = false } = {}) {
+async function prepareChatModel(runtime, model = runtime.state?.model, { selection = false, stageOnly = false } = {}) {
   const preparation = { cancelled: false, queued: false };
+  const operationId = crypto.randomUUID();
+  let sequence = 0;
+  const progress = (phase, item = model) => {
+    if (stageOnly) return;
+    runtime.modelPhase = { type: "model_preparing", cwd: runtime.cwd, sessionFile: runtime.sessionFile,
+      operationId, sequence: ++sequence, phase, name: item?.name || item?.modelId || item?.id || item?.provider,
+      engine: item?.label || (item?.mode === "ollama" ? "Ollama" : item?.managed || item?.command ? "llama.cpp" : undefined) };
+    runtime.broadcast(runtime.modelPhase);
+  };
   runtime.modelPreparation = preparation;
   let lease;
   let retained = false;
@@ -1455,7 +1468,7 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
       }
       if (!preparation.queued) {
         preparation.queued = true;
-        runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd, queued: true });
+        progress("waiting", next);
       }
       if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
       await new Promise(resolve => setTimeout(resolve, 150));
@@ -1467,16 +1480,19 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
       ? previous.managed && previous.provider === next.provider && previous.id === next.id
       : previous.origin === next.origin && previous.id === next.id);
     if (same && !(selection && next.mode === 'ollama')) {
-      if (next.managed) await localModels.ensureManaged(next);
+      if (next.managed) { await localModels.ensureManaged(next, progress); progress("ready", next); }
     } else {
-      runtime.broadcast({ type: "model_preparing", cwd: runtime.cwd, releasing: !!previous && !same });
-      await localModels.swapMemory(same ? null : previous, next, { warmOllama: selection });
+      await localModels.swapMemory(same ? null : previous, next, { warmOllama: selection, onProgress: progress });
       localModels.saveResident(next);
     }
     if (next && !selection && !preparation.cancelled) {
       runtime.releaseGpu = lease;
       retained = true;
     }
+    if (!next && selection) progress("cloud", model);
+  } catch (error) {
+    progress("failed", model);
+    throw error;
   } finally {
     if (!retained) lease?.();
     runtime.modelPreparation = undefined;
@@ -2015,6 +2031,7 @@ function serveEvents(req, res) {
   // leaving the runtime stuck forever.
   if (runtime) {
     for (const pending of runtime.pendingUi.values()) write(pending);
+    if (runtime.modelPhase?.sessionFile && samePath(runtime.sessionFile, runtime.modelPhase.sessionFile)) write(runtime.modelPhase);
   }
 
   const heartbeat = setInterval(() => {
@@ -2756,6 +2773,28 @@ async function handle(req, res) {
         });
       }
 
+      case "GET /api/machine/resources": {
+        const stats = await machineResources.read();
+        const resident = localModels.readResident();
+        const managed = localModels.managedForModel(resident);
+        async function check(url) {
+          try { return await fetch(url, { signal: AbortSignal.timeout(650), redirect: "error" }); }
+          catch { return null; }
+        }
+        const statusEndpoint = resident?.mode === "strata" ? "/v1/status" : resident?.mode === "router" ? "/v1/models" : null;
+        const [service, ollama] = await Promise.all([managed ? check(managed.healthUrl) :
+          statusEndpoint && resident.origin ? check(resident.origin + statusEndpoint) : null, check("http://127.0.0.1:11434/api/ps")]);
+        const loaded = ollama?.ok ? await ollama.json().catch(() => null) : null;
+        const models = (loaded?.models || []).map(item => ({ name: item.name || item.model, engine: "Ollama" }));
+        if (managed && service?.ok) models.push({ name: resident.name || resident.id, engine: "llama.cpp" });
+        if (!managed && statusEndpoint && service?.ok) {
+          const state = await service.json().catch(() => null);
+          const active = resident.mode === "strata" ? state?.loaded === true :
+            state?.data?.some(item => item.id === resident.id && (item.status?.value || item.status) === "loaded");
+          if (active) models.push({ name: resident.name || resident.id, engine: resident.label });
+        }
+        return json(res, 200, { ...stats, models });
+      }
       case "GET /api/resources": {
         try {
           const resources = await getResources();
@@ -3609,7 +3648,7 @@ async function handle(req, res) {
           const candidate = runtime.models.find(item => item.provider === body.provider && item.id === body.modelId);
           if (!candidate) return json(res, 404, { error: "Modellen finnes ikke i OMP." });
           if (body.stageOnly === true) {
-            await prepareChatModel(runtime, candidate, { selection: true });
+            await prepareChatModel(runtime, candidate, { selection: true, stageOnly: true });
             return json(res, 200, { model: publicModel(candidate), memorySwitched: true });
           }
           if (target && !samePath(runtime.sessionFile, target.file)) {
