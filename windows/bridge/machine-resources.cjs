@@ -49,13 +49,33 @@ async function collect() {
     : { cpu: { name: os.cpus()[0]?.model, load: null }, ram: { total: os.totalmem(), available: os.freemem() }, gpus: [] };
   if (native.gpus.some(gpu => gpu.vendor === 0x10de)) {
     try {
-      const { stdout } = await exec('nvidia-smi', ['--query-gpu=name,temperature.gpu', '--format=csv,noheader,nounits'],
+      const { stdout } = await exec('nvidia-smi', ['--query-gpu=uuid,name,temperature.gpu,memory.used,memory.total,utilization.gpu', '--format=csv,noheader,nounits'],
         { timeout: 1200, windowsHide: true });
-      const temperatures = stdout.trim().split(/\r?\n/).map(line => line.split(',').map(value => value.trim()));
-      for (const gpu of native.gpus) {
-        const matches = temperatures.filter(([name]) => name.toLowerCase().replace(/^nvidia /, '') === gpu.name.toLowerCase().replace(/^nvidia /, ''));
-        if (matches.length === 1 && /^\d+$/.test(matches[0][1])) gpu.temperature = Number(matches[0][1]);
+      const key = name => name.trim().toLowerCase().replace(/^nvidia /, '');
+      const metric = value => /^\d+(?:\.\d+)?$/.test(value) ? Number(value) : null;
+      const mib = value => metric(value) == null ? null : metric(value) * 1048576;
+      const physicalCards = new Map();
+      for (const line of stdout.trim().split(/\r?\n/)) {
+        const [id, name, temperature, used, total, load] = line.split(',').map(value => value.trim());
+        if (!id.startsWith('GPU-') || !name) continue;
+        physicalCards.set(id, { id, name, vendor: 0x10de, temperature: metric(temperature),
+          used: mib(used), total: mib(total), load: metric(load) });
       }
+      const cards = [...physicalCards.values()];
+      const nativeNvidia = native.gpus.filter(gpu => gpu.vendor === 0x10de);
+      for (const card of cards) {
+        const name = key(card.name);
+        // Windows can expose aliases of one physical card with different LUIDs.
+        // Avoid borrowing a Windows counter when multiple physical cards share a name.
+        if (cards.filter(item => key(item.name) === name).length !== 1) continue;
+        const matches = nativeNvidia.filter(gpu => key(gpu.name) === name);
+        const dxgi = matches.find(gpu => gpu.used != null) || matches[0];
+        card.total ??= dxgi?.total ?? null;
+        card.used ??= dxgi?.used ?? null;
+        card.load ??= dxgi?.load ?? null;
+      }
+      native.gpus = native.gpus.filter(gpu => gpu.vendor !== 0x10de ||
+        !cards.some(card => key(card.name) === key(gpu.name))).concat(cards);
     } catch {}
   }
   return native;

@@ -203,7 +203,7 @@ function createTurnChanges(directory) {
       if (!['tool_execution_end', 'tool_end'].includes(frame.type)) return;
       const before = turn.tools.get(frame.toolCallId);
       turn.tools.delete(frame.toolCallId);
-      if (!before || frame.isError) return;
+      if (!before || frame.isError) return modifyingTools.has(frame.toolName) || frame.toolName === 'bash';
       for (const [file, prior] of before) {
         try {
           const after = snapshotFile(turn.root, file);
@@ -213,10 +213,12 @@ function createTurnChanges(directory) {
             contiguous: !existing || (existing.contiguous && sameFile(existing.after, prior)) });
         } catch {}
       }
+      return true;
     },
-    finish(owner, session) {
+    finish(owner, session, anchorToolId) {
       const turn = active.get(owner);
-      active.delete(owner);
+      const live = Boolean(anchorToolId);
+      if (!live) active.delete(owner);
       if (!turn || !session) return null;
       const after = capture(turn.root);
       const names = new Set([...turn.before.files.keys(), ...after.files.keys()]);
@@ -234,8 +236,10 @@ function createTurnChanges(directory) {
         changed.push({ file, before, after: next, verified: !!write && write.contiguous &&
           sameFile(write.before, before) && sameFile(write.after, next) });
       }
-      if (!changed.length && !incomplete) return null;
-      const id = randomUUID();
+      if (!turn.card && !changed.length && (live || !incomplete)) return null;
+      const id = turn.card?.id || randomUUID();
+      const at = turn.card?.at || Date.now();
+      const anchor = turn.card?.anchorToolId || anchorToolId;
       const dir = vault(session);
       fs.mkdirSync(dir, { recursive: true });
       const temp = fs.mkdtempSync(path.join(dir, 'diff-'));
@@ -246,8 +250,9 @@ function createTurnChanges(directory) {
           delete stats.diff;
           return { file: item.file, ...stats, verified: item.verified };
         });
-        const card = { id, at: Date.now(), userIndex: turn.userIndex, files, incomplete,
-          undoable: files.length > 0 && !incomplete && files.every(item => item.verified), undone: false };
+        const card = { id, at, userIndex: turn.userIndex, anchorToolId: anchor, files, incomplete, live,
+          undoable: !live && files.length > 0 && !incomplete && files.every(item => item.verified), undone: false };
+        turn.card = card;
         writeRecord(cardFile(session, id, 'data'), { root: turn.root, changed });
         writeRecord(cardFile(session, id, 'meta'), card);
         for (const old of list(session).slice(0, -maxCards)) {

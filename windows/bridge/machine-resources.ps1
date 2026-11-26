@@ -41,7 +41,7 @@ public static class OmpDxgi {
     }
 }
 '@
-$adapters = [OmpDxgi]::List()
+$adapters = [OmpDxgi]::List() | Sort-Object Luid -Unique
 $cpuName = (Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name) -join ' / '
 $ram = [long](Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
 $installed = [long]((Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue | Measure-Object Capacity -Sum).Sum)
@@ -59,7 +59,7 @@ while ($null -ne [Console]::ReadLine()) {
                     ($_.Group | Measure-Object -Property UtilizationPercentage -Sum).Sum
                 } | Measure-Object -Maximum
             [ordered]@{
-                name=$adapter.Name; vendor=$adapter.Vendor; total=if($adapter.Total -gt 0){$adapter.Total}else{$null}
+                id=$adapter.Luid; name=$adapter.Name; vendor=$adapter.Vendor; total=if($adapter.Total -gt 0){$adapter.Total}else{$null}
                 used=if($used){[long]$used.DedicatedUsage}else{$null}
                 load=if($load.Count){[Math]::Min(100,$load.Maximum)}else{$null}
                 temperature=$null

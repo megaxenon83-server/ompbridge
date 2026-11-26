@@ -74,17 +74,68 @@ export default function workspaceExtension(pi) {
   registerProjectPlugins(pi, options);
   const disabled = new Set(options.disabled || []);
   const enabled = options.enabled || [];
+  const temporary = new Set();
   const apply = async () => {
     const registered = new Set(pi.getAllTools().map(tool => tool.name));
-    const active = new Set(pi.getActiveTools().filter(name => !disabled.has(name)));
-    for (const name of enabled) if (registered.has(name) && !disabled.has(name)) active.add(name);
+    const active = new Set(pi.getActiveTools().filter(name => (!disabled.has(name) || temporary.has(name))));
+    for (const name of enabled) if (registered.has(name) && (!disabled.has(name) || temporary.has(name))) active.add(name);
+    for (const name of temporary) if (registered.has(name)) active.add(name);
     await pi.setActiveTools([...active]);
   };
   pi.on('session_start', apply);
   pi.on('before_agent_start', apply);
   pi.on('tool_call', event => {
-    if (disabled.has(event.toolName)) return { block: true, reason: 'Verktøyet er deaktivert for prosjektet.' };
+    if (disabled.has(event.toolName) && !temporary.has(event.toolName)) return { block: true, reason: 'Verktøyet er deaktivert for prosjektet.' };
   });
+  if (options.resourceRequests) {
+    pi.on('agent_end', async () => {
+      if (!temporary.size) return;
+      const active = pi.getActiveTools().filter(name => !temporary.has(name));
+      temporary.clear();
+      await pi.setActiveTools(active);
+    });
+    pi.registerTool({
+      name: 'omp_request_resource',
+      label: 'Request a tool or skill',
+      loadMode: 'essential',
+      description: 'Request explicit approval to enable a registered tool for the current run or install a specific catalog skill into this project. Disclose successful changes in your response.',
+      parameters: pi.zod.object({
+        kind: pi.zod.enum(['tool', 'skill']),
+        target: pi.zod.string().min(1).max(500),
+        reason: pi.zod.string().min(1).max(300)
+      }),
+      async execute(_id, { kind, target, reason }, signal, _update, ctx) {
+        if (!ctx.hasUI || signal?.aborted) return response('User approval is required.');
+        if (kind === 'tool') {
+          if (!pi.getAllTools().some(tool => tool.name === target)) {
+            return response('That tool is not registered. Use the project settings to configure its provider or MCP server.');
+          }
+          if (pi.getActiveTools().includes(target)) return response('Tool is already active: ' + target);
+          const approved = await ctx.ui.confirm('Enable tool for this run?', target + '\n' + reason, { timeout: 60000 });
+          if (!approved || signal?.aborted) return response('Tool activation declined or cancelled.');
+          temporary.add(target);
+          await apply();
+          return response('Enabled ' + target + ' for this run. Tell the user it was enabled.');
+        }
+        const request = async body => {
+          const { url, capability } = options.resourceRequests;
+          const res = await fetch(url, { method: 'POST', signal, headers: {
+            'Content-Type': 'application/json', 'X-OMP-Resource-Capability': capability
+          }, body: JSON.stringify(body) });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Skill request failed.');
+          return data;
+        };
+        const preview = await request({ preview: true, target });
+        const approved = await ctx.ui.confirm('Install and enable project skill?', [preview.ref, preview.sha, reason].filter(Boolean).join('\n'), { timeout: 60000 });
+        if (!approved || signal?.aborted) return response('Skill installation declined or cancelled.');
+        const { skill } = await request({ target: preview.ticket });
+        return response('Installed and enabled ' + skill.name + ' for this project (' + skill.ref + ', ' + skill.sha +
+          '). Tell the user what was installed. It will load on the next request. Approved skill instructions for the current task:\n\n' +
+          String(preview.markdown || '').slice(0, 12000));
+      }
+    });
+  }
   if (!options.deviceControl || process.platform !== 'win32') return;
   const z = pi.zod;
   pi.registerTool({

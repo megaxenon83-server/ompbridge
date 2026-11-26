@@ -1,5 +1,12 @@
 # Changelog
 
+## OMP Desktop 0.8.24 / Android 0.2.25 / Bridge 2.9.58
+
+- Added per-model reasoning controls beside the model picker in Desktop and Android.
+- Kept the live session open during OMP's thinking-loop recovery and display reported retry attempts in the activity indicator.
+- Added live generation speed and a breakdown of prompt processing, first-token latency, output, cache, and active context. The clients mark estimated values.
+- Deduplicated Windows GPU adapters by LUID and merged NVIDIA temperature, dedicated memory, and utilization readings when the physical adapter can be matched.
+
 ## OMP Desktop 0.8.7 · Android 0.2.7 · Bridge 2.9.39
 
 - Desktop moves Chat, Plan, and Build into a compact mode picker and keeps the composer full width.

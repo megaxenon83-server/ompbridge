@@ -30,15 +30,15 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.50";
+const VERSION = "2.9.58";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
-function finishTurn(runtime) {
+function finishTurn(runtime, anchorToolId) {
   if (!turnChanges.isActive(runtime)) return;
   const finish = () => {
     try {
-      const card = turnChanges.finish(runtime, runtime.sessionFile);
+      const card = turnChanges.finish(runtime, runtime.sessionFile, anchorToolId);
       if (card) runtime.broadcast({ type: "turn_changes", sessionFile: runtime.sessionFile, cwd: runtime.cwd, card });
     } catch (error) { log("warn", "Endringskort: " + error.message); }
   };
@@ -560,7 +560,8 @@ function describeSession(file, entries, stat) {
         if (entry.id) sessionId = entry.id;
         break;
       case "model_change":
-        if (typeof entry.model === "string") model = entry.model;
+        if (typeof entry.provider === "string" && typeof entry.modelId === "string") model = entry.provider + "/" + entry.modelId;
+        else if (typeof entry.model === "string") model = entry.model;
         break;
       case "message": {
         const message = entry.message;
@@ -740,6 +741,9 @@ function listSessions({ cwd, includeArchived = false } = {}) {
 /** Map a stored OMP transcript (jsonl entries) into app-friendly messages. */
 function toAppMessages(entries) {
   const messages = [];
+  const commands = new Map();
+  const results = new Set(entries.filter(entry => entry.type === "message" && entry.message?.role === "toolResult")
+    .map(entry => entry.message.toolCallId));
   let index = 0;
   for (const entry of entries) {
     if (entry.type !== "message") continue;
@@ -777,20 +781,34 @@ function toAppMessages(entries) {
           args: b.arguments,
           state: "done",
         }));
+      for (const call of toolCalls) if (call.args?.command) commands.set(call.id, call.args.command);
       if (!text && !thinking && toolCalls.length === 0 && !message.errorMessage) continue;
       messages.push({
         id: entry.id || `a${index}`,
         parentId: entry.parentId || "",
         role: "assistant",
-        text: text || message.errorMessage || "",
+        text: text || displayModelError(message.errorMessage),
         thinking,
+        segments: visibleSegments(content),
         toolCalls,
         model: message.model ? `${message.provider || ""}${message.provider ? "/" : ""}${message.model}` : "",
         timestamp: message.timestamp || Date.parse(entry.timestamp) || Date.now(),
         status: message.errorMessage ? "error" : "done",
-        error: message.errorMessage || "",
+        error: displayModelError(message.errorMessage),
         usage: message.usage || null,
       });
+      for (const call of toolCalls) {
+        if (!call.id || results.has(call.id)) continue;
+        messages.push({
+          id: call.id,
+          role: "tool",
+          toolCallId: call.id,
+          toolName: call.name,
+          command: call.args?.command,
+          text: "",
+          status: "no-result",
+        });
+      }
       continue;
     }
 
@@ -800,6 +818,7 @@ function toAppMessages(entries) {
         role: "tool",
         toolCallId: message.toolCallId,
         toolName: message.toolName,
+        command: commands.get(message.toolCallId),
         text: textOfContent(message.content),
         isError: !!message.isError,
         timestamp: message.timestamp || Date.parse(entry.timestamp) || Date.now(),
@@ -874,14 +893,15 @@ class OmpRuntime {
     const args = OMP_BIN_ENTRY
       ? [OMP_BIN_ENTRY, "--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT]
       : ["--mode", "rpc", "--cwd", this.cwd, "--session-dir", SESSIONS_ROOT];
+    args.push("--config", path.join(HERE, "omp-recovery.yml"));
+    const mode = this.chatProfile?.mode || "build";
+    const restricted = mode !== "build";
     let resources;
-    const restricted = this.chatProfile?.light || ["chat", "plan"].includes(this.chatProfile?.mode);
     try {
       resources = restricted
         ? { signature: workspace.signature(this.cwd, this.workspaceSession), skills: [], blocked: [], args: [], env: {} }
         : await workspace.spawnOptions(this.cwd, this.workspaceSession);
-    }
-    catch (error) {
+    } catch (error) {
       const pending = this.readyPromise;
       this.readyPromise = null;
       this.readyReject?.(error);
@@ -890,30 +910,51 @@ class OmpRuntime {
     this.workspaceSignature = resources.signature;
     this.loadedSkills = restricted ? [] : resources.skills;
     this.blockedSkills = resources.blocked;
-    let allowedTools;
-    if (this.chatProfile?.mode === "chat") {
-      allowedTools = [];
-      args.push("--no-skills", "--no-extensions", "--no-tools",
-        "--system-prompt", "Answer the user's questions conversationally. Do not make changes.");
-    } else if (this.chatProfile?.mode === "plan" || this.chatProfile?.light) {
-      const planning = this.chatProfile.mode === "plan";
-      allowedTools = planning ? ["read", "grep"] : ["read", "grep", "edit", "write"];
-      args.push("--no-skills", "--no-extensions", planning ? "--tools=read,grep" : "--tools=read,grep,edit,write");
-      args.push("--system-prompt", planning
-        ? "Investigate and propose a concrete plan. Do not modify files or execute the plan."
-        : "Work on the requested task. Use the available tools as needed and keep replies concise.");
-    } else args.push(...resources.args);
+    const options = JSON.parse(resources.env.OMP_BRIDGE_RESOURCE_OPTIONS || "{}");
+    const recoveryGuidance = "If OMP detects repetitive reasoning, use a different approach. Consult official documentation with available read or search tools when uncertain. Reuse completed tool results.";
+    if (restricted) {
+      args.push("--append-system-prompt", recoveryGuidance);
+      const disabled = new Set(workspace.settings(this.cwd).disabledTools || []);
+      const requested = mode === "plan" ? ["web_search", "read", "grep", "glob"] : ["web_search"];
+      options.allowedTools = requested.filter(name => !disabled.has(name));
+      args.push("--no-skills", "--no-extensions", options.allowedTools.length
+        ? "--tools=" + options.allowedTools.join(",") : "--no-tools");
+      args.push("--system-prompt", mode === "plan"
+        ? "Research using read-only tools and propose a plan. Never edit files or execute the plan. Cite sources for web research."
+        : "Answer conversationally. Use web search for current facts and cite sources. Do not change the workspace.");
+    } else {
+      args.push(...resources.args);
+      if (!args.includes(path.join(HERE, "workspace-extension.mjs"))) args.push("--extension", path.join(HERE, "workspace-extension.mjs"));
+      const host = CONFIG.host.includes(":") ? "[::1]" : "127.0.0.1";
+      this.resourceCapability = crypto.randomBytes(32).toString("hex");
+      options.resourceRequests = { url: "http://" + host + ":" + CONFIG.port + "/internal/build-skill",
+        capability: this.resourceCapability };
+      if (this.chatProfile?.light) args.push("--no-context-files");
+      args.push("--append-system-prompt", "In Build, use available enabled tools. If an inactive tool or catalog skill is essential, use omp_request_resource for explicit user approval. Tell the user exactly which tools were enabled or skills installed. Never bypass a rejected resource request."
+        + " " + recoveryGuidance + (this.chatProfile?.light ? " Keep context compact. Read relevant files only and keep responses concise." : ""));
+    }
     if (restricted) args.push("--extension", path.join(HERE, "workspace-extension.mjs"));
+    resources.env.OMP_BRIDGE_RESOURCE_OPTIONS = JSON.stringify(options);
     // OMP-moduser: always-ask | always-ask-cached | write | yolo ("write" =
     // spÃ¸r ved sletting/store endringer; "yolo" = godkjenn alt automatisk).
-    if (CONFIG.approvalMode && CONFIG.approvalMode !== "default") {
+    this.approvalMode = CONFIG.approvalMode;
+    if (this.approvalMode === "deny") {
+      args.push("--no-tools", "--no-extensions", "--no-skills");
+      for (let index = args.length - 1; index >= 0; index--) {
+        if (args[index].startsWith("--tools=")) args.splice(index, 1);
+        else if (args[index] === "--extension") args.splice(index, 2);
+      }
+      options.allowedTools = [];
+      delete options.resourceRequests;
+      resources.env.OMP_BRIDGE_RESOURCE_OPTIONS = JSON.stringify(options);
+      args.push("--extension", path.join(HERE, "workspace-extension.mjs"));
+    } else if (CONFIG.approvalMode && CONFIG.approvalMode !== "default") {
       args.push("--approval-mode", CONFIG.approvalMode);
     }
     log("info", `spawning omp rpc for ${this.cwd} (approval=${CONFIG.approvalMode}) using ${OMP_BIN_EXEC}`);
     const child = spawn(OMP_BIN_EXEC, args, {
       cwd: this.cwd,
       env: { ...process.env, ...resources.env,
-        ...(restricted && { OMP_BRIDGE_RESOURCE_OPTIONS: JSON.stringify({ allowedTools }) }),
         NO_COLOR: "1", FORCE_COLOR: "0" },
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
@@ -942,6 +983,12 @@ class OmpRuntime {
       this.pendingUi.clear();
       this.working = false;
       releaseRuntimeGpu(this);
+      if (turnChanges.isActive(this)) {
+        turnChanges.invalidate(this);
+        if (this.sessionFile) finishTurn(this);
+        else turnChanges.cancel(this);
+        this.broadcast({ type: "session_settled", cwd: this.cwd });
+      }
       this.broadcast({ type: "backend", status: "offline", cwd: this.cwd, error: this.stderrTail.slice(-3).join("\n") });
       if (gotifyEnabledFor("omp_error")) sendGotify("OMP frakoblet", `OMP-prosessen stoppet pÃ¥ ${this.cwd}`, 7, `offline:${this.cwd}`).catch(() => {});
     });
@@ -999,7 +1046,28 @@ class OmpRuntime {
       return;
     }
     this.lastUsed = Date.now();
-    turnChanges.observe(this, frame);
+    if (frame.type === "agent_end" && frame.isTerminal === false) return;
+    if (this.recoveringThought && ["agent_end", "prompt_result", "session_settled"].includes(frame.type)) {
+      (this.recoveryTerminalFrames ||= []).push(frame);
+      return;
+    }
+    if (frame.type === "auto_retry_start" || frame.type === "auto_retry_end") {
+      const starts = frame.type === "auto_retry_start";
+      if (starts) this.recoveringThought ||= /thinking.loop/i.test(frame.errorMessage || "");
+      if (this.recoveringThought) {
+        log("info", `OMP recovery: ${frame.type} attempt=${frame.attempt} success=${frame.success} detail=${String(frame.errorMessage || frame.finalError || "").replace(/\s+/g, " ").slice(0, 500)}`);
+        this.broadcast({ type: frame.type, recovery: true, attempt: frame.attempt, maxAttempts: frame.maxAttempts,
+          success: frame.success, cwd: this.cwd, sessionFile: this.sessionFile });
+      }
+      if (!starts) {
+        this.recoveringThought = false;
+        const terminalFrames = this.recoveryTerminalFrames || [];
+        this.recoveryTerminalFrames = [];
+        for (const terminalFrame of terminalFrames) this.onFrame(terminalFrame);
+      }
+      return;
+    }
+    const changed = turnChanges.observe(this, frame);
     if (frame.type === "tool_execution_end" && frame.toolName === "todo" &&
         !frame.isError && Array.isArray(frame.result?.details?.phases)) {
       this.broadcast({ type: "todo_phases", cwd: this.cwd, sessionFile: this.sessionFile, phases: frame.result.details.phases });
@@ -1010,6 +1078,7 @@ class OmpRuntime {
     }
     if (frame.type === "agent_end" || frame.type === "prompt_result" || frame.type === "session_settled") {
       this.working = false;
+      this.clientMessageId = undefined;
       releaseRuntimeGpu(this);
       this.promptTiming = null;
       finishTurn(this);
@@ -1096,6 +1165,15 @@ class OmpRuntime {
       };
       const type = map[event.type];
       if (!type) return;
+      const kind = event.type === "thinking_delta" ? "thinking" : "text";
+      if (event.partial?.content) this.assistantBlocks = event.partial.content.slice();
+      else if (type === "message_delta" && typeof event.delta === "string") {
+        this.assistantBlocks ||= [];
+        const index = Number.isInteger(event.contentIndex) ? event.contentIndex : this.assistantBlocks.length ? this.assistantBlocks.length - 1 : 0;
+        const field = kind === "thinking" ? "thinking" : "text";
+        const previous = this.assistantBlocks[index];
+        this.assistantBlocks[index] = { type: kind, [field]: (previous?.[field] || "") + event.delta };
+      }
       this.broadcast({
         type,
         cwd: this.cwd,
@@ -1104,19 +1182,26 @@ class OmpRuntime {
         delta: event.delta,
         contentIndex: event.contentIndex,
         toolCall: event.toolCall,
-        partial: event.partial ? summariseAssistant(event.partial) : undefined,
+        partial: summariseAssistant(event.partial || { content: this.assistantBlocks }),
       });
       return;
     }
 
     if (frame.type === "message_start" || frame.type === "message_end") {
+      if (frame.message?.role === "assistant") this.assistantBlocks = [];
       this.broadcast({
         type: frame.type,
         cwd: this.cwd,
         messageId: frame.messageId,
-        message: frame.type === "message_end" ? summariseMessage(frame.message, frame.messageId) : undefined,
+        role: frame.message?.role,
+        message: frame.type === "message_end" ? {
+          ...summariseMessage(frame.message, frame.messageId),
+          ...(frame.message?.role === "user" && !frame.message.synthetic && this.clientMessageId
+            ? { clientMessageId: this.clientMessageId } : {}),
+        } : undefined,
         role: frame.message?.role,
       });
+      if (frame.type === "message_end" && frame.message?.role === "user" && !frame.message.synthetic) this.clientMessageId = undefined;
       if (frame.type === "message_start" && frame.message?.role === "assistant") {
         this.broadcast({ type: "streaming", cwd: this.cwd, active: true });
       }
@@ -1141,6 +1226,7 @@ class OmpRuntime {
         result: frame.result,
         isError: frame.isError,
       });
+      if (changed && frame.toolCallId) finishTurn(this, frame.toolCallId);
       return;
     }
 
@@ -1159,7 +1245,7 @@ class OmpRuntime {
         type: "prompt_result",
         cwd: this.cwd,
         status: frame.status,
-        error: frame.error,
+        error: displayModelError(frame.error),
         sessionSettled: frame.sessionSettled,
       });
       this.pendingUi.clear();
@@ -1219,7 +1305,16 @@ class OmpRuntime {
       this.broadcast({ type: "ui_passive", cwd: this.cwd, method, frame });
       return;
     }
-    // Interactive: select | confirm | input | editor | ask
+    // Only binary confirmations and explicit allow/deny choices are eligible.
+    const choices = Array.isArray(frame.options) ? frame.options.filter(option => typeof option === "string") : [];
+    const allowOption = choices.some(option => /^(deny|reject|decline|no|avvis|nei|ikke tillat)\b/i.test(option))
+      ? choices.find(option => /^(allow once|approve once|allow|approve|yes|tillat|godkjenn|ja)$/i.test(option))
+      : undefined;
+    const approval = CONFIG.approvalMode === "yolo" && nativeToolApproval(frame);
+    if (approval) {
+      this.write({ type: "extension_ui_response", id: frame.id, value: approval });
+      return;
+    }
     const request = {
       type: "ui_request",
       cwd: this.cwd,
@@ -1233,6 +1328,10 @@ class OmpRuntime {
       prefill: frame.prefill,
       questions: frame.questions,
       timeout: frame.timeout,
+      allowOption,
+      allowAlways: (method === "confirm" || (method === "select" && !!allowOption))
+        && CONFIG.approvalMode !== "yolo" && CONFIG.approvalMode !== "deny"
+        && !/enhetsstyring|enable tool for this run|install and enable project skill/i.test(frame.title || ""),
       sessionFile: this.sessionFile,
     };
     this.pendingUi.set(frame.id, request);
@@ -1324,6 +1423,11 @@ class OmpRuntime {
   }
 }
 
+function displayModelError(error) {
+  const message = typeof error === "string" ? error : error?.message || "";
+  return /thinking.loop/i.test(message) ? "OMP oppdaget gjentakende resonnering." : message;
+}
+
 function publicModel(model) {
   if (!model) return null;
   return {
@@ -1367,15 +1471,32 @@ function publicState(state) {
   };
 }
 
+function nativeToolApproval(request) {
+  if (request.method !== "select" || !/^Allow tool: [^\r\n]+/i.test(request.title || "")) return undefined;
+  const choices = Array.isArray(request.options) ? request.options : [];
+  return choices.some(option => /^deny$/i.test(option)) ? choices.find(option => /^approve$/i.test(option)) : undefined;
+}
+
+function visibleSegments(content) {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap(block => {
+    if (block?.type === "text" && typeof block.text === "string") return [{ type: "text", text: block.text }];
+    if (block?.type === "thinking" && !block.redacted && typeof block.thinking === "string") {
+      return [{ type: "thinking", text: block.thinking }];
+    }
+    return [];
+  });
+}
+
 function summariseAssistant(message) {
   if (!message) return null;
   const content = Array.isArray(message.content) ? message.content : [];
   return {
     text: content.filter((b) => b && b.type === "text").map((b) => b.text).join(""),
-    thinking: content.filter((b) => b && b.type === "thinking").map((b) => b.thinking).join("\n\n"),
+    segments: visibleSegments(content),
     model: message.model ? `${message.provider || ""}${message.provider ? "/" : ""}${message.model}` : "",
     stopReason: message.stopReason,
-    error: message.errorMessage || "",
+    error: displayModelError(message.errorMessage),
   };
 }
 
@@ -1389,6 +1510,7 @@ function summariseMessage(message, messageId) {
   if (message.role === "user") {
     return {
       ...base,
+      synthetic: !!message.synthetic,
       text: textOfContent(message.content),
       images: Array.isArray(message.content) ? message.content.filter((b) => b && b.type === "image").length : 0,
       status: "done",
@@ -1399,6 +1521,12 @@ function summariseMessage(message, messageId) {
     return {
       ...base,
       ...summary,
+      duration: message.duration, ttft: message.ttft,
+      timings: message.timings || (message.eval_duration > 0 ? {
+        predicted_n: message.eval_count, predicted_ms: message.eval_duration / 1e6,
+        prompt_ms: message.prompt_eval_duration == null ? undefined : message.prompt_eval_duration / 1e6,
+        prompt_per_second: message.prompt_eval_duration > 0 ? message.prompt_eval_count * 1e9 / message.prompt_eval_duration : undefined
+      } : undefined),
       toolCalls: (Array.isArray(message.content) ? message.content : [])
         .filter((b) => b && b.type === "toolCall")
         .map((b) => ({ id: b.id, name: b.name, args: b.arguments, state: "queued" })),
@@ -1570,9 +1698,9 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
   if (!runtime && !create) return null;
   const catalogueRevision = modelCatalogue.catalogueRevision(process.env.PI_CODING_AGENT_DIR || OMP_AGENT_DIR);
   const intended = sessionFile ?? runtime?.sessionFile;
-  const profile = chatProfile ?? (intended && chatProfiles.get(managedProjectKey(intended))) ?? defaultChatProfile;
+  const profile = chatProfile ?? (intended ? chatProfiles.get(managedProjectKey(intended)) : undefined) ?? defaultChatProfile;
   const profileChanged = JSON.stringify(profile) !== JSON.stringify(runtime?.chatProfile);
-  if (runtime?.ready && (profileChanged || runtime.catalogueRevision !== catalogueRevision || runtime.workspaceSignature !== workspace.signature(cwd, intended)) &&
+  if (runtime?.ready && (profileChanged || runtime.approvalMode !== CONFIG.approvalMode || runtime.catalogueRevision !== catalogueRevision || runtime.workspaceSignature !== workspace.signature(cwd, intended)) &&
       !runtime.working && !runtime.modelPreparation && !runtime.modelSelectionPending && !runtime.pendingUi.size && !runtime.pending.size && !runtime.state?.isStreaming && !turnChanges.isActive(runtime)) {
     const previous = runtime;
     const refresh = (async () => {
@@ -2733,6 +2861,27 @@ async function handle(req, res) {
     });
   }
 
+  if (route === "POST /internal/build-skill") {
+    const address = req.socket.remoteAddress;
+    const capability = req.headers["x-omp-resource-capability"];
+    const runtime = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(address)
+      && typeof capability === "string" && capability.length === 64
+      && [...runtimes.values()].find(item => item.working && item.resourceCapability === capability);
+    if (!runtime) return json(res, 403, { error: "Build resource request denied." });
+    try {
+      const body = await readBody(req);
+      if (body.preview === true) {
+        return json(res, 200, await workspace.skillAction(runtime.cwd, {
+          action: "preview-skill", target: body.target, scope: "project"
+        }, runtime));
+      }
+      const result = await workspace.skillAction(runtime.cwd, {
+        action: "install-skill", target: body.target, scope: "project", restoreEnabled: true
+      }, runtime);
+      return json(res, 200, result);
+    } catch (error) { return json(res, 400, { error: error.message }); }
+  }
+
   if (!authorised(req)) {
     return json(res, 401, { error: "Ugyldig eller manglende token" });
   }
@@ -2815,6 +2964,19 @@ async function handle(req, res) {
         return json(res, 200, { projects: registeredProjects(), sharedWorkspace: true });
       }
 
+      case "POST /api/projects/hide": {
+        const body = await readBody(req);
+        if (typeof body.path !== "string" || !path.isAbsolute(body.path)) {
+          return json(res, 400, { error: "Ugyldig prosjektmappe." });
+        }
+        const list = loadProjects();
+        const project = list.find(item => samePath(item.path, body.path));
+        if (!project) return json(res, 404, { error: "Fant ikke prosjektet." });
+        project.hidden = true;
+        saveProjects(list);
+        return json(res, 200, { ok: true });
+      }
+
       case "POST /api/projects/register": {
         const body = await readBody(req);
         const dir = existingDir(body.path);
@@ -2829,6 +2991,9 @@ async function handle(req, res) {
           project = { id: "proj-" + crypto.randomUUID(), name: path.basename(dir), path: dir,
             hidden: false, auto: false, createdAt: Date.now() };
           list.push(project);
+          saveProjects(list);
+        } else if (project.hidden && body.show === true) {
+          project.hidden = false;
           saveProjects(list);
         }
         return json(res, 200, { project });
@@ -3320,7 +3485,14 @@ async function handle(req, res) {
         if (!fs.existsSync(resolved)) return json(res, 404, { error: "Fant ikke samtalen" });
         const entries = entriesFor(resolved);
         const session = loadSession(resolved);
-        return json(res, 200, { session, messages: toAppMessages(entries) });
+        const runtime = session?.cwd ? runtimes.get(runtimeKey(session.cwd)) : undefined;
+        const selectedModel = runtime?.sessionFile && samePath(runtime.sessionFile, resolved)
+          ? publicModel(runtime.state?.model) : null;
+        const modelKey = session?.model || "";
+        const separator = modelKey.indexOf("/");
+        const savedModel = separator > 0 ? { provider: modelKey.slice(0, separator), id: modelKey.slice(separator + 1) } : null;
+        return json(res, 200, { session, messages: toAppMessages(entries), model: selectedModel || savedModel,
+          chatProfile: chatProfiles.get(managedProjectKey(resolved)) || defaultChatProfile });
       }
 
       case "POST /api/sessions/open": {
@@ -3812,11 +3984,20 @@ async function handle(req, res) {
           if (!inProgress) {
             const start = Date.now();
             await prepareChatModel(runtime);
+            const thinking = body.thinking;
+            const model = runtime.state?.model;
+            if (thinking && model?.provider === thinking.provider && model?.id === thinking.id &&
+                ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'on'].includes(thinking.level)) {
+              await runtime.rpc('set_thinking_level', { level: thinking.level });
+            }
             log("info", `model ready in ${Date.now() - start}ms (${runtime.state?.model?.provider || "default"})`);
             runtime.promptTiming = { started, prepared: Date.now() };
           }
           if (target && !samePath(runtime.sessionFile, target.file)) {
             throw new Error("OMP beholdt ikke den valgte samtalen. Åpne den på nytt før du sender.");
+          }
+          if (!inProgress && typeof body.clientMessageId === "string" && /^[a-f0-9-]{36}$/i.test(body.clientMessageId)) {
+            runtime.clientMessageId = body.clientMessageId;
           }
           ack = await runtime.rpc("prompt", { message: body.text, ...(images.length ? { images } : {}), ...(body.streamingBehavior ? { streamingBehavior: body.streamingBehavior } : {}) }, 60000);
           if (ack?.agentInvoked === false && !inProgress) {
@@ -3930,6 +4111,15 @@ async function handle(req, res) {
         const body = await readBody(req);
         if (!body.cwd || !body.id) return json(res, 400, { error: "Mangler cwd/id" });
         const runtime = await getRuntime(body.cwd);
+        const pending = runtime.pendingUi.get(body.id);
+        if (!pending) return json(res, 409, { error: "Forespørselen er allerede besvart." });
+        if (body.allowAlways === true) {
+          if (!pending.allowAlways || !["confirm", "select"].includes(pending.method)) return json(res, 400, { error: "Denne handlingen krever egen godkjenning." });
+          CONFIG.approvalMode = "yolo";
+          writeConfig();
+          if (pending.method === "confirm") body.confirmed = true;
+          else body.value = pending.allowOption;
+        }
         let frame;
         if (body.cancelled) {
           frame = { type: "extension_ui_response", id: body.id, cancelled: true, timedOut: !!body.timedOut };
@@ -3942,11 +4132,12 @@ async function handle(req, res) {
         }
         runtime.write(frame);
         runtime.pendingUi.delete(body.id);
+        runtime.broadcast({ type: "ui_cancel", cwd: runtime.cwd, targetId: body.id });
         return json(res, 200, { ok: true });
       }
 
       case "POST /api/bash": {
-        if (!CONFIG.allowBash) return json(res, 403, { error: "Terminal er deaktivert i bridge-konfigurasjonen" });
+        if (!CONFIG.allowBash || CONFIG.approvalMode === "deny") return json(res, 403, { error: "Terminal er deaktivert i bridge-konfigurasjonen" });
         const body = await readBody(req);
         if (!body.cwd || typeof body.command !== "string" || !body.command.trim()) {
           return json(res, 400, { error: "Mangler cwd/command" });
@@ -3993,76 +4184,30 @@ async function handle(req, res) {
       // Godkjenningsmodus (approval mode)
       // ---------------------------------------------------------------------------
 
+      case "GET /api/approval":
+        return json(res, 200, { approvalMode: CONFIG.approvalMode });
+
       case "POST /api/approval": {
         const body = await readBody(req);
-        const raw = String(body.mode || "").trim();
-        // OMP forst?r bare always-ask | always-ask-cached | write | yolo.
-        // Gamle app-verdier ("default"/"ask") mappes til de reelle modusene,
-        // ellers falt OMP tilbake til ? sp?rre om alt.
-        const legacy = { default: "write", ask: "yolo" };
-        const mode = legacy[raw] || raw;
-        const valid = ["always-ask", "always-ask-cached", "write", "yolo"];
-        if (!valid.includes(mode)) {
-          return json(res, 400, { error: `Ugyldig modus: ${raw}. Gyldige: ${valid.join(", ")}` });
+        if (!["deny", "write", "yolo", "always-ask", "always-ask-cached"].includes(body.mode)) {
+          return json(res, 400, { error: "Ugyldig godkjenningsmodus." });
         }
-        CONFIG.approvalMode = mode;
+        CONFIG.approvalMode = body.mode;
         writeConfig();
-        log("info", `Godkjenningsmodus endret til: ${mode}`);
-
-        let autoApproved = 0;
-        const pickAllowOption = (request) => {
-          const options = Array.isArray(request?.options) ? request.options.map(String) : [];
-          if (!options.length) return "";
-          const denyRe = /(deny|reject|refuse|decline|cancel|avsl|avvis|nei|no\b)/i;
-          const allowRe = /(allow|approve|accept|yes|always|permit|godkjenn|tillat|ja\b)/i;
-          return options.find((o) => allowRe.test(o) && !denyRe.test(o))
-            || options.find((o) => !denyRe.test(o))
-            || options[0];
-        };
-
-        // N?r "Tillat alt" (yolo) aktiveres: godkjenn ventende
-        // godkjenningsforesp?rsler (confirm/select) slik at blokkerte ?kter
-        // ikke blir st?ende fast. Sp?rsm?l som krever brukerinput
-        // (input/editor/ask) besvares ikke automatisk.
-        if (mode === "yolo") {
+        if (body.mode === "yolo") {
           for (const runtime of runtimes.values()) {
-            if (!runtime.pendingUi || runtime.pendingUi.size === 0) continue;
-            for (const [id, pending] of [...runtime.pendingUi.entries()]) {
-              if (pending.title === "Enhetsstyring · godkjenning") continue;
-              const method = String(pending?.method || "");
-              let frame = null;
-              if (method === "confirm") {
-                frame = { type: "extension_ui_response", id, confirmed: true };
-              } else if (method === "select") {
-                frame = { type: "extension_ui_response", id, value: pickAllowOption(pending) };
-              }
-              if (!frame) continue;
-              try { runtime.write(frame); } catch {}
-              runtime.pendingUi.delete(id);
-              autoApproved++;
+            for (const [id, pending] of runtime.pendingUi) {
+              const value = nativeToolApproval(pending);
+              if (!value) continue;
+              try {
+                runtime.write({ type: "extension_ui_response", id, value });
+                runtime.pendingUi.delete(id);
+                runtime.broadcast({ type: "ui_cancel", cwd: runtime.cwd, targetId: id });
+              } catch {}
             }
           }
-          if (autoApproved > 0) {
-            log("info", `Auto-godkjente ${autoApproved} ventende foresp?rsel(er) etter bytte til yolo`);
-          }
         }
-
-        // Kj?rende runtimes fikk modus satt ved oppstart: restart de som er
-        // ledige n? (etter eventuell auto-godkjenning). P?g?ende/streamende
-        // oppgaver ber?res ikke; nye runder bruker ny modus.
-        let restarted = 0;
-        let busyLeft = 0;
-        for (const [key, runtime] of runtimes) {
-          const busy = Boolean(runtime.state?.isStreaming) || runtime.restarting ||
-            (runtime.pendingUi?.size > 0);
-          if (busy) { busyLeft++; continue; }
-          runtime.ready = false;
-          try { runtime.child?.kill(); } catch {}
-          runtimes.delete(key);
-          if (runtime.pendingUi) runtime.pendingUi.clear();
-          restarted++;
-        }
-        return json(res, 200, { ok: true, approvalMode: mode, restarted, runningTasks: busyLeft, autoApproved });
+        return json(res, 200, { ok: true, approvalMode: CONFIG.approvalMode });
       }
 
       // ---------------------------------------------------------------------------

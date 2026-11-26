@@ -1,6 +1,8 @@
-param(
-    [ValidateSet('Start','Stop','CheckUpgradePort','MigratePort')][string]$Action = 'Start',
-    [string]$InstallDir = $PSScriptRoot
+﻿param(
+    [ValidateSet('Start','Stop','CheckUpgradePort','MigratePort','Verify')][string]$Action = 'Start',
+    [string]$InstallDir = $PSScriptRoot,
+    [string]$ExpectedVersion,
+    [string]$StatusFile
 )
 $ErrorActionPreference = 'Stop'
 $bridgeDir = Join-Path $InstallDir 'bridge'
@@ -23,6 +25,7 @@ function Get-ListenerId([int]$port = [int]$config.port) {
 
 try {
     if (!(Test-Path -LiteralPath $configFile)) {
+        if ($Action -eq 'Verify') { throw 'Bridge config missing.' }
         if ($Action -ne 'Start') { exit 0 }
         $bytes = New-Object byte[] 32
         $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
@@ -40,7 +43,7 @@ try {
     $config = Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
     if (!$config.token -or !$config.port) { throw 'Bridge config needs a token and a port.' }
     if ($Action -in 'CheckUpgradePort','MigratePort') {
-        if ($config.port -eq 27778) { exit 0 }
+        if ($config.port -ne 7778) { exit 0 }
         if (Get-ListenerId 27778) { throw 'The new default port 27778 is occupied.' }
         if ($Action -eq 'MigratePort') {
             $config.port = 27778
@@ -53,6 +56,13 @@ try {
     $origin = "http://127.0.0.1:$($config.port)"
     $headers = @{ Authorization = 'Bearer ' + $config.token }
     $health = Get-Health
+    if ($Action -eq 'Verify') {
+        if (!$health.ok -or $health.version -ne $ExpectedVersion) {
+            throw "Expected Bridge $ExpectedVersion on port $($config.port)."
+        }
+        [IO.File]::WriteAllText($StatusFile, [string]$config.port)
+        exit 0
+    }
 
     if ($Action -eq 'Stop') {
         if (!$health) {

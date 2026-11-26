@@ -40,7 +40,8 @@ function saveResident(model) {
 
 function loadManagedServers() {
   try {
-    const file = process.env.OMP_DESKTOP_MANAGED_SERVERS || MANAGED_CONFIG;
+    const portable = path.join(os.homedir(), '.omp', 'agent', 'managed-servers.json');
+    const file = process.env.OMP_DESKTOP_MANAGED_SERVERS || (fs.existsSync(portable) ? portable : MANAGED_CONFIG);
     const raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
     return Array.isArray(raw.servers) ? raw.servers : [];
   } catch { return []; }
@@ -52,8 +53,8 @@ function managedForModel(model) {
   const provider = model.provider || '';
   const id = model.id || model.modelId || '';
   let origin;
-  try { origin = new URL(model.baseUrl).origin; } catch {}
-  return servers.find(s => s.provider === provider && s.modelId === id)
+  try { origin = new URL(model.baseUrl || model.origin).origin; } catch {}
+  return servers.find(s => (s.provider === provider || s.providerAliases?.includes(provider)) && s.modelId === id)
     || servers.find(s => origin && s.healthUrl && origin === new URL(s.healthUrl).origin)
     || null;
 }
@@ -62,34 +63,46 @@ function isManagedModel(model) {
   return !!managedForModel(model);
 }
 
-async function portPids(port, executable) {
-  const portQuery = `Get-NetTCPConnection -LocalPort ${Number(port)} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique`;
+async function portPids(port, executable, required = []) {
+  const portQuery = `Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object LocalPort -eq ${Number(port)} | Select-Object -ExpandProperty OwningProcess -Unique`;
   const script = executable
     ? `$owned = '${executable.replaceAll("'", "''")}'; ${portQuery} | ForEach-Object {
         $process = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $_)
-        if ($process.ExecutablePath -eq $owned) { $_ }
+        if ($process.ExecutablePath -eq $owned ${required.map(value =>
+          `-and ($process.CommandLine -and $process.CommandLine.IndexOf('${value.replaceAll("'", "''")}', [StringComparison]::OrdinalIgnoreCase) -ge 0)`).join(' ')}) { $_ }
       }`
     : portQuery;
-  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  const encoded = Buffer.from("$ProgressPreference = 'SilentlyContinue'; " + script, 'utf16le').toString('base64');
   try {
     const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { windowsHide: true, timeout: 6000 });
     return [...new Set((stdout.match(/\d+/g) || []).map(Number).filter(n => n > 0))];
-  } catch { return []; }
+  } catch (error) { throw new Error('Kunne ikke bekrefte hvilken prosess som eier port ' + port + '.', { cause: error }); }
 }
 
 async function stopManagedServer(server) {
-  const pids = await portPids(server.port, server.command);
-  if (!pids.length) return;
+  const listeners = await portPids(server.port);
+  if (!listeners.length) return;
+  const pids = await portPids(server.port, server.listenerCommand || server.command, server.listenerArgs);
+  if (!pids.length || listeners.some(pid => !pids.includes(pid))) {
+    throw new Error('Port ' + server.port + ' brukes av en annen prosess enn den registrerte llama.cpp-serveren.');
+  }
+  if (server.modelMode) {
+    const origin = new URL(server.healthUrl).origin;
+    if (server.modelMode === 'strata' && (await json(origin, '/v1/status')).activity?.in_flight > 0) {
+      throw new Error('Vent til PolyStrata er ferdig med den aktive forespørselen.');
+    }
+    await lifecycle({ origin, id: server.modelId, mode: server.modelMode, label: server.label || server.provider }, false, undefined, false);
+  }
   for (const pid of pids) {
     try { process.kill(pid, 'SIGTERM'); } catch {}
   }
   await delay(500);
-  const still = await portPids(server.port, server.command);
+  const still = await portPids(server.port, server.listenerCommand || server.command, server.listenerArgs);
   for (const pid of still) {
     try { await exec('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 8000 }); } catch {}
   }
   for (let i = 0; i < 20; i++) {
-    const left = await portPids(server.port, server.command);
+    const left = await portPids(server.port);
     if (!left.length) return;
     await delay(500);
   }
@@ -104,7 +117,22 @@ async function healthOk(url, timeout = 2000) {
 }
 
 async function startManagedServer(server, onProgress = () => {}) {
-  if (await healthOk(server.healthUrl, 1500)) return;
+  const listeners = await portPids(server.port);
+  if (listeners.length) {
+    const owned = await portPids(server.port, server.listenerCommand || server.command, server.listenerArgs);
+    if (listeners.some(pid => !owned.includes(pid))) {
+      throw new Error('Port ' + server.port + ' brukes av en annen prosess enn den registrerte llama.cpp-serveren.');
+    }
+    if (await healthOk(server.healthUrl, 1500)) return;
+    for (let attempt = 0; attempt < 90; attempt++) {
+      if (await healthOk(server.healthUrl, 1500)) return;
+      if (!(await portPids(server.port, server.listenerCommand || server.command, server.listenerArgs)).length) break;
+      await delay(1000);
+    }
+    if ((await portPids(server.port, server.listenerCommand || server.command, server.listenerArgs)).length) {
+      throw new Error('Den registrerte llama.cpp-serveren svarer ikke på port ' + server.port + '.');
+    }
+  }
   onProgress('starting', server);
   const outLog = path.join(path.dirname(server.cwd), 'server', `managed-${server.port}.out.log`);
   const errLog = path.join(path.dirname(server.cwd), 'server', `managed-${server.port}.err.log`);
@@ -148,12 +176,18 @@ async function switchManaged(targetModel, onProgress = () => {}) {
     if (target && server.port === target.port && server.provider === target.provider) continue;
     await stopManagedServer(server);
   }
-  if (target) await startManagedServer(target, onProgress);
+  if (target) {
+    await startManagedServer(target, onProgress);
+    if (target.modelMode) {
+      await lifecycle({ origin: new URL(target.healthUrl).origin, id: target.modelId,
+        mode: target.modelMode, label: target.label || target.provider }, true, onProgress, false);
+    }
+  }
 }
 
 async function ensureManaged(model, onProgress) {
   const server = managedForModel(model);
-  if (server) await startManagedServer(server, onProgress);
+  if (server) await switchManaged(model, onProgress);
 }
 
 async function json(origin, route, payload, timeout = 2000) {
@@ -233,18 +267,18 @@ function matchLocal(model, catalog) {
     (!port && ({ ollama: 'ollama', strata: 'strata', 'llama.cpp': 'llama' })[model.provider] === item.engine)));
 }
 
-async function lifecycle(model, load, onProgress = () => {}) {
+async function lifecycle(model, load, onProgress = () => {}, checkManaged = true) {
   if (!model) return;
-  const managed = managedForModel(model);
+  const managed = checkManaged && managedForModel(model);
   if (managed) {
-    if (load) await startManagedServer(managed, onProgress);
+    if (load) await switchManaged(model, onProgress);
     else { onProgress('stopping', managed); await stopManagedServer(managed); }
     return;
   }
   const { origin, id, mode, label } = model;
   if (mode === 'fixed') {
     if (load) return;
-    throw new Error(label + ' kjører som fast modellserver og kunne ikke stoppes automatisk.');
+    throw new Error(label + ' er en ekstern modellserver. Registrer serverens startkonfigurasjon i OMP før den kan startes og stoppes automatisk.');
   }
   if (mode === 'ollama') {
     const running = async () => (await json(origin, '/api/ps')).models.some(item => item.name === id || item.model === id);
