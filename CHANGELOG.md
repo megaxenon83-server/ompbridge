@@ -1,5 +1,11 @@
 # Changelog
 
+## Bridge 2.9.60 / Desktop 0.8.26 / Android 0.2.27
+
+- Fixed Windows drive discovery in the Android folder picker.
+- Android prompts for a fresh QR code when Bridge rejects a saved pairing.
+- Renamed the imported chat group to Oh My Pi chats.
+
 ## Bridge 2.9.59 / Desktop 0.8.25 / Android 0.2.26
 
 - Setup offers to download and verify a private Node.js runtime when Node.js 22 or newer is unavailable.

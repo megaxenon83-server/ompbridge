@@ -217,7 +217,7 @@ function renderProjects() {
     if (projectMatches || entries.length) group(key, basename(project), entries, project);
   }
   const imported = other.filter(matches);
-  if (imported.length) group(otherThreads, 'Andre samtaler', imported);
+  if (imported.length) group(otherThreads, 'Oh My Pi-samtaler', imported);
   list.replaceChildren(...groupRows);
   if (!groupRows.length) list.append(element('p', query ? 'Ingen treff.' : 'Åpne en mappe for å legge til et prosjekt.', { class: 'sidebar-empty' }));
   list.scrollTop = scroll;

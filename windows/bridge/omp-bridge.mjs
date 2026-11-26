@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.59";
+const VERSION = "2.9.60";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -4673,15 +4673,15 @@ async function handle(req, res) {
         if (route === "GET /api/fs/list" && (raw === "" || raw === "/")) {
           const out = [];
           if (process.platform === "win32") {
-            try {
-              const out2 = execSync("fsutil fs drives", { timeout: 4000, encoding: "utf8" });
-              const drives = String(out2).match(/[A-Z]:\\/g) || [];
-              for (const drive of drives) {
-                try { fs.statSync(drive); out.push({ name: drive, type: "dir", size: 0 }); } catch {}
-              }
-            } catch (error) {
-              // fallback to C:\ if fsutil holds trouble
-              out.push({ name: "C:\\", type: "dir", size: 0 });
+            const systemDrive = path.parse(HOME).root;
+            const drives = await new Promise(resolve => {
+              const fsutil = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "fsutil.exe");
+              execFile(fsutil, ["fsinfo", "drives"], { timeout: 3000, windowsHide: true }, (error, stdout) => {
+                resolve(error ? [] : (stdout.match(/[A-Z]:\\/gi) || []));
+              });
+            });
+            for (const drive of new Set([systemDrive, ...drives].filter(Boolean))) {
+              out.push({ name: drive, path: drive, type: "dir", size: 0 });
             }
           } else {
             out.push({ name: "/", type: "dir", size: 0 });
@@ -4812,7 +4812,7 @@ async function handle(req, res) {
             try { if (entry.isFile()) size = fs.statSync(path.join(p, entry.name)).size; } catch {}
             let mtime = 0;
             try { mtime = Math.round(fs.statSync(path.join(p, entry.name)).mtimeMs); } catch {}
-            return { name: entry.name, type: entry.isDirectory() ? "dir" : "file", size, mtime };
+            return { name: entry.name, path: path.join(p, entry.name), type: entry.isDirectory() ? "dir" : "file", size, mtime };
           });
           return json(res, 200, { ok: true, path: p, entries });
         }

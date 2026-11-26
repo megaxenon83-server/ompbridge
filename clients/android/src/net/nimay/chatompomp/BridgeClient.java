@@ -247,6 +247,9 @@ final class BridgeClient {
     private static JSONObject json(HttpURLConnection conn) throws Exception {
         try {
             int code = conn.getResponseCode();
+            if (code == 401) {
+                throw new IOException("Bridge avviste koblingen (HTTP 401). Skann en ny QR-kode fra OMP Desktop på denne PC-en.");
+            }
             String raw = read(code < 400 ? conn.getInputStream() : conn.getErrorStream(), 16 * 1024 * 1024);
             JSONObject response = new JSONObject(raw);
             if (code < 200 || code >= 300 || response.optBoolean("ok", true) == false) {

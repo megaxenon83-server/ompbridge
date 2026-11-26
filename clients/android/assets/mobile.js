@@ -429,7 +429,7 @@ function drawThreads() {
   const groups = new Map(projectDirectories().filter(entry => !entry.auto)
     .map(entry => [directoryKey(entry.dir), { ...entry, rows: [] }]));
   const projectPaths = new Map(projects.filter(item => !item.hidden).map(item => [item.id, item.path]));
-  const other = { name: 'Andre samtaler', rows: [] };
+  const other = { name: 'Oh My Pi-samtaler', rows: [] };
   const running = rows.filter(item => item.activity).sort((a, b) => Number(b.activity === 'waiting') - Number(a.activity === 'waiting'));
   for (const item of rows) {
     if (!item.activity) (groups.get(directoryKey(projectPaths.get(item.projectId) || item.cwd)) || other).rows.push(item);
@@ -723,7 +723,11 @@ async function browseFolders(directory = '', createMode = false, filesMode = fal
     if (!children.childElementCount) children.append(node('p', 'Ingen undermapper.', { class: 'folder-empty muted' }));
   } catch (error) {
     feedback.textContent = error.message;
-    children.append(button('Prøv igjen', () => go(directory)));
+    if (error.message.includes('HTTP 401')) {
+      children.append(button('Skann QR-kode på nytt', () => bridge.scan(), 'accent'));
+    } else {
+      children.append(button('Prøv igjen', () => go(directory)));
+    }
   }
 }
 

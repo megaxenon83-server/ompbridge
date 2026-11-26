@@ -10,10 +10,10 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 | Component | What it does |
 | --- | --- |
-| [OMP Bridge 2.9.59 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.59/OMP-Bridge-Setup-2.9.59.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
-| [OMP Desktop 0.8.25 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.59/OMP-Desktop-Setup-0.8.25-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
-| [OMP Desktop 0.8.25 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.59/OMP-Desktop-0.8.25-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
-| [Chat OMP OMP 0.2.26 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.59/Chat-OMP-OMP-Android-0.2.26.apk) | Continue conversations, review edits, and manage project folders from your phone. |
+| [OMP Bridge 2.9.60 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.60/OMP-Bridge-Setup-2.9.60.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
+| [OMP Desktop 0.8.26 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.60/OMP-Desktop-Setup-0.8.26-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
+| [OMP Desktop 0.8.26 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.60/OMP-Desktop-0.8.26-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
+| [Chat OMP OMP 0.2.27 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.60/Chat-OMP-OMP-Android-0.2.27.apk) | Continue conversations, review edits, and manage project folders from your phone. |
 
 Current Desktop and Android build sources are in [clients](clients). Bridge and the Windows installers are in [windows](windows), and the Docker relay is in [chatompompwol](chatompompwol). See the [build instructions](clients/README.md).
 

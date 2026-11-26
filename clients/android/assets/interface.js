@@ -96,6 +96,8 @@ Skann ny QR-kode|Scan new QR code
 Skann QR-kode|Scan QR code
 Skann trådkode|Scan chat QR code
 PC-er|Computers
+Oh My Pi-samtaler|Oh My Pi chats
+Skann QR-kode på nytt|Scan QR code again
 Leverandører fra PC-en|Providers on the PC
 Handlinger for aktiv samtale|Actions for this chat
 Koble til OMP Desktop med en engangskode.|Connect to OMP Desktop with a one-time code.
