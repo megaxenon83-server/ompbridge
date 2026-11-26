@@ -121,7 +121,7 @@ let savedComputers = computers();
 const computerName = () => savedComputers.find(item => item.active)?.name || '';
 const status = text => { $('status').textContent = text || ''; };
 const reconnectStatus = 'Kobler til Bridge igjen …';
-const route = () => cwd ? '/api/events?' + new URLSearchParams({ cwd }) : '';
+const route = () => cwd ? '/api/events?' + new URLSearchParams({ cwd, ...(runtimeFile || activeFile ? { file: runtimeFile || activeFile } : {}) }) : '';
 const draftKey = () => origin + '\n' + (activeFile || cwd);
 
 function saveDraft(key, text) {
@@ -815,6 +815,7 @@ async function send(event) {
   const selected = selection;
   const dir = cwd;
   const existing = activeFile;
+  let file = existing;
   const chosen = nextModel;
   const profile = { ...(lightContext !== undefined && { light: lightContext }), ...(chatMode && { mode: chatMode }) };
   const files = attachment ? [attachment.image] : [];
@@ -827,24 +828,29 @@ async function send(event) {
   status('Klargjør OMP …');
   render();
   try {
-    const state = await api('/api/state', { cwd: dir });
-    if (state.cwdMissing) throw new Error('Arbeidsmappen finnes ikke på PC-en.');
-    if (state.state?.isStreaming || state.request) throw new Error('OMP jobber allerede i prosjektet.');
-    if (selected !== selection) throw new Error('Samtalen ble byttet.');
-    if (!existing) {
-      await api('/api/sessions/new', null, { cwd: dir });
-    } else if (!same(state.sessionFile, existing)) {
-      const opened = await api('/api/sessions/open', null, { file: existing, cwd: dir });
-      if (opened.readOnly) throw new Error(opened.reason || 'Denne økten er skrivebeskyttet.');
+    if (existing) {
+      const state = await api('/api/state', { cwd: dir, file: existing });
+      if (state.cwdMissing) throw new Error('Arbeidsmappen finnes ikke på PC-en.');
+      if (state.state?.isStreaming || state.request) throw new Error('OMP jobber allerede i denne samtalen.');
+      if (!same(state.sessionFile, existing)) {
+        const opened = await api('/api/sessions/open', null, { file: existing, cwd: dir });
+        if (opened.readOnly) throw new Error(opened.reason || 'Denne økten er skrivebeskyttet.');
+      }
+    } else {
+      const created = await api('/api/sessions/new', null, { cwd: dir, isolated: true });
+      file = created.sessionFile || created.session?.file || created.state?.sessionFile;
+      if (!file) throw new Error('Bridge returnerte ingen samtale-ID.');
     }
+    if (selected !== selection) throw new Error('Samtalen ble byttet.');
+    runtimeFile = file;
+    watch();
     if (chosen) {
-      await api('/api/model', null, { cwd: dir, provider: chosen.provider, modelId: chosen.id });
+      await api('/api/model', null, { cwd: dir, file, provider: chosen.provider, modelId: chosen.id });
     }
     if (selected !== selection) throw new Error('Samtalen ble byttet.');
-    runtimeFile = existing;
     streaming = true;
     render();
-    const sent = await api('/api/prompt', null, { cwd: dir, text, clientMessageId: item.clientMessageId, thinking: window.ompTurnUI.thinkingRequest($('thinkingLevel'), nextModel || model), ...(existing && { file: existing }),
+    const sent = await api('/api/prompt', null, { cwd: dir, text, clientMessageId: item.clientMessageId, thinking: window.ompTurnUI.thinkingRequest($('thinkingLevel'), nextModel || model), file,
       ...(Object.keys(profile).length && { chatProfile: profile }), ...(files.length && { images: files }) });
     if (selected !== selection) return;
     if (sent.sessionFile) activeFile = runtimeFile = sent.sessionFile;
@@ -888,7 +894,7 @@ async function recoverRuntime() {
   const selected = selection;
   recovering = true;
   try {
-    const state = await api('/api/state', { cwd });
+    const state = await api('/api/state', { cwd, ...(activeFile || runtimeFile ? { file: activeFile || runtimeFile } : {}) });
     if (selected !== selection || submitting) return;
     if (!same(state.sessionFile || state.state?.sessionFile, activeFile)) {
       if (streaming) { streaming = false; laterHistory(); }
@@ -1648,9 +1654,9 @@ $('prompt').oninput = () => {
 };
 $('stop').onclick = async () => {
   try {
-    const state = await api('/api/state', { cwd });
+    const state = await api('/api/state', { cwd, ...(activeFile || runtimeFile ? { file: activeFile || runtimeFile } : {}) });
     if (!same(state.sessionFile, activeFile)) throw new Error('En annen samtale er aktiv på PC-en.');
-    await api('/api/abort', null, { cwd, file: activeFile });
+    await api('/api/abort', null, { cwd, file: activeFile || runtimeFile });
     streaming = false;
     render();
     laterHistory();

@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.60";
+const VERSION = "2.9.61";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -1559,12 +1559,11 @@ let localCatalog;
 let localCatalogExpires = 0;
 let localDiscovery;
 
-async function prepareChatModel(runtime, model = runtime.state?.model, { selection = false, stageOnly = false } = {}) {
+async function prepareChatModel(runtime, model = runtime.state?.model, { selection = false } = {}) {
   const preparation = { cancelled: false, queued: false };
   const operationId = crypto.randomUUID();
   let sequence = 0;
   const progress = (phase, item = model) => {
-    if (stageOnly) return;
     runtime.modelPhase = { type: "model_preparing", cwd: runtime.cwd, sessionFile: runtime.sessionFile,
       operationId, sequence: ++sequence, phase, name: item?.name || item?.modelId || item?.id || item?.provider,
       engine: item?.label || (item?.mode === "ollama" ? "Ollama" : item?.managed || item?.command ? "llama.cpp" : undefined) };
@@ -1588,12 +1587,17 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
       next = localModels.matchLocal(model, localCatalog);
     }
     if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
+    if (!next && !selection) return;
     while (!lease) {
       try { lease = await localModels.acquireGpu(); break; }
       catch (error) {
         if (error.code !== 'GPU_BUSY') throw error;
         // A cloud inference does not need to take the GPU away from a local turn.
-        if (!next && !selection) return;
+        if (!next) {
+          if (selection) progress("cloud", model);
+          return;
+        }
+        if (selection) throw new Error("En lokal modell jobber allerede. Vent til den er ferdig, eller velg en skymodell.");
       }
       if (!preparation.queued) {
         preparation.queued = true;
@@ -1604,7 +1608,6 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
     }
     if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
     const previous = localModels.readResident();
-    if (previous === null && !next && !selection) return;
     const same = previous && next && (next.managed
       ? previous.managed && previous.provider === next.provider && previous.id === next.id
       : previous.origin === next.origin && previous.id === next.id);
@@ -1687,13 +1690,20 @@ function runtimeKey(cwd) {
   return existingDir(cwd) || path.resolve(cwd);
 }
 
-async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {}) {
+function runtimeForSession(cwd, file) {
+  if (!file) return runtimes.get(runtimeKey(cwd));
+  return [...runtimes.values()].find(runtime => samePath(runtime.cwd, cwd) &&
+    (samePath(runtime.sessionFile, file) || samePath(runtime.workspaceSession, file)));
+}
+
+async function getRuntime(cwd, { create = true, sessionFile, chatProfile, newSession = false } = {}) {
   if (managingProjects.has(managedProjectKey(cwd))) throw new Error("En samtale oppdateres. Prøv igjen om et øyeblikk.");
-  const key = runtimeKey(cwd);
-  if (refreshingWorkspaces.has(key)) {
-    await refreshingWorkspaces.get(key);
-    return getRuntime(cwd, { create, sessionFile, chatProfile });
-  }
+  const folder = runtimeKey(cwd);
+  const selected = runtimeForSession(folder, sessionFile);
+  const primary = runtimes.get(folder);
+  const isolate = newSession && !!primary || sessionFile && !selected && !!primary;
+  const key = selected && !newSession ? selected.mapKey : isolate ? folder + '\\0' + (sessionFile || crypto.randomUUID()) : folder;
+  if (refreshingWorkspaces.has(key)) return refreshingWorkspaces.get(key);
   let runtime = runtimes.get(key);
   if (!runtime && !create) return null;
   const catalogueRevision = modelCatalogue.catalogueRevision(process.env.PI_CODING_AGENT_DIR || OMP_AGENT_DIR);
@@ -1705,7 +1715,8 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
     const previous = runtime;
     const refresh = (async () => {
       await previous.stop();
-      const replacement = new OmpRuntime(key);
+      const replacement = new OmpRuntime(folder);
+      replacement.mapKey = key;
       replacement.workspaceSession = intended;
       replacement.chatProfile = profile;
       replacement.catalogueRevision = catalogueRevision;
@@ -1721,9 +1732,10 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
     return refresh;
   }
   if (!runtime) {
-    const stat = fs.statSync(key, { throwIfNoEntry: false });
+    const stat = fs.statSync(folder, { throwIfNoEntry: false });
     if (!stat || !stat.isDirectory()) throw new Error(`Prosjektmappen finnes ikke: ${key}`);
-    runtime = new OmpRuntime(key);
+    runtime = new OmpRuntime(folder);
+    runtime.mapKey = key;
     runtime.workspaceSession = intended;
     runtime.chatProfile = profile;
     runtime.catalogueRevision = catalogueRevision;
@@ -1735,18 +1747,20 @@ async function getRuntime(cwd, { create = true, sessionFile, chatProfile } = {})
     if (!switched?.cancelled) await runtime.refreshState();
   }
   runtime.lastUsed = Date.now();
-  await evictIdle();
+  await evictIdle(runtime);
   return runtime;
 }
 
-async function evictIdle() {
+async function evictIdle(keep) {
+  const canEvict = runtime => runtime !== keep && !runtime.working && !runtime.modelPreparation &&
+    !runtime.modelSelectionPending && !runtime.pending.size && !runtime.pendingUi.size && !runtime.state?.isStreaming;
   const idleMs = CONFIG.idleMinutes * 60 * 1000;
   const alive = [...runtimes.values()];
   if (alive.length <= CONFIG.maxChildren) {
     for (const runtime of alive) {
-      if (alive.length > 1 && Date.now() - runtime.lastUsed > idleMs && runtime.subscribers.size === 0 && !runtime.state?.isStreaming) {
+      if (alive.length > 1 && Date.now() - runtime.lastUsed > idleMs && runtime.subscribers.size === 0 && canEvict(runtime)) {
         log("info", `evicting idle runtime ${runtime.cwd}`);
-        runtimes.delete(runtimeKey(runtime.cwd));
+        runtimes.delete(runtime.mapKey);
         await runtime.stop();
       }
     }
@@ -1756,8 +1770,8 @@ async function evictIdle() {
   while (runtimes.size > CONFIG.maxChildren) {
     const victim = alive.shift();
     if (!victim) break;
-    if (victim.state?.isStreaming) continue;
-    runtimes.delete(runtimeKey(victim.cwd));
+    if (!canEvict(victim)) continue;
+    runtimes.delete(victim.mapKey);
     await victim.stop();
   }
 }
@@ -2142,13 +2156,15 @@ function serveEvents(req, res) {
   };
 
   // Attach to everything, filtered by project; runtimes may be created later.
+  const file = new URL(req.url, "http://localhost").searchParams.get("file");
   const subscriber = (event) => {
     if (cwd && event.cwd && !samePath(event.cwd, cwd)) return;
+    if (file && !samePath(event.sessionFile, file)) return;
     write(event);
   };
   globalSubscribers.add(subscriber);
 
-  const runtime = cwd ? runtimes.get(runtimeKey(cwd)) : null;
+  const runtime = cwd ? runtimeForSession(cwd, file) : null;
   write({
     type: "hello",
     cwd,
@@ -3468,8 +3484,8 @@ async function handle(req, res) {
           }
           const session = loadSession(file);
           if (!session?.cwd) return json(res, 404, { error: "Fant ikke arbeidsmappen til tråden." });
-          const runtime = [...runtimes.values()].find(item => samePath(item.cwd, session.cwd));
-          if (runtime?.state?.isStreaming || runtime?.pendingUi.size) {
+          const runtime = runtimeForSession(session.cwd, file);
+          if ([...runtimes.values()].some(item => samePath(item.cwd, session.cwd) && (item.working || item.state?.isStreaming || item.pendingUi.size))) {
             return json(res, 409, { error: "Vent til prosjektet er ledig før du angrer." });
           }
           const card = turnChanges.undo(file, session.cwd, body.id);
@@ -3485,7 +3501,7 @@ async function handle(req, res) {
         if (!fs.existsSync(resolved)) return json(res, 404, { error: "Fant ikke samtalen" });
         const entries = entriesFor(resolved);
         const session = loadSession(resolved);
-        const runtime = session?.cwd ? runtimes.get(runtimeKey(session.cwd)) : undefined;
+        const runtime = session?.cwd ? runtimeForSession(session.cwd, resolved) : undefined;
         const selectedModel = runtime?.sessionFile && samePath(runtime.sessionFile, resolved)
           ? publicModel(runtime.state?.model) : null;
         const modelKey = session?.model || "";
@@ -3578,7 +3594,7 @@ async function handle(req, res) {
             error: "Prosjektmappen finnes ikke eller er ikke en mappe. Velg en gyldig mappe.",
           });
         }
-        const runtime = await getRuntime(cwd, { sessionFile: '' });
+        const runtime = await getRuntime(cwd, { sessionFile: '', newSession: body.isolated === true });
         if (sessionActivity(runtime)) return json(res, 409, { error: "OMP jobber allerede i denne mappen." });
         await runtime.rpc("new_session", body.parentSession ? { parentSession: body.parentSession } : {}, 60000);
         const state = await runtime.refreshState();
@@ -3602,7 +3618,7 @@ async function handle(req, res) {
             const list = loadProjects();
             const normCwd = IS_WINDOWS ? cwd.toLowerCase() : cwd;
             const proj = list.find((p) => (IS_WINDOWS ? p.path.toLowerCase() : p.path) === normCwd);
-            if (proj && session.projectId !== proj.id) {
+            if (proj && session && session.projectId !== proj.id) {
               const resp = await fetch("http://127.0.0.1:" + CONFIG.port + "/api/projects/move-session", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": "Bearer " + CONFIG.token },
@@ -3615,7 +3631,7 @@ async function handle(req, res) {
           } catch { /* best effort */ }
         }
 
-        return json(res, 200, { session, state: publicState(state), messages: [], cwd: runtime.cwd });
+        return json(res, 200, { session, sessionFile: file, state: publicState(state), messages: [], cwd: runtime.cwd });
       }
 
       case "POST /api/sessions/name": {
@@ -3770,7 +3786,9 @@ async function handle(req, res) {
           // keep the last valid folder and show no invented project.
           return json(res, 200, { state: null, sessionFile: "", cwdMissing: true });
         }
-        const runtime = await getRuntime(cwd);
+        const file = url.searchParams.get("file");
+        const runtime = file ? runtimeForSession(cwd, file) : await getRuntime(cwd);
+        if (!runtime) return json(res, 200, { state: null, sessionFile: "" });
         const pending = runtime.pendingUi.values().next();
         // While OMP waits for an approval/question the RPC loop is blocked, so
         // get_state would time out. Answer with the cached state and the pending
@@ -3805,9 +3823,17 @@ async function handle(req, res) {
         if (!body.cwd || !body.provider || !body.modelId) return json(res, 400, { error: "Mangler cwd/provider/modelId" });
         const cwd = existingDir(body.cwd);
         if (!cwd) return json(res, 400, { error: "Arbeidsmappen finnes ikke." });
-        const target = body.file ? loadSession(path.resolve(body.file)) : null;
+        const target = body.file ? loadSession(path.resolve(body.file)) ||
+          (runtimeForSession(cwd, body.file) && { file: path.resolve(body.file), cwd }) : null;
         if (body.file && (!target || !samePath(existingDir(target.cwd), cwd))) {
           return json(res, 409, { error: "Fant ikke samtalen i denne mappen." });
+        }
+        if (body.stageOnly === true) {
+          const runtime = await getRuntime(cwd);
+          const models = runtime.models.length ? runtime.models : (await runtime.rpc("get_available_models"))?.models || [];
+          const candidate = models.find(item => item.provider === body.provider && item.id === body.modelId);
+          if (!candidate) return json(res, 404, { error: "Modellen finnes ikke i OMP." });
+          return json(res, 200, { model: publicModel(candidate), memorySwitched: false });
         }
         const runtime = await getRuntime(cwd, { sessionFile: body.file });
         if (runtime.working || sessionActivity(runtime) || runtime.modelPreparation || runtime.modelSelectionPending) {
@@ -3823,10 +3849,6 @@ async function handle(req, res) {
           if (!runtime.models.length) runtime.models = (await runtime.rpc("get_available_models"))?.models || [];
           const candidate = runtime.models.find(item => item.provider === body.provider && item.id === body.modelId);
           if (!candidate) return json(res, 404, { error: "Modellen finnes ikke i OMP." });
-          if (body.stageOnly === true) {
-            await prepareChatModel(runtime, candidate, { selection: true, stageOnly: true });
-            return json(res, 200, { model: publicModel(candidate), memorySwitched: true });
-          }
           if (target && !samePath(runtime.sessionFile, target.file)) {
             await runtime.rpc("switch_session", { sessionPath: target.file }, 60000);
             await runtime.refreshState();
@@ -3891,7 +3913,7 @@ async function handle(req, res) {
         let target = null;
         if (body.file) {
           const resolvedFile = path.resolve(body.file);
-          target = loadSession(resolvedFile);
+          target = loadSession(resolvedFile) || (runtimeForSession(cwd, resolvedFile) && { file: resolvedFile, cwd });
           // Race condition: new session file may not be flushed to disk yet.
           // Retry with exponential backoff.
           if (!target) {
@@ -4042,8 +4064,8 @@ async function handle(req, res) {
       case "POST /api/abort": {
         const body = await readBody(req);
         if (!body.cwd) return json(res, 400, { error: "Mangler cwd" });
-        const runtime = await getRuntime(body.cwd);
-        if (body.file && !samePath(body.file, runtime.sessionFile)) {
+        const runtime = body.file ? runtimeForSession(body.cwd, body.file) : await getRuntime(body.cwd);
+        if (!runtime || (body.file && !samePath(body.file, runtime.sessionFile))) {
           return json(res, 409, { error: "Den valgte samtalen har ingen aktiv oppgave i denne arbeidsmappen." });
         }
         if (runtime.modelPreparation) {
@@ -4075,7 +4097,7 @@ async function handle(req, res) {
         if (!body.cwd || !body.entryId || typeof body.text !== "string") {
           return json(res, 400, { error: "Mangler cwd/entryId/text" });
         }
-        const runtime = await getRuntime(body.cwd);
+        const runtime = await getRuntime(body.cwd, { sessionFile: body.file });
         if (runtime.working || runtime.modelSelectionPending || runtime.state?.isStreaming || runtime.pendingUi.size) {
           return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
         }
@@ -4110,8 +4132,8 @@ async function handle(req, res) {
       case "POST /api/ask": {
         const body = await readBody(req);
         if (!body.cwd || !body.id) return json(res, 400, { error: "Mangler cwd/id" });
-        const runtime = await getRuntime(body.cwd);
-        const pending = runtime.pendingUi.get(body.id);
+        const runtime = [...runtimes.values()].find(item => samePath(item.cwd, body.cwd) && item.pendingUi.has(body.id));
+        const pending = runtime?.pendingUi.get(body.id);
         if (!pending) return json(res, 409, { error: "Forespørselen er allerede besvart." });
         if (body.allowAlways === true) {
           if (!pending.allowAlways || !["confirm", "select"].includes(pending.method)) return json(res, 400, { error: "Denne handlingen krever egen godkjenning." });

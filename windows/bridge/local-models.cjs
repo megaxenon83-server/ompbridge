@@ -170,12 +170,7 @@ async function startManagedServer(server, onProgress = () => {}) {
 }
 
 async function switchManaged(targetModel, onProgress = () => {}) {
-  const servers = loadManagedServers();
   const target = managedForModel(targetModel);
-  for (const server of servers) {
-    if (target && server.port === target.port && server.provider === target.provider) continue;
-    await stopManagedServer(server);
-  }
   if (target) {
     await startManagedServer(target, onProgress);
     if (target.modelMode) {
@@ -277,8 +272,7 @@ async function lifecycle(model, load, onProgress = () => {}, checkManaged = true
   }
   const { origin, id, mode, label } = model;
   if (mode === 'fixed') {
-    if (load) return;
-    throw new Error(label + ' er en ekstern modellserver. Registrer serverens startkonfigurasjon i OMP før den kan startes og stoppes automatisk.');
+    return;
   }
   if (mode === 'ollama') {
     const running = async () => (await json(origin, '/api/ps')).models.some(item => item.name === id || item.model === id);
@@ -312,14 +306,13 @@ async function lifecycle(model, load, onProgress = () => {}, checkManaged = true
 
 async function swapMemory(previous, next, { warmOllama = true, onProgress = () => {} } = {}) {
   const warmNext = next && (warmOllama || next.mode !== 'ollama');
-  const prevManaged = managedForModel(previous);
   const nextManaged = managedForModel(next);
   if (previous) {
     await lifecycle(previous, false, onProgress);
-    onProgress('unloaded', previous);
+    if (previous.mode !== 'fixed' || managedForModel(previous)) onProgress('unloaded', previous);
   }
   try {
-    if (prevManaged || nextManaged || !previous) await switchManaged(nextManaged ? next : null, onProgress);
+    if (nextManaged) await switchManaged(nextManaged ? next : null, onProgress);
     if (warmNext && !nextManaged) await lifecycle(next, true, onProgress);
     if (warmNext && (nextManaged || next.mode !== 'fixed')) onProgress('ready', next);
   } catch (error) {

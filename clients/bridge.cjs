@@ -52,10 +52,10 @@ class Bridge {
     return (await this.response(route, query, undefined, undefined, 'DELETE')).json();
   }
 
-  async subscribe(cwd, handle, signal) {
+  async subscribe(cwd, handle, signal, file) {
     while (!signal.aborted) {
       try {
-        const response = await this.response('/api/events', { cwd }, undefined, signal);
+        const response = await this.response('/api/events', { cwd, ...(file && { file }) }, undefined, signal);
         const decoder = new TextDecoder();
         let buffer = '';
         for await (const chunk of response.body) {

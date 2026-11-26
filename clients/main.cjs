@@ -74,7 +74,11 @@ function scanModels() {
 async function switchMemory(model, threadId, statusThreadId = threadId) {
   const catalog = await scanModels();
   const next = managedForModel(model) ? { ...model, managed: true } : matchLocal(model, catalog);
-  if (memorySwitching || busy.size > 1) throw new Error('Vent til den andre modellkjøringen er ferdig før du bytter.');
+  if (!next && threadId) return;
+  if (memorySwitching) {
+    if (!next) return;
+    throw new Error('En lokal modell jobber allerede. Vent til den er ferdig, eller velg en skymodell.');
+  }
   memorySwitching = true;
   let release;
   const operationId = randomUUID();
@@ -85,7 +89,12 @@ async function switchMemory(model, threadId, statusThreadId = threadId) {
       engine: item?.label || (item?.mode === 'ollama' ? 'Ollama' : undefined) });
   };
   try {
-    release = await acquireGpu();
+    try { release = await acquireGpu(); }
+    catch (error) {
+      if (next || error.code !== 'GPU_BUSY') throw error;
+      progress('cloud');
+      return;
+    }
     const previous = readResident();
     const sameManaged = previous?.managed && next?.managed && previous.provider === next.provider && previous.id === next.id;
     const sameLocal = previous?.origin && previous.origin === next?.origin && previous.id === next.id;
@@ -524,23 +533,25 @@ function streamShared(thread, client) {
       }
     }
     broadcast(thread.id, frame);
-  }, controller.signal);
+  }, controller.signal, thread.sessionFile);
   return ready;
 }
 
 async function activateShared(thread) {
   const client = getBridge();
-  const { state, sessionFile, request } = await client.get('/api/state', { cwd: thread.cwd });
-  if (state?.isStreaming || request) throw new Error('OMP Bridge jobber allerede i dette prosjektet.');
   if (thread.sessionFile) {
+    const { state, sessionFile, request } = await client.get('/api/state', { cwd: thread.cwd, file: thread.sessionFile });
+    if (state?.isStreaming || request) throw new Error('OMP jobber allerede i denne samtalen.');
     if (!isSamePath(sessionFile, thread.sessionFile)) {
       const opened = await client.post('/api/sessions/open', { file: thread.sessionFile, cwd: thread.cwd });
       if (opened.readOnly) throw new Error(opened.reason || 'Bridge kunne bare åpne samtalen for lesing.');
     }
   } else {
-    const created = await client.post('/api/sessions/new', { cwd: thread.cwd });
-    const file = created.session?.file || created.state?.sessionFile;
-    if (file && fs.existsSync(file)) { thread.sessionFile = file; save(); }
+    const created = await client.post('/api/sessions/new', { cwd: thread.cwd, isolated: true });
+    const file = created.sessionFile || created.session?.file || created.state?.sessionFile;
+    if (!file) throw new Error('Bridge returnerte ingen samtale-ID.');
+    thread.sessionFile = file;
+    save();
   }
   return client;
 }
@@ -952,7 +963,7 @@ const handlers = {
   bridgeRuntime: async id => {
     const thread = getThread(id);
     if (!thread.shared || !thread.sessionFile || busy.has(id)) return null;
-    const runtime = await getBridge().get('/api/state', { cwd: thread.cwd });
+    const runtime = await getBridge().get('/api/state', { cwd: thread.cwd, ...(thread.sessionFile && { file: thread.sessionFile }) });
     if (!isSamePath(runtime.sessionFile || runtime.state?.sessionFile, thread.sessionFile)) return null;
     return { busy: !!runtime.state?.isStreaming || !!runtime.request, request: runtime.request || null,
       todos: runtime.state?.todoPhases, contextUsage: runtime.state?.contextUsage, model: runtime.state?.model };
@@ -980,7 +991,7 @@ const handlers = {
           if (activity) broadcast(id, { ...activity, remote: true });
         }
       }
-    }, controller.signal).catch(() => {});
+    }, controller.signal, thread.sessionFile).catch(() => {});
   },
   turnDiff: ({ id, cardId, file }) => {
     const thread = getThread(id);
@@ -1085,7 +1096,7 @@ const handlers = {
     save();
     if (thread.shared) {
       const client = getBridge();
-      const [shared, history] = await Promise.all([client.get('/api/state', { cwd: thread.cwd }), refreshShared(thread)]);
+      const [shared, history] = await Promise.all([client.get('/api/state', { cwd: thread.cwd, ...(thread.sessionFile && { file: thread.sessionFile }) }), refreshShared(thread)]);
       if (shared.cwdMissing) throw new Error('Arbeidsmappen finnes ikke lenger.');
       const selected = isSamePath(shared.sessionFile, thread.sessionFile) ? shared.state?.model || thread.model : history.model || thread.model;
       return { state: { ...shared.state, isStreaming: busy.has(id), model: labelManagedModel(selected) }, history };
@@ -1169,17 +1180,14 @@ const handlers = {
   },
   prompt: async ({ id, message, images, chatProfile, thinking, clientMessageId }) => {
     const thread = getThread(id);
-    if (busy.has(id) || configuring || (!thread.shared && memorySwitching)) throw new Error('Vent til den aktive OMP-handlingen er ferdig.');
-    if (store.threads.some(other => other.id !== id && isSamePath(other.cwd, thread.cwd) && busy.has(other.id))) {
-      throw new Error('Vent til den andre tråden i arbeidsmappen er ferdig.');
-    }
+    if (busy.has(id) || configuring) throw new Error('Vent til den aktive OMP-handlingen er ferdig.');
     if (thread.shared) {
       busy.add(id);
       try {
         const hadHistory = !!thread.sessionFile;
         const client = await activateShared(thread);
         if ((!hadHistory || thread.modelNeedsApply) && thread.model) {
-          await client.post('/api/model', { cwd: thread.cwd, provider: thread.model.provider, modelId: thread.model.id });
+          await client.post('/api/model', { cwd: thread.cwd, file: thread.sessionFile, provider: thread.model.provider, modelId: thread.model.id });
           thread.modelNeedsApply = false;
         }
         const ready = streamShared(thread, client);
@@ -1189,7 +1197,7 @@ const handlers = {
             timer = setTimeout(() => reject(new Error('Kunne ikke åpne live-strømmen fra OMP Bridge.')), 8000);
           })]);
         } finally { clearTimeout(timer); }
-        const result = await client.post('/api/prompt', { cwd: thread.cwd, text: message, images, chatProfile, thinking, clientMessageId, ...(hadHistory && { file: thread.sessionFile }) });
+        const result = await client.post('/api/prompt', { cwd: thread.cwd, text: message, images, chatProfile, thinking, clientMessageId, file: thread.sessionFile });
         if (result.sessionFile && !thread.sessionFile) { thread.sessionFile = result.sessionFile; save(); }
         if (thread.title === 'Ny tråd' && !message.startsWith('/')) {
           thread.title = message.trim().split('\n')[0].slice(0, 52);
@@ -1246,7 +1254,7 @@ const handlers = {
     const thread = getThread(id);
     if (!thread.shared) return sessionFor(thread).request('abort');
     const client = getBridge();
-    const state = await client.get('/api/state', { cwd: thread.cwd });
+    const state = await client.get('/api/state', { cwd: thread.cwd, ...(thread.sessionFile && { file: thread.sessionFile }) });
     if (!isSamePath(state.sessionFile, thread.sessionFile)) throw new Error('En annen samtale er aktiv i bridge.');
     await client.post('/api/abort', { cwd: thread.cwd, file: thread.sessionFile });
     busy.delete(id);

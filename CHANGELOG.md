@@ -1,5 +1,12 @@
 # Changelog
 
+## Bridge 2.9.61 / Desktop 0.8.27 / Android 0.2.28
+
+- Allow a cloud chat and a local chat to run concurrently in the same project.
+- Reject a switch to another local model while a local generation has the GPU.
+- Keep the Android model picker visible alongside the reasoning control.
+- Avoid touching unrelated model servers when switching models.
+
 ## Bridge 2.9.60 / Desktop 0.8.26 / Android 0.2.27
 
 - Fixed Windows drive discovery in the Android folder picker.

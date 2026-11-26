@@ -68,7 +68,7 @@ test('discovers llama.cpp router and uses model-specific endpoints', async t => 
   await swapMemory(model, null);
   assert.equal(loaded, false);
   await swapMemory(null, model);
-  await assert.rejects(swapMemory({ ...model, mode: 'fixed' }, null), /ekstern modellserver/);
+  await swapMemory({ ...model, mode: 'fixed' }, null);
   assert.equal(loaded, true);
 });
 
