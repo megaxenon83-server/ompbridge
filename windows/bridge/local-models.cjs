@@ -88,10 +88,17 @@ async function stopManagedServer(server) {
   }
   if (server.modelMode) {
     const origin = new URL(server.healthUrl).origin;
-    if (server.modelMode === 'strata' && (await json(origin, '/v1/status')).activity?.in_flight > 0) {
-      throw new Error('Vent til PolyStrata er ferdig med den aktive forespørselen.');
+    const model = { origin, id: server.modelId, mode: server.modelMode, label: server.label || server.provider };
+    if (server.modelMode === 'strata') {
+      // A stopped client can leave its turn running behind the model lock; stop it before the server is ended.
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await cancelActive(model).catch(() => false);
+        const status = await json(origin, '/v1/status', undefined, 5000).catch(() => null);
+        if (!status || !(status.activity?.in_flight > 0)) break;
+        await delay(250);
+      }
     }
-    await lifecycle({ origin, id: server.modelId, mode: server.modelMode, label: server.label || server.provider }, false, undefined, false);
+    await lifecycle(model, false, undefined, false, server.modelMode === 'strata' ? 8 : 30);
   }
   for (const pid of pids) {
     try { process.kill(pid, 'SIGTERM'); } catch {}
@@ -192,8 +199,55 @@ async function json(origin, route, payload, timeout = 2000) {
     body: payload === undefined ? undefined : JSON.stringify(payload),
     redirect: 'error', signal: AbortSignal.timeout(timeout)
   });
-  if (!response.ok) throw new Error('HTTP ' + response.status + ' fra ' + origin + route);
-  return response.json();
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : {}; } catch {}
+  if (!response.ok) {
+    // A bare "HTTP 409" hides the server's reason ("a request is running or queued"); the apps show it to the user.
+    const detail = data?.error?.message || data?.error || data?.message || text.trim().slice(0, 200);
+    const error = new Error('HTTP ' + response.status + ' fra ' + origin + route + (detail ? ': ' + detail : ''));
+    error.status = response.status;
+    error.body = data ?? text;
+    throw error;
+  }
+  return data ?? {};
+}
+
+/** The origin of a PolyStrata server for this model, when the model runs on one. */
+function strataOrigin(model) {
+  const managed = managedForModel(model);
+  if (managed) {
+    try { return managed.modelMode === 'strata' && managed.healthUrl ? new URL(managed.healthUrl).origin : null; }
+    catch { return null; }
+  }
+  if (model?.mode === 'strata' && model.origin) {
+    try { return new URL(model.origin).origin; } catch {}
+  }
+  const resident = readResident();
+  if (resident?.mode === 'strata' && resident.origin && (!model?.id || resident.id === model.id)) {
+    try { return new URL(resident.origin).origin; } catch {}
+  }
+  return null;
+}
+
+/** Stop the turn PolyStrata runs now, and those queued behind it.  False when the server has no such alias. */
+async function cancelActive(model) {
+  let origin = strataOrigin(model);
+  if (!origin && model?.provider === 'llama.cpp') {
+    // The resident file was lost or overwritten (an older bridge cleared it while the model still ran): find the
+    // server that lists this model instead of guessing a port.
+    const found = (await discoverLocal().catch(() => []))
+      .find(item => item.id === model.id && item.mode === 'strata');
+    origin = found?.origin || null;
+  }
+  if (!origin) return false;
+  try {
+    const result = await json(origin, '/v1/cancel', {}, 5000);
+    return typeof result?.cancelled === 'number';
+  } catch (error) {
+    if (error.status === 404) return false;
+    throw error;
+  }
 }
 
 async function windowsListeners() {
@@ -262,7 +316,7 @@ function matchLocal(model, catalog) {
     (!port && ({ ollama: 'ollama', strata: 'strata', 'llama.cpp': 'llama' })[model.provider] === item.engine)));
 }
 
-async function lifecycle(model, load, onProgress = () => {}, checkManaged = true) {
+async function lifecycle(model, load, onProgress = () => {}, checkManaged = true, unloadAttempts = 30) {
   if (!model) return;
   const managed = checkManaged && managedForModel(model);
   if (managed) {
@@ -286,15 +340,58 @@ async function lifecycle(model, load, onProgress = () => {}, checkManaged = true
     throw new Error('Ollama bekreftet ikke at modellen var ' + (load ? 'lastet.' : 'frigjort.'));
   }
   const state = async () => {
-    if (mode === 'strata') return (await json(origin, '/v1/status')).loaded ? 'loaded' : 'unloaded';
+    if (mode === 'strata') return (await json(origin, '/v1/status', undefined, 5000)).loaded ? 'loaded' : 'unloaded';
     const item = (await json(origin, '/v1/models')).data.find(entry => entry.id === id);
     return item?.status?.value || item?.status;
   };
+  if (mode === 'strata') {
+    if (load) {
+      if (await state() === 'loaded') return;
+      onProgress('loading', model);
+      // A turn that was just cancelled can hold the model lock for a moment; /v1/load answers 409 until it
+      // releases.  Wait for that instead of failing a switch that is about to be possible.
+      let lastError;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        try {
+          await json(origin, '/v1/load', {}, 180000);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (error.status !== 409) throw error;
+          await delay(500);
+        }
+      }
+      if (lastError) throw lastError;
+      for (let attempt = 0; attempt < 180; attempt++) {
+        if (await state() === 'loaded') return;
+        await delay(1000);
+      }
+      throw new Error(label + ' bekreftet ikke at modellen var lastet.');
+    }
+    // Ask for the unload even when /v1/status says "unloaded": an engine that is still starting reports that,
+    // and a turn that just began holds the model lock.  Stop that turn and retry while it releases.
+    onProgress('unloading', model);
+    let lastError;
+    for (let attempt = 0; attempt < unloadAttempts; attempt++) {
+      await cancelActive(model).catch(() => false);
+      try {
+        const result = await json(origin, '/v1/unload', {}, 30000);
+        if (['unloaded', 'not loaded', 'unsupported'].includes(result?.status) ||
+            (result?.status === undefined && await state() === 'unloaded')) return;
+      } catch (error) {
+        lastError = error;
+        if (error.status !== 409) throw error;
+      }
+      await delay(500);
+    }
+    throw lastError || new Error(label + ' bekreftet ikke at modellen var frigjort.');
+  }
   const desired = load ? 'loaded' : 'unloaded';
   if (await state() === desired) return;
   onProgress(load ? 'loading' : 'unloading', model);
   const action = load ? 'load' : 'unload';
-  await json(origin, mode === 'strata' ? '/v1/' + action : '/models/' + action, mode === 'strata' ? {} : { model: id }, 180000);
+  await json(origin, '/models/' + action, { model: id }, 180000);
   for (let attempt = 0; attempt < 180; attempt++) {
     const status = await state();
     if (status === desired) return;
@@ -307,22 +404,32 @@ async function lifecycle(model, load, onProgress = () => {}, checkManaged = true
 async function swapMemory(previous, next, { warmOllama = true, onProgress = () => {} } = {}) {
   const warmNext = next && (warmOllama || next.mode !== 'ollama');
   const nextManaged = managedForModel(next);
+  let previousUnloaded = true;
   if (previous) {
-    await lifecycle(previous, false, onProgress);
-    if (previous.mode !== 'fixed' || managedForModel(previous)) onProgress('unloaded', previous);
+    try {
+      // A cloud model needs no VRAM, so a local model that will not let go must not fail that switch.  A local
+      // one does need it, and then the error is the answer.
+      await lifecycle(previous, false, onProgress, true, next ? 30 : 8);
+      if (previous.mode !== 'fixed' || managedForModel(previous)) onProgress('unloaded', previous);
+    } catch (error) {
+      if (next) throw error;
+      previousUnloaded = false;
+      onProgress('busy', previous);
+    }
   }
   try {
     if (nextManaged) await switchManaged(nextManaged ? next : null, onProgress);
     if (warmNext && !nextManaged) await lifecycle(next, true, onProgress);
     if (warmNext && (nextManaged || next.mode !== 'fixed')) onProgress('ready', next);
   } catch (error) {
-    if (previous) {
+    if (previous && previousUnloaded) {
       try { await lifecycle(previous, true); }
       catch { throw new Error(error.message + ' Kunne heller ikke laste forrige modell igjen.', { cause: error }); }
     }
     throw error;
   }
+  return { previousUnloaded };
 }
 
 module.exports = { discoverLocal, inspect, matchLocal, swapMemory, managedForModel, isManagedModel, switchManaged, ensureManaged,
-  acquireGpu, readResident, saveResident };
+  acquireGpu, readResident, saveResident, cancelActive, strataOrigin };

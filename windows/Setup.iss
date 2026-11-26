@@ -1,5 +1,5 @@
 ﻿#ifndef BridgeVersion
-  #define BridgeVersion "2.9.61"
+  #define BridgeVersion "2.9.62"
 #endif
 #ifndef BridgeAppId
   #define BridgeAppId "ChatOmpOmpBridge"
@@ -83,6 +83,10 @@ Source: "bridge\machine-resources.ps1"; DestDir: "{app}\bridge"; Flags: ignoreve
 Source: "bridge\omp-turn-changes.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\omp-workspace.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
 Source: "bridge\local-models.cjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
+Source: "PolyStrata-Compat.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "PolyStrata-Compat.ps1"; Flags: dontcopy
+Source: "..\integration\polystrata\PolyStrata-main-omp-lock-fix.patch"; DestDir: "{app}\integration\polystrata"; Flags: ignoreversion
+Source: "..\integration\polystrata\PolyStrata-main-omp-lock-fix.patch"; DestName: "PolyStrata-main-omp-lock-fix.patch"; Flags: dontcopy
 Source: "voice\setup-local-voice.ps1"; DestDir: "{app}\voice"; Flags: ignoreversion
 Source: "voice\voice_runtime.py"; DestDir: "{app}\voice"; Flags: ignoreversion
 Source: "bridge\workspace-extension.mjs"; DestDir: "{app}\bridge"; Flags: ignoreversion
@@ -233,9 +237,48 @@ begin
   end;
 end;
 
+function EnsurePolyStrataCompat: String;
+var
+  Code: Integer;
+  Command, DirParam, RuntimeUrl, LogFile, ErrorFile: String;
+  ErrorText: AnsiString;
+begin
+  Result := '';
+  LogFile := ExpandConstant('{tmp}\polystrata-compat.log');
+  ErrorFile := ExpandConstant('{tmp}\polystrata-compat-error.txt');
+  ExtractTemporaryFile('PolyStrata-Compat.ps1');
+  ExtractTemporaryFile('PolyStrata-main-omp-lock-fix.patch');
+  DirParam := ExpandConstant('{param:POLYSTRATA|}');
+  RuntimeUrl := ExpandConstant('{param:POLYSTRATA_URL|http://127.0.0.1:8080}');
+  Command := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\PolyStrata-Compat.ps1') + '"' +
+    ' -PatchFile "' + ExpandConstant('{tmp}\PolyStrata-main-omp-lock-fix.patch') + '"' +
+    ' -RuntimeUrl "' + RuntimeUrl + '"' +
+    ' -LogFile "' + LogFile + '"' +
+    ' -ErrorFile "' + ErrorFile + '"';
+  if DirParam <> '' then
+    Command := Command + ' -PolyStrataDir "' + DirParam + '"';
+  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Command, '', SW_HIDE,
+          ewWaitUntilTerminated, Code) then
+  begin
+    if Code = 0 then
+    begin
+      Log('PolyStrata compatibility check passed.');
+      Exit;
+    end;
+    if not LoadStringFromFile(ErrorFile, ErrorText) then
+      ErrorText := 'PolyStrata could not be made compatible (exit ' + IntToStr(Code) + ').';
+    Result := String(ErrorText) + #13#10 + 'See ' + LogFile + ' for details.';
+    Log('PolyStrata compatibility failed: ' + Result);
+  end
+  else
+    Result := 'Could not run the PolyStrata compatibility check.';
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   ExtractTemporaryFile('Bridge.ps1');
+  Result := EnsurePolyStrataCompat;
+  if Result <> '' then Exit;
   Result := EnsureNode(ExpandConstant('{tmp}\Bridge.ps1'));
   if Result <> '' then Exit;
   if not RunBridge(ExpandConstant('{tmp}\Bridge.ps1'), 'CheckUpgradePort') then

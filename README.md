@@ -10,12 +10,18 @@ Use Oh My Pi on Windows and continue the same project conversation on Android. O
 
 | Component | What it does |
 | --- | --- |
-| [OMP Bridge 2.9.61 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.61/OMP-Bridge-Setup-2.9.61.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
-| [OMP Desktop 0.8.27 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.61/OMP-Desktop-Setup-0.8.27-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
-| [OMP Desktop 0.8.27 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.61/OMP-Desktop-0.8.27-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
-| [Chat OMP OMP 0.2.28 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.61/Chat-OMP-OMP-Android-0.2.28.apk) | Continue conversations, review edits, and manage project folders from your phone. |
+| [OMP Bridge 2.9.62 for Windows](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.62/OMP-Bridge-Setup-2.9.62.exe) | Connects Windows and Android. Starts automatically when you sign in to Windows. |
+| [OMP Desktop 0.8.28 Windows installer](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.62/OMP-Desktop-Setup-0.8.28-win-x64.exe) | Installs and upgrades the desktop app. Optional desktop shortcut and sign-in launch. |
+| [OMP Desktop 0.8.28 for Windows x64](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.62/OMP-Desktop-0.8.28-win-x64.zip) | Run OMP in project workspaces, preview changes, and pair Android with a one-time QR code. |
+| [Chat OMP OMP 0.2.28 for Android](https://github.com/megaxenon83-server/ompbridge/releases/download/omp-bridge-2.9.62/Chat-OMP-OMP-Android-0.2.28.apk) | Continue conversations, review edits, and manage project folders from your phone. |
 
 Current Desktop and Android build sources are in [clients](clients). Bridge and the Windows installers are in [windows](windows), and the Docker relay is in [chatompompwol](chatompompwol). See the [build instructions](clients/README.md).
+
+## PolyStrata
+
+The local-model fixes that belong in [PolyStrata](https://github.com/simplexai-labs/PolyStrata) are version-controlled in [integration/polystrata](integration/polystrata) and attached to the release. PolyStrata is an external MIT-licensed project, so the patch is based on upstream commit `d62dfacbe185dfbb447e79c5fb1091ae189afc64` instead of a modified upstream branch.
+
+The Bridge installer runs the compatibility check before it copies files. It finds PolyStrata through `/POLYSTRATA=<folder>`, `POLYSTRATA_HOME`, the running server process, or a standard install folder. If PolyStrata is found and the patch cannot be applied and verified, or the running server does not advertise `/v1/cancel`, the installation stops with the reason and the log path instead of installing against an unpatched local server. If PolyStrata is installed after the Bridge, run `PolyStrata-Compat.ps1` from the Bridge folder, or re-run this installer; an OMP Suite upgrade also applies it.
 
 ## Get started
 

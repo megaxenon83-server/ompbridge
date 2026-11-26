@@ -1,5 +1,15 @@
 # Changelog
 
+## Bridge 2.9.62 / Desktop 0.8.28 / Android 0.2.28
+
+- Stop now cancels the local PolyStrata turn, so the model lock is released instead of blocking the next switch.
+- A local model that will not unload no longer blocks switching to a cloud model; a local switch still reports the reason.
+- Model discovery keeps the local model visible while the engine is unloaded, and the launcher loads an idle server instead of waiting for a request that never comes.
+- The remembered local model stays truthful when an unload cannot complete.
+- The model server's 409 message is shown in the apps instead of a bare HTTP status.
+- A switch back to a local model waits out the brief 409 that can follow a cancel instead of failing.
+- PolyStrata compatibility fixes are version-controlled in `integration/polystrata` (upstream `d62dfac`), since the upstream repository is external.
+
 ## Bridge 2.9.61 / Desktop 0.8.27 / Android 0.2.28
 
 - Allow a cloud chat and a local chat to run concurrently in the same project.

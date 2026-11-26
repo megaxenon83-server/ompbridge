@@ -11,7 +11,8 @@ const { catalogueRevision } = require('./model-catalogue.cjs');
 const QRCode = require('qrcode');
 const { OmpSession } = require('./omp.cjs');
 const { Bridge } = require('./bridge.cjs');
-const { discoverLocal, matchLocal, swapMemory, managedForModel, ensureManaged, acquireGpu, readResident, saveResident } = require('./local-models.cjs');
+const { discoverLocal, matchLocal, swapMemory, managedForModel, ensureManaged, acquireGpu, readResident, saveResident,
+  cancelActive } = require('./local-models.cjs');
 const { nativeProviders, accountPages, validateKey, apiEndpoint, discoverEndpoint } = require('./providers.cjs');
 const { openBrowser, ProjectTerminal, hunks } = require('./workspace.cjs');
 const { localAddress, projectDefaults, serveProject, startCommand, stopCommand, createPreview } = require('./project-panel.cjs');
@@ -81,6 +82,7 @@ async function switchMemory(model, threadId, statusThreadId = threadId) {
   }
   memorySwitching = true;
   let release;
+  let memorySwitched = true;
   const operationId = randomUUID();
   let sequence = 0;
   const progress = (phase, item = model) => {
@@ -100,14 +102,18 @@ async function switchMemory(model, threadId, statusThreadId = threadId) {
     const sameLocal = previous?.origin && previous.origin === next?.origin && previous.id === next.id;
     if (sameManaged) { await ensureManaged(next, progress); progress('ready', next); }
     else if (!sameLocal || (!threadId && next.mode === 'ollama')) {
-      await swapMemory(sameLocal ? null : previous, next, { onProgress: progress });
+      const swap = await swapMemory(sameLocal ? null : previous, next, { onProgress: progress });
+      memorySwitched = swap?.previousUnloaded !== false;
     }
     if (!next && !threadId) progress('cloud');
-    saveResident(next);
+    if (next) saveResident(next);
+    else if (memorySwitched) saveResident(null);
+    // else: the previous local model is still loaded; keep it as the resident so the app shows the truth.
     if (next && threadId) {
       gpuLeases.set(threadId, release);
       release = undefined;
     }
+    return { memorySwitched };
   } catch (error) {
     progress('failed');
     throw error;
@@ -1252,7 +1258,11 @@ const handlers = {
   },
   abort: async id => {
     const thread = getThread(id);
-    if (!thread.shared) return sessionFor(thread).request('abort');
+    if (!thread.shared) {
+      // OMP's own abort can leave the provider turn running behind PolyStrata's model lock.
+      await cancelActive(thread.model || readResident()).catch(() => false);
+      return sessionFor(thread).request('abort');
+    }
     const client = getBridge();
     const state = await client.get('/api/state', { cwd: thread.cwd, ...(thread.sessionFile && { file: thread.sessionFile }) });
     if (!isSamePath(state.sessionFile, thread.sessionFile)) throw new Error('En annen samtale er aktiv i bridge.');

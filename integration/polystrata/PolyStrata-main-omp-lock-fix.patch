@@ -1,0 +1,162 @@
+# PolyStrata compatibility patch for OMP Bridge 2.9.62
+# Upstream: https://github.com/simplexai-labs/PolyStrata (MIT)
+# Base commit: d62dfacbe185dfbb447e79c5fb1091ae189afc64 (main, 2026-11-25)
+# Adds POST /v1/cancel, advertises it as "cancel" in /v1/status, and lists an
+# auto-load model in /v1/models while the engine is unloaded.
+# PolyStrata is external and we have no write access; this patch is version-controlled by us
+# in integration/polystrata/ and attached to the OMP Bridge release.
+# Apply from the PolyStrata repository root: git apply PolyStrata-main-omp-lock-fix.patch
+diff --git a/terminal/serve/server.py b/terminal/serve/server.py
+--- a/terminal/serve/server.py
++++ b/terminal/serve/server.py
+@@ -4568,6 +4568,11 @@
+     def loaded(self) -> bool:
+         return not hasattr(self.engine, "alive") or self.engine.alive()
+ 
++    @property
++    def auto_load(self) -> bool:
++        """True when an unloaded model starts again on the next request (llama-server's router, strata-poly)."""
++        return hasattr(self.engine, "restart")
++
+     def warm_path(self) -> Path:
+         """"warm_start"'s file: next to the run config, one per model."""
+         config = Path(self.config_path)
+@@ -4945,7 +4950,10 @@
+                  "max_model_len": ctx, "context_length": ctx, "max_context_length": ctx, "meta": {"n_ctx": ctx},
+                  "architecture": {"input_modalities": ["text", "image"] if self.vision is not None or self.has_vision() else ["text"],
+                                   "output_modalities": ["text"]}}
+-        if not loaded and (self.switch_on_request or self.idle_unload_s or getattr(self.engine, "unloaded", False)):
++        if not loaded and (self.switch_on_request or self.idle_unload_s or self.auto_load or
++                           getattr(self.engine, "unloaded", False)):
++            # A model that starts on the next request (auto_load) is listed from the start, not only after the
++            # first load or unload: clients discover it while the engine is idle, as llama-server's router does.
+             model["status"] = {"value": "unloaded"}       # like llama-server's router: listed, loads on use
+             loaded = True
+         if self.aliases:                                  # #297: the aliases, and each one listed under its own id
+@@ -5962,7 +5970,7 @@
+         images = self.has_vision()
+         return {
+             "service": "strata", "model": self.model,
+-            "loaded": self.loaded(), "auto_load": hasattr(self.engine, "restart"),
++            "loaded": self.loaded(), "auto_load": self.auto_load, "cancel": True,
+             "structured_output": {"formats": ["json_object", "json_schema"], "method": "prompt_and_validate",
+                                   "constrained_decoding": False, "stream_buffered": True},
+             "engine": (getattr(self.engine, "info", {}) or {}).get("version"),
+@@ -8331,7 +8339,7 @@
+                     self._json(404 if records is None else 200,
+                                {"error": {"message": "request no longer retained"}} if records is None else
+                                records if request_id else {"requests": records, "retention": 100, "persistent": False,
+-                                                          "loaded": svc.loaded(), "auto_load": hasattr(svc.engine, "restart")})
++                                                          "loaded": svc.loaded(), "auto_load": svc.auto_load})
+                 return
+             if path == "/api/expert-heat":                   # #5723: the web page's Experts view (serve/expert_heat.py)
+                 if self._authorized():
+@@ -8560,6 +8568,12 @@
+                         result = "loaded"
+                     self._json(200, {"status": result, **svc.v1_status()})
+                     return
++                if path == "/v1/cancel":                     # stop the turn that runs now, and those queued behind it
++                    if not self._own_page("requests can be cancelled"):
++                        return
++                    cancelled = svc.cancel_owned_requests()
++                    self._json(200, {"status": "cancelled", "cancelled": cancelled, **svc.v1_status()})
++                    return
+                 if path == "/v1/vram":                       # #533: give VRAM back to other programs, or take it
+                     if not self._own_page("the VRAM reserve can be changed"):
+                         return
+@@ -8738,7 +8752,7 @@
+                      "total_slots": max(1, int(getattr(svc.engine, "batch", 0) or 0)),   # #1004: the batch slots
+                      "model_alias": svc.model, "chat_template": svc.template.source,
+                      "chat_template_caps": svc.template.caps,
+-                     "modalities": {"vision": svc.has_vision()}, "models_autoload": hasattr(svc.engine, "restart"),
++                     "modalities": {"vision": svc.has_vision()}, "models_autoload": svc.auto_load,
+                      "is_sleeping": not svc.loaded()}
+             if getattr(svc.engine, "model_path", None):
+                 props["model_path"] = svc.engine.model_path
+diff --git a/terminal/serve/test_lifecycle.py b/terminal/serve/test_lifecycle.py
+--- a/terminal/serve/test_lifecycle.py
++++ b/terminal/serve/test_lifecycle.py
+@@ -3,6 +3,7 @@
+ import io
+ import os
+ import subprocess
++import threading
+ import time
+ import unittest
+ import urllib.error
+@@ -152,6 +153,7 @@
+         self.assertFalse(self.request("/v1/status")[1]["loaded"])
+         self.assertEqual(self.request("/v1/models")[1]["data"][0]["status"]["value"], "unloaded")
+         self.assertTrue(self.request("/props")[1]["models_autoload"])
++        self.assertTrue(self.request("/v1/status")[1]["cancel"])   # the /v1/cancel alias is advertised
+         self.assertEqual(self.engine.starts, 0)
+         chat = {"messages": [{"role": "user", "content": "Hello"}], "max_tokens": 32, "reasoning_effort": "none"}
+         for _ in range(2):
+@@ -176,6 +178,22 @@
+         self.assertEqual(self.engine.closes, 0)
+         self.assertTrue(self.engine.loaded)
+         self.assertEqual(self.request("/v1/unload", {}, {"Authorization": "Bearer local-secret"})[0], 200)
++
++    def test_cancel_stops_the_running_turn_and_keeps_the_page_rule(self):
++        # A stopped client can leave its turn on the model: /v1/cancel releases it, so the next unload is not 409.
++        event = threading.Event()
++        self.svc.active_cancels.add(event)
++        try:
++            code, body = self.request("/v1/cancel", {})
++            self.assertEqual((code, body["status"], body["cancelled"]), (200, "cancelled", 1))
++            self.assertTrue(event.is_set())
++            other = threading.Event()
++            self.svc.active_cancels.add(other)
++            self.assertEqual(self.request("/v1/cancel", {}, {"Origin": "https://other.example"})[0], 403)
++            self.assertFalse(other.is_set())
++        finally:
++            self.svc.active_cancels.discard(event)
++            self.svc.active_cancels.discard(other)
+ 
+     def test_an_engine_that_died_on_load_is_reported_as_such(self):
+         # EngineDied is a RuntimeError: it keeps its own answer ("the next request restarts it")
+diff --git a/terminal/serve/test_models.py b/terminal/serve/test_models.py
+--- a/terminal/serve/test_models.py
++++ b/terminal/serve/test_models.py
+@@ -426,7 +426,8 @@
+ 
+     def test_off_everything_is_as_before(self):
+         """Without the key: /v1/models as 0.1.44.1-poly.6 said it, with the context under the names other APIs use too
+-        (the Strata project's 0.2.17), and any name answered by the loaded model."""
++        (the Strata project's 0.2.17), and any name answered by the loaded model.  An unloaded model that starts
++        again on use is listed as "unloaded" from the first unload on, as /v1/status' auto_load says."""
+         ctx = {"max_model_len": 4096, "context_length": 4096, "max_context_length": 4096, "meta": {"n_ctx": 4096}}
+         loaded = {"object": "list", "data": [
+             {"id": "alpha", "object": "model", "status": {"value": "loaded"}, **ctx,
+@@ -438,10 +439,10 @@
+         self.assertEqual(self.chat("beta"), (200, ("alpha", "I am alpha.")))
+         self.assertEqual(self.call("/v1/load", {"model": "beta"})[0], 404)
+         self.assertEqual(self.started, [])
+-        self.first.unload()                             # an engine that stopped: listed only when it loads on use
+-        self.assertEqual(self.call("/v1/models"), (200, {"object": "list", "data": []}))
++        self.first.unload()                             # an engine that stopped: listed as unloaded, it loads on use
++        unloaded = json.loads(json.dumps(loaded).replace('"loaded"', '"unloaded"'))
++        self.assertEqual(self.call("/v1/models"), (200, unloaded))
+         self.svc.idle_unload_s = 60
+-        unloaded = json.loads(json.dumps(loaded).replace('"loaded"', '"unloaded"'))
+         self.assertEqual(self.call("/v1/models"), (200, unloaded))
+ 
+     def test_every_installed_model_is_listed(self):
+diff --git a/docs/DETAILS.md b/docs/DETAILS.md
+--- a/docs/DETAILS.md
++++ b/docs/DETAILS.md
+@@ -438,10 +438,12 @@
+ **Lazy start.** `terminal/serve/server.py --engine strata --config strata-<model>.json --lazy` (or `"lazy_load": true`) starts the HTTP
+ API without the engine or the vision encoder. The first generation request or `POST /load` loads them, including
+ `before_load` and `min_free_vram_mib`. `POST /v1/load` and `/v1/unload` are JSON control aliases (they need the API key,
+-`application/json` and no foreign browser Origin, and return **409** while a request is active or queued). With
++`application/json` and no foreign browser Origin, and return **409** while a request is active or queued). `POST /v1/cancel`
++is the same kind of alias: it stops the running turn and the requests queued behind it, so a stopped client does not keep
++the model busy, and answers `{"status": "cancelled", "cancelled": N}`. With
+ `switch_on_request`, `/v1/load` with another installed model's name switches to it (after the running requests, up to
+ 120 s, else 409), and `/v1/unload` with it answers `"not loaded"`. `/api/health` aliases `/health`, and `/v1/status`
+-exposes `loaded` and `auto_load`.
++exposes `loaded`, `auto_load` and `cancel` (the `/v1/cancel` alias).
+ 
+ **Giving part of the VRAM back while it keeps serving** (opt-in, one NVIDIA GPU, [VRAM_ELASTIC.md](VRAM_ELASTIC.md)). With
+ `"vram_elastic": true` (engine flag `--vram-elastic`) the expert cache is allocated in 512 MiB segments

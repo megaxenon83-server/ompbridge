@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.61";
+const VERSION = "2.9.62";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -1572,6 +1572,7 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
   runtime.modelPreparation = preparation;
   let lease;
   let retained = false;
+  let memorySwitched = true;
   try {
     if (!model) return;
     let next;
@@ -1594,7 +1595,7 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
         if (error.code !== 'GPU_BUSY') throw error;
         // A cloud inference does not need to take the GPU away from a local turn.
         if (!next) {
-          if (selection) progress("cloud", model);
+          if (selection) { progress("cloud", model); memorySwitched = false; }
           return;
         }
         if (selection) throw new Error("En lokal modell jobber allerede. Vent til den er ferdig, eller velg en skymodell.");
@@ -1614,14 +1615,18 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
     if (same && !(selection && next.mode === 'ollama')) {
       if (next.managed) { await localModels.ensureManaged(next, progress); progress("ready", next); }
     } else {
-      await localModels.swapMemory(same ? null : previous, next, { warmOllama: selection, onProgress: progress });
-      localModels.saveResident(next);
+      const swap = await localModels.swapMemory(same ? null : previous, next, { warmOllama: selection, onProgress: progress });
+      if (next) localModels.saveResident(next);
+      else if (swap?.previousUnloaded !== false) localModels.saveResident(null);
+      // else: the previous local model is still loaded; keep it as the resident model so the apps show the truth.
+      memorySwitched = swap?.previousUnloaded !== false;
     }
     if (next && !selection && !preparation.cancelled) {
       runtime.releaseGpu = lease;
       retained = true;
     }
     if (!next && selection) progress("cloud", model);
+    return { memorySwitched };
   } catch (error) {
     progress("failed", model);
     throw error;
@@ -3857,8 +3862,9 @@ async function handle(req, res) {
           previous = runtime.state?.model;
           const model = await runtime.rpc("set_model", { provider: body.provider, modelId: body.modelId }, 60000);
           await runtime.refreshState();
-          await prepareChatModel(runtime, runtime.state?.model || model, { selection: true });
-          return json(res, 200, { model: publicModel(runtime.state?.model || model), memorySwitched: true });
+          const prepared = await prepareChatModel(runtime, runtime.state?.model || model, { selection: true });
+          return json(res, 200, { model: publicModel(runtime.state?.model || model),
+            memorySwitched: prepared?.memorySwitched !== false });
         } catch (error) {
           if (previous) {
             await runtime.rpc("set_model", { provider: previous.provider, modelId: previous.id }, 60000).catch(() => {});
@@ -4080,6 +4086,12 @@ async function handle(req, res) {
         }
         runtime.pendingUi.clear();
         runtime.broadcast({ type: "ui_cancel", cwd: runtime.cwd, targetId: "" });
+        // OMP's abort ends its own turn, but the provider request can outlive it and keep PolyStrata's model lock.
+        // Stop the local turn too, so the stop button really frees the session.
+        const localCancelled = await localModels.cancelActive(runtime.state?.model).catch((error) => {
+          log("warn", `local cancel failed for ${runtime.cwd}: ${error.message}`);
+          return false;
+        });
         try {
           await runtime.rpc("abort", {}, 30000);
         } catch (error) {
@@ -4089,7 +4101,13 @@ async function handle(req, res) {
           await runtime.stop();
           return json(res, 200, { ok: true, restarted: true });
         }
-        return json(res, 200, { ok: true });
+        // The turn is cancelled: do not let the old session lock block a model switch, even if the agent_end
+        // frame is still on its way.
+        runtime.working = false;
+        if (runtime.state?.isStreaming) runtime.state.isStreaming = false;
+        releaseRuntimeGpu(runtime);
+        runtime.refreshState().catch(() => {});
+        return json(res, 200, { ok: true, localCancelled });
       }
 
       case "POST /api/regenerate": {
