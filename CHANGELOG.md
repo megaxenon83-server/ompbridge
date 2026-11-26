@@ -1,5 +1,12 @@
 # Changelog
 
+## OMP Desktop 0.8.25 / Android 0.2.26 / Bridge 2.9.58
+
+- Keep the visible message or tool output in place while OMP streams, even if earlier content grows.
+- Pause automatic scrolling while inspecting expanded reasoning or tool output.
+- Jump to the latest message with the down arrow, or scroll to the bottom to resume following.
+- This bundle includes Bridge 2.9.58 unchanged.
+
 ## OMP Desktop 0.8.24 / Android 0.2.25 / Bridge 2.9.58
 
 - Added per-model reasoning controls beside the model picker in Desktop and Android.
