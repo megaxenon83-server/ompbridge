@@ -29,3 +29,9 @@
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Generated application files and local Android signing keys
+/clients/dist/
+/clients/node_modules/
+/clients/.android-build/
+/windows/dist/

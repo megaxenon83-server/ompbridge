@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="nb">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skills · OMP Desktop</title>
+<link rel="stylesheet" href="/style.css">
+<script defer src="/app.js"></script>
+<header class="wrap brand">OMP Desktop <span>Skills</span></header>
+<main class="wrap">
+  <section class="hero">
+    <div><h1>Skills for prosjektet ditt</h1><p id="project"></p></div>
+    <a class="button" href="https://skills.sh/" target="_blank" rel="noopener noreferrer">Bla gjennom skills.sh ↗</a>
+  </section>
+  <details class="guide">
+    <summary>Slik bruker du Skills</summary>
+    <ol><li>Velg anbefalte skills eller lim inn lenker fra skills.sh.</li><li>Se kilden og forhåndsvis innholdet før du installerer.</li><li>Velg prosjekt eller globalt, og aktiver de du vil bruke. Endringene synkroniseres med Android.</li></ol>
+    <p>Importen kopierer Markdown. Ekstra verktøy installeres separat. <strong>La OMP finne skills</strong> lærer agenten å foreslå skills fra en samtale.</p>
+  </details>
+  <nav aria-label="Skills-sider">
+    <button data-tab="discover" aria-current="true">Utforsk</button>
+    <button data-tab="installed">Installerte</button>
+    <button data-tab="setup">Låsefil og pakker</button>
+  </nav>
+  <p id="status" role="status"></p>
+  <section id="discover">
+    <label for="refs">Skill-lenker eller kopierte installasjonskommandoer <small>Én per linje</small></label>
+    <textarea id="refs" rows="3" placeholder="https://skills.sh/eier/repo/skill"></textarea>
+    <h2>Anbefalte</h2>
+    <input id="filter" type="search" placeholder="Søk i anbefalte skills" aria-label="Søk i anbefalte skills">
+    <div id="catalog" class="cards"></div>
+  </section>
+  <section id="installed" hidden></section>
+  <section id="setup" hidden></section>
+  <section id="review" class="panel" hidden>
+    <h2>Gjennomgå før installasjon</h2>
+    <p id="destination"></p>
+    <div id="previews"></div>
+    <div class="actions"><button id="install" class="primary" disabled>Installer valgte skills</button><button id="cancel">Lukk gjennomgangen</button></div>
+  </section>
+  <section id="selection" class="selection">
+    <label>Installer i <select id="scope"><option value="project">Kun dette prosjektet</option><option value="global">Globalt for min OMP-bruker</option></select></label>
+    <button id="preview" class="primary">Forhåndsvis utvalget</button>
+  </section>
+</main>
+</html>

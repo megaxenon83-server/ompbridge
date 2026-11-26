@@ -1,0 +1,24 @@
+{
+  "name": "omp-desktop",
+  "version": "0.8.25",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check main.cjs && node --check omp.cjs && node --check bridge.cjs && node --check mobile-pairing.cjs && node --check local-models.cjs && node --check providers.cjs && node --check workspace.cjs && node --check preload.cjs && node --check app.js && node --check android/assets/mobile.js && node --check tool-filter.mjs && node --check scripts/build.cjs && node --check scripts/build-android.cjs && node --check scripts/smoke.cjs && node --check scripts/bridge-smoke.cjs && node --check scripts/mobile-smoke.cjs",
+    "build": "node scripts/build.cjs",
+    "build:android": "node scripts/build-android.cjs",
+    "test": "electron scripts/smoke.cjs",
+    "test:models": "node --test scripts/local-models.test.cjs",
+    "test:turns": "node --test scripts/turn-changes.test.cjs",
+    "test:bridge": "electron scripts/bridge-smoke.cjs",
+    "test:android": "electron scripts/mobile-smoke.cjs"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "electron": "^45.4.1"
+  }
+}

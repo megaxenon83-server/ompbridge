@@ -1,5 +1,5 @@
 ﻿param(
-    [ValidateSet('Start','Stop','CheckUpgradePort','MigratePort','Verify')][string]$Action = 'Start',
+    [ValidateSet('Start','Stop','CheckUpgradePort','MigratePort','Verify','CheckNode','InstallNode')][string]$Action = 'Start',
     [string]$InstallDir = $PSScriptRoot,
     [string]$ExpectedVersion,
     [string]$StatusFile
@@ -23,7 +23,53 @@ function Get-ListenerId([int]$port = [int]$config.port) {
     }
 }
 
+function Find-BridgeNode {
+    $candidates = @((Join-Path $InstallDir 'runtime\node.exe'))
+    $candidates += @(Get-Command node.exe -CommandType Application -All -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)
+    foreach ($root in @($env:ProgramW6432, $env:ProgramFiles, [Environment]::GetFolderPath('ProgramFiles'))) {
+        if ($root) { $candidates += Join-Path $root 'nodejs\node.exe' }
+    }
+    foreach ($candidate in ($candidates | Select-Object -Unique)) {
+        if (!(Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+        try {
+            $version = & $candidate --version 2>$null
+            if ($LASTEXITCODE -eq 0 -and $version -match '^v(\d+)\.' -and [int]$Matches[1] -ge 22) {
+                return $candidate
+            }
+        } catch {}
+    }
+}
+
 try {
+    if ($Action -eq 'CheckNode') {
+        if (Find-BridgeNode) { exit 0 }
+        exit 3
+    }
+    if ($Action -eq 'InstallNode') {
+        $archive = Join-Path $PSScriptRoot 'omp-node.zip'
+        $staging = Join-Path $PSScriptRoot ('node-extract-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $staging | Out-Null
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [IO.Compression.ZipFile]::OpenRead($archive)
+        try {
+            $executables = @($zip.Entries | Where-Object FullName -match '^node-v24\.22\.3-win-(x64|arm64)/node\.exe$')
+            if ($executables.Count -ne 1) { throw 'The Node.js archive did not contain a single executable.' }
+            $node = $executables[0]
+            $license = $zip.GetEntry($node.FullName.Replace('/node.exe', '/LICENSE'))
+            if (!$license) { throw 'The Node.js license is missing.' }
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($node, (Join-Path $staging 'node.exe'))
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($license, (Join-Path $staging 'LICENSE'))
+        } finally {
+            $zip.Dispose()
+        }
+        $version = & (Join-Path $staging 'node.exe') --version
+        if ($LASTEXITCODE -ne 0 -or $version -ne 'v24.22.3') { throw 'Unexpected Node.js runtime version.' }
+        $runtime = Join-Path $InstallDir 'runtime'
+        New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $staging 'node.exe'),(Join-Path $staging 'LICENSE') -Destination $runtime -Force
+        if (!(Find-BridgeNode)) { throw 'The Node.js runtime could not be verified.' }
+        exit 0
+    }
     if (!(Test-Path -LiteralPath $configFile)) {
         if ($Action -eq 'Verify') { throw 'Bridge config missing.' }
         if ($Action -ne 'Start') { exit 0 }
@@ -92,10 +138,8 @@ try {
 
     if ($health) { exit 0 }
     if (Get-ListenerId) { throw "Port $($config.port) is already in use. Stop the other service or choose a free port in bridge\config.json." }
-    $node = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
-    if (!$node) { throw 'Install Node.js before starting Bridge.' }
-    $version = & $node --version
-    if ($version -notmatch '^v(?:2[2-9]|[3-9][0-9])\.') { throw 'Bridge requires Node.js 22 or newer.' }
+    $node = Find-BridgeNode
+    if (!$node) { throw 'Bridge requires Node.js 22 or newer.' }
     $ompBinFile = Join-Path $bridgeDir 'omp-bin.txt'
     if (!$env:OMP_BIN -and (Test-Path -LiteralPath $ompBinFile)) {
         $env:OMP_BIN = (Get-Content -LiteralPath $ompBinFile -Raw).Trim()

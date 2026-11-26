@@ -1,0 +1,5 @@
+model:
+  loopGuard:
+    enabled: true
+retry:
+  maxRetries: 3

@@ -1,5 +1,10 @@
 # Changelog
 
+## Bridge 2.9.59 / Desktop 0.8.25 / Android 0.2.26
+
+- Setup offers to download and verify a private Node.js runtime when Node.js 22 or newer is unavailable.
+- The current Desktop and Android build sources are available in the repository alongside Bridge and the relay.
+
 ## OMP Desktop 0.8.25 / Android 0.2.26 / Bridge 2.9.58
 
 - Keep the visible message or tool output in place while OMP streams, even if earlier content grows.

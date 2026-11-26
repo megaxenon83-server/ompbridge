@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src data:; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OMP Desktop</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="android/assets/turn-ui.css">
+  <link rel="stylesheet" href="android/assets/interface.css">
+  <script defer src="android/assets/interface.js"></script>
+  <script defer src="android/assets/turn-ui.js"></script>
+  <script defer src="android/assets/voice-mode.js"></script>
+  <script defer src="project-panel.js"></script>
+  <script defer src="app.js"></script>
+</head>
+<body class="hide-review">
+  <header class="appbar">
+    <div class="app-brand"><span aria-hidden="true">∞</span> OMP Desktop <small id="desktopVersion" title="OMP Desktop-versjon"></small></div>
+    <div class="breadcrumb"><span id="projectStatus"></span><span id="breadcrumbTitle"></span></div>
+    <div class="app-controls">
+      <span id="health"><i></i> Finn OMP</span>
+    </div>
+  </header>
+  <aside class="projects">
+    <div class="sidebar-head">
+      <div class="sidebar-heading"><button id="workspace" title="Ny tråd">＋ Ny tråd</button><button id="openProject" class="sidebar-icon" title="Åpne mappe" aria-label="Åpne mappe">＋</button></div>
+      <input id="sidebarSearch" type="search" placeholder="Søk i prosjekter" aria-label="Søk i prosjekter og samtaler">
+      <h2>Prosjekter</h2>
+    </div>
+    <div id="projectList"></div>
+    <div class="sidebar-bottom">
+      <details class="workspace-tools sidebar-menu"><summary title="Arbeidsverktøy" aria-label="Arbeidsverktøy">⋯</summary><div class="sidebar-menu-items"><button id="terminal">PowerShell</button><button id="browser">Nettleser</button><button id="schedule">Planlagte oppgaver</button></div></details>
+      <span id="syncStatus" role="status">Bridge frakoblet</span>
+      <button id="syncChats" class="sidebar-sync">Koble til</button>
+    </div>
+    <div id="sidebarResize" role="separator" tabindex="0" aria-label="Bredde på prosjektlisten" aria-orientation="vertical" aria-valuemin="210" aria-valuemax="455" aria-valuenow="260"></div>
+  </aside>
+  <main class="workspace">
+    <header class="thread-header"><h1 id="title">Ny tråd</h1><span id="branch" class="chip" hidden></span>
+      <nav class="thread-actions" aria-label="Trådhandlinger">
+        <button id="openPreview" type="button">Kjør prosjekt</button>
+        <button id="shareThread" class="quiet-icon" title="Del tråd" aria-label="Del tråd"><svg viewBox="0 0 24 24"><path d="M12 16V3m-4 4 4-4 4 4M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg></button>
+        <button id="threadOptions" class="quiet-icon" title="Trådvalg" aria-label="Trådvalg"><svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><path d="M12 7h7m-7 10h7"/></svg></button>
+        <button id="changes" class="quiet-icon" title="Vis sidepanel" aria-label="Vis sidepanel" aria-pressed="false"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="M15 6v12"/></svg></button>
+        <button id="settings" class="quiet-icon" type="button" title="Innstillinger" aria-label="Innstillinger"></button>
+        <details id="tokenUsage" class="token-usage" aria-label="Tokenforbruk"><summary></summary><div class="token-breakdown"></div></details>
+      </nav>
+    </header>
+    <section id="todoPanel" class="todo-panel" aria-label="OMP-oppgaver" hidden></section>
+    <div id="timeline" class="timeline" role="log" aria-label="Samtale"></div>
+    <div class="composer-area">
+      <button type="button" id="jumpLatest" class="jump-latest" aria-controls="timeline" aria-label="Gå til siste melding" title="Gå til siste melding" hidden><span aria-hidden="true">↓</span></button>
+      <div id="welcome">
+        <h2>Hva skal vi bygge?</h2>
+        <p id="welcomeHint">Åpne en prosjektmappe for å starte.</p>
+      </div>
+      <form id="compose" class="composer">
+        <label class="sr-only" for="message">Kodeoppgave</label>
+        <button id="attach" class="quiet-icon" type="button" title="Legg ved bilde" aria-label="Legg ved bilde"><svg viewBox="0 0 24 24"><path d="m9 15 6-6a2 2 0 0 0-3-3l-7 7a4 4 0 0 0 6 6l8-8"/></svg></button>
+        <textarea id="message" rows="1" placeholder="Hva vil du endre?"></textarea>
+        <div id="suggestions" hidden></div>
+        <div id="attachments"></div>
+        <div class="toolbar">
+          <button id="model" type="button" aria-haspopup="dialog">Velg modell ▾</button>
+          <span id="location" class="chip" hidden></span>
+          <select id="thinkingLevel" class="model-chip" aria-label="Resonneringsnivå" hidden></select>
+        <div class="composer-actions">
+            <label id="lightContextLabel" hidden><input id="lightContext" type="checkbox" role="switch"> Lett kontekst</label>
+            <div id="chatModeMenu" class="composer-mode" hidden>
+              <button type="button" id="modePicker" class="mode-trigger" aria-haspopup="dialog"><span aria-hidden="true"></span></button>
+              <select id="chatMode" hidden aria-label="Arbeidsmodus">
+                <option value="chat">Chat</option><option value="plan">Plan</option><option value="build" selected>Bygg</option>
+              </select>
+            </div>
+            <button id="voiceOpen" type="button" aria-label="Talemodus" title="Talemodus" aria-haspopup="dialog">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4m4-7v10m4-14v18m4-14v10m4-7v4"/></svg>
+            </button>
+            <button id="stop" type="button" title="Avbryt den aktive OMP-oppgaven" aria-label="Stopp den aktive OMP-oppgaven" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+            </button>
+            <button id="send" class="primary" type="submit" aria-label="Send oppgave">➤</button>
+          </div>
+        </div>
+      </form>
+      <button id="manageModels" class="text-button">Administrer modeller</button>
+    </div>
+  </main>
+  <aside id="review" class="review">
+    <header><nav class="side-tabs" aria-label="Prosjektpanel"><button id="reviewPreview" aria-pressed="false">Forhåndsvisning</button><button id="reviewChanges" aria-pressed="true">Endringer</button><button id="reviewTests" aria-pressed="false">Tester</button><button id="reviewTerminal" aria-pressed="false">Terminal</button><button id="reviewFiles" aria-pressed="false">Filer</button></nav><button id="refreshGit" class="quiet-icon" title="Oppdater Git-diff" aria-label="Oppdater Git-diff">↻</button></header>
+    <div id="reviewResize" role="separator" tabindex="0" aria-label="Bredde på prosjektpanelet" aria-orientation="vertical"></div>
+    <div id="diff" class="diff"><p class="empty">Ingen endringer ennå</p></div>
+    <section id="turnReview" class="diff" hidden></section>
+    <div id="projectFiles" class="diff" hidden></div>
+    <section id="previewPanel" class="project-panel" hidden>
+      <form id="previewForm" class="project-panel-form">
+        <label>Utviklingskommando<input id="previewCommand" placeholder="Tomt felt bruker statisk HTML"></label>
+        <label>Adresse eller HTML-sti<input id="previewAddress" placeholder="/docs/ eller http://localhost:3000"></label>
+        <div class="project-panel-actions"><button class="primary" id="launchProject" type="submit">Kjør prosjekt</button><button id="openPreviewAddress" type="button">Åpne adresse</button></div>
+      </form>
+      <p id="previewStatus" class="form-status" role="status"></p>
+      <div id="previewTools" class="project-panel-actions" hidden>
+        <button id="previewPick" type="button">Pek og be om endring</button>
+        <button id="previewMobile" type="button" aria-pressed="false">Mobilbredde</button>
+        <button id="previewReload" type="button">Last på nytt</button>
+        <button id="previewStop" type="button">Stopp</button>
+      </div>
+      <div id="previewSurface" hidden><div id="previewViewport"></div></div>
+      <details id="previewDiagnostics" hidden><summary>Serverlogg</summary><pre id="previewOutput"></pre></details>
+    </section>
+    <section id="testsPanel" class="project-panel" hidden></section>
+    <section id="terminalPanel" class="project-panel" hidden></section>
+  </aside>
+  <footer><span id="activity" role="status"></span></footer>
+  <aside id="settingsDialog" aria-label="Innstillinger" hidden>
+    <header><h2>Innstillinger</h2><button class="close" aria-label="Lukk innstillinger">×</button></header>
+    <div class="settings-layout">
+      <input id="settingsSearch" type="search" placeholder="Søk i innstillinger" aria-label="Søk i innstillinger">
+      <nav id="tabs" aria-label="Innstillingskategorier"></nav>
+      <section id="settingsBody"></section>
+    </div>
+  </aside>
+  <dialog id="modelDialog">
+    <header><h2>Velg modell</h2><button class="close" aria-label="Lukk modellvelger">×</button></header>
+    <div class="dialog-content model-dialog-body"><div class="model-controls"><input id="modelSearch" type="search" placeholder="Søk etter modell eller leverandør" aria-label="Søk etter modell eller leverandør"><button id="refreshModels" type="button" title="Oppdater modeller" aria-label="Oppdater modeller">↻</button></div>
+    <nav id="modelFilters" aria-label="Modelltype"><button type="button" data-filter="all" aria-pressed="true">Alle</button><button type="button" data-filter="local" aria-pressed="false">Lokale</button><button type="button" data-filter="cloud" aria-pressed="false">Sky</button></nav>
+    <p id="modelFeedback" class="form-status" role="status"></p>
+    <div id="modelList"></div><button id="modelSettings" class="text-button">Administrer modeller</button></div>
+  </dialog>
+  <dialog id="requestDialog">
+    <header><h2 id="requestTitle">OMP</h2></header>
+    <form id="requestForm" class="dialog-content"></form>
+  </dialog>
+  <dialog id="workspaceDialog" aria-labelledby="workspaceDialogTitle">
+    <header><h2 id="workspaceDialogTitle"></h2><button class="close" aria-label="Lukk">×</button></header>
+    <div id="workspaceDialogBody" class="dialog-content"></div>
+  </dialog>
+  <dialog id="voiceDialog" aria-labelledby="voiceTitle">
+    <header><h2 id="voiceTitle">Talemodus</h2><button id="voiceClose" class="quiet-icon" type="button" aria-label="Lukk talemodus">×</button></header>
+    <div class="voice-stage">
+      <button id="voiceMode" type="button" aria-pressed="false" aria-label="Start eller stopp tale">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4m4-7v10m4-14v18m4-14v10m4-7v4"/></svg>
+      </button>
+      <p id="voiceStatus" role="status"></p>
+    </div>
+    <footer><label for="voiceLanguage">Talespråk</label>
+      <select id="voiceLanguage"><option value="no">Norsk</option><option value="en">English</option></select>
+    </footer>
+  </dialog>
+  <dialog id="modeChoices" class="mode-dialog" aria-labelledby="modeTitle">
+    <div class="mode-header"><strong id="modeTitle">Arbeidsmodus</strong><button type="button" class="mode-close" aria-label="Lukk">×</button></div>
+    <div class="mode-options"></div>
+  </dialog>
+</body>
+</html>

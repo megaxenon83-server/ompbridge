@@ -1,0 +1,25 @@
+.mode-dialog {
+  position: fixed; inset: auto 12px 12px auto; margin: 0; padding: 12px;
+  width: min(350px, calc(100vw - 24px)); box-sizing: border-box;
+  border: 1px solid var(--line, #454950); border-radius: 18px;
+  background: var(--panel, var(--paper, Canvas)); color: var(--text, CanvasText);
+  box-shadow: 0 16px 50px #0005;
+}
+.mode-dialog::backdrop { background: #0002; }
+.mode-dialog.mode-mobile { inset: auto 0 0; width: 100%; border-radius: 22px 22px 0 0; padding: 16px 16px max(16px, env(safe-area-inset-bottom)); }
+.mode-dialog.mode-mobile::backdrop { background: #0006; }
+.mode-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; padding-inline: 6px; }
+.mode-options { display: grid; gap: 4px; }
+.mode-choice {
+  width: 100%; display: grid; grid-template-columns: 29px minmax(0, 1fr) 18px;
+  align-items: center; gap: 9px; text-align: start; padding: 10px;
+  border-radius: 10px; border: 1px solid transparent; background: transparent;
+}
+.mode-choice:hover, .mode-choice[aria-pressed="true"] { background: var(--wash, var(--paper, ButtonFace)); border-color: var(--line); }
+.mode-choice small { display: block; margin-top: 2px; color: var(--muted, GrayText); }
+.mode-symbol { font-size: 20px; text-align: center; }
+.mode-trigger { min-width: 32px; padding: 4px 6px; flex: none; border: 0; background: transparent; }
+.mode-trigger span { font-size: 19px; }
+.interface-language { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 8px 0; }
+
+.message-time { font-size: .78em; color: var(--muted, GrayText); margin-inline-start: 6px; white-space: nowrap; }

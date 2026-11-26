@@ -1,5 +1,5 @@
 ﻿#ifndef BridgeVersion
-  #define BridgeVersion "2.9.58"
+  #define BridgeVersion "2.9.59"
 #endif
 #ifndef BridgeAppId
   #define BridgeAppId "ChatOmpOmpBridge"
@@ -17,12 +17,14 @@ DisableProgramGroupPage=yes
 DisableWelcomePage=no
 PrivilegesRequired=lowest
 MinVersion=10.0
+ArchitecturesAllowed=x64compatible or arm64
 WizardStyle=modern
 SetupIconFile=assets\omp-desktop-mark.ico
 WizardImageFile=assets\bridge-wizard.bmp
 WizardSmallImageFile=assets\bridge-wizard-small.bmp
 UninstallDisplayIcon={app}\omp-desktop-mark.ico
 CloseApplications=no
+SetupLogging=yes
 Compression=lzma2
 SolidCompression=yes
 OutputDir=dist
@@ -54,6 +56,17 @@ english.RemoveConfirm=Uninstall OMP Bridge? Chats, settings and mobile pairings 
 norwegian.RemoveFailed=Avinstalleringen ble ikke fullført.
 english.RemoveFailed=The uninstall did not complete.
 
+norwegian.NodePrompt=OMP Bridge trenger Node.js 22 eller nyere. Vil du laste ned Node.js og installere det for OMP Bridge? Dette krever ikke administrator.
+english.NodePrompt=OMP Bridge requires Node.js 22 or newer. Download and install Node.js for OMP Bridge? Administrator privileges are not required.
+norwegian.NodeRequired=OMP Bridge trenger Node.js 22 eller nyere. Velg Ja i installasjonsprogrammet for å installere det automatisk.
+english.NodeRequired=OMP Bridge requires Node.js 22 or newer. Choose Yes in Setup to install it automatically.
+norwegian.NodeDownload=Installerer Node.js for OMP Bridge
+english.NodeDownload=Installing Node.js for OMP Bridge
+norwegian.NodeFailed=Node.js kunne ikke installeres automatisk. Se installasjonsloggen for detaljer.
+english.NodeFailed=Node.js could not be installed automatically. See the installer log for details.
+norwegian.NodeFetching=Laster ned fra nodejs.org og kontrollerer filen.
+english.NodeFetching=Downloading from nodejs.org and verifying the file.
+
 [Tasks]
 Name: "autostart"; Description: "Start OMP Bridge automatisk når jeg logger på Windows"
 Name: "startmenu"; Description: "Legg til en snarvei i Start-menyen"
@@ -84,6 +97,11 @@ Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{userstartup}\Chat OMP OMP Bridge"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Bridge.ps1"""; Tasks: autostart; IconFilename: "{app}\omp-desktop-mark.ico"
 Name: "{userprograms}\Chat OMP OMP\Start OMP Bridge"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\Bridge.ps1"""; Tasks: startmenu; IconFilename: "{app}\omp-desktop-mark.ico"
+
+[UninstallDelete]
+Type: files; Name: "{app}\runtime\node.exe"
+Type: files; Name: "{app}\runtime\LICENSE"
+Type: dirifempty; Name: "{app}\runtime"
 
 [Code]
 var
@@ -165,17 +183,61 @@ begin
     ' -InstallDir "' + ExpandConstant('{app}') + '"', '', SW_HIDE, ewWaitUntilTerminated, BridgeExitCode) and (BridgeExitCode = 0);
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function EnsureNode(const Script: String): String;
 var
-  Code: Integer;
+  Download: TDownloadWizardPage;
+  Platform, Hash: String;
 begin
   Result := '';
-  if not Exec(ExpandConstant('{sys}\where.exe'), 'node.exe', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
+  if RunBridge(Script, 'CheckNode') then Exit;
+  if WizardSilent then
   begin
-    Result := 'Installer Node.js 22 eller nyere, og start installasjonsprogrammet igjen.';
+    if ExpandConstant('{param:INSTALLNODE|0}') <> '1' then
+    begin
+      Result := CustomMessage('NodeRequired');
+      Exit;
+    end;
+  end
+  else if MsgBox(CustomMessage('NodePrompt'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then
+  begin
+    Result := CustomMessage('NodeRequired');
     Exit;
   end;
+  if IsArm64 then
+  begin
+    Platform := 'arm64';
+    Hash := 'b3cc74a295b39d4f273271e96f58c06dd2b35757ca12abec64c7d0598b434f14';
+  end
+  else
+  begin
+    Platform := 'x64';
+    Hash := 'e612af99f626ab415ea225af6bce5c971feb448cb5cae250bb1c3fa50c5f7d9f';
+  end;
+  Download := CreateDownloadPage(CustomMessage('NodeDownload'), CustomMessage('NodeFetching'), nil);
+  Download.Add('https://nodejs.org/dist/v24.22.3/node-v24.22.3-win-' + Platform + '.zip', 'omp-node.zip', Hash);
+  Download.Show;
+  try
+    try
+      Download.Download;
+      if not RunBridge(Script, 'InstallNode') then
+      begin
+        Log('Node.js installation failed. Exit code: ' + IntToStr(BridgeExitCode));
+        Result := CustomMessage('NodeFailed');
+      end;
+    except
+      Log(GetExceptionMessage);
+      Result := CustomMessage('NodeFailed') + ' ' + GetExceptionMessage;
+    end;
+  finally
+    Download.Hide;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
   ExtractTemporaryFile('Bridge.ps1');
+  Result := EnsureNode(ExpandConstant('{tmp}\Bridge.ps1'));
+  if Result <> '' then Exit;
   if not RunBridge(ExpandConstant('{tmp}\Bridge.ps1'), 'CheckUpgradePort') then
   begin
     Result := 'Kontroller at port 27778 er ledig og at Bridge-konfigurasjonen kan leses. Se bridge\launcher.log.';
