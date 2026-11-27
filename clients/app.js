@@ -1739,7 +1739,21 @@ function showTab(id) {
         if (await run('desktopStartup', next) !== next) throw new Error('Windows kunne ikke oppdatere automatisk oppstart.');
       }));
     }).catch(error => { startup.textContent = error.message; });
-    body.append(button('Finn nyeste Windows-installer', () => run('desktopUpdates')));
+    const updateStatus = element('p', null, { class: 'form-status' });
+    body.append(
+      button('Se etter oppdatering', async () => {
+        try {
+          const result = await run('desktopUpdateCheck');
+          updateStatus.textContent = result.available
+            ? 'Ny versjon ' + result.latest + ' tilgjengelig (du har ' + result.current + ')'
+            : 'Du kjører nyeste versjon (' + result.current + ')';
+        } catch (error) {
+          updateStatus.textContent = error.message;
+        }
+      }),
+      button('Åpne nyeste release', () => run('desktopUpdates')),
+      updateStatus
+    );
   }
 }
 

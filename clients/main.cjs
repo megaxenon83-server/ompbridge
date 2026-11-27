@@ -736,6 +736,22 @@ const handlers = {
     return app.getLoginItemSettings({ path: process.execPath }).executableWillLaunchAtLogin;
   },
   desktopUpdates: () => shell.openExternal('https://github.com/megaxenon83-server/ompbridge/releases/latest'),
+  desktopUpdateCheck: async () => {
+    const response = await fetch('https://api.github.com/repos/megaxenon83-server/ompbridge/releases/latest', {
+      headers: { 'User-Agent': 'omp-desktop', Accept: 'application/vnd.github+json' },
+    });
+    if (!response.ok) throw new Error('GitHub svarte ' + response.status);
+    const release = await response.json();
+    const names = (release.assets || []).map((item) => item.name);
+    const match = names.map((name) => /^OMP-Desktop-Setup-([0-9.]+)-win-x64\.exe$/i.exec(name)).find(Boolean);
+    const latest = match ? match[1] : '';
+    return {
+      current: desktopVersion,
+      latest,
+      available: !!latest && latest !== desktopVersion,
+      url: release.html_url || 'https://github.com/megaxenon83-server/ompbridge/releases/latest',
+    };
+  },
   voice: ({ route, body }) => {
     if (!['/local', '/start', '/stop', '/transcribe', '/speak'].includes(route)) throw new Error('Ukjent talehandling.');
     const client = getBridge();
