@@ -176,6 +176,12 @@ fun PairingScreen(vm: AppViewModel) {
                     else Text("Koble til", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
                 }
             }
+            Spacer(Modifier.height(18.dp))
+            Text(
+                "v" + BuildConfig.VERSION_NAME,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -196,7 +202,7 @@ fun MainApp(vm: AppViewModel) {
     when (screen) {
         "plugins" -> { PluginsScreen(vm, onBack = { screen = "chat" }); return }
         "projects" -> { ProjectsScreen(vm, onBack = { screen = "chat" }); return }
-        "tools" -> { ToolsScreen(onBack = { screen = "chat" }, onOpen = { screen = it }); return }
+        "tools" -> { ToolsScreen(vm = vm, onBack = { screen = "chat" }, onOpen = { screen = it }); return }
         "files" -> { FilesScreen(vm, onBack = { screen = "tools" }); return }
         "git" -> { GitScreen(vm, onBack = { screen = "tools" }); return }
         "terminal" -> { TerminalScreen(vm, onBack = { screen = "tools" }); return }
@@ -714,6 +720,13 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                     Text("Plugins og skills", modifier = Modifier.weight(1f))
                     Text("›", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                HorizontalDivider(Modifier.padding(top = 12.dp))
+                Text(
+                    "Chat OMP OMP · v" + BuildConfig.VERSION_NAME,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
                 Spacer(Modifier.height(20.dp))
             }
         }

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -257,9 +258,48 @@ fun GitScreen(vm: AppViewModel, onBack: () -> Unit) {
                 val subject = commit.optString("subject").ifBlank { commit.optString("message") }
                 Text("$hash  $subject", style = MaterialTheme.typography.bodySmall, maxLines = 1)
             }
-        }
+            item { HorizontalDivider(Modifier.padding(top = 8.dp)) }
+            item {
+                Text(
+                    "OM",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                )
+            }
+            item {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Chat OMP OMP", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        "v" + BuildConfig.VERSION_NAME,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Bridge", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        if (vm.bridgeVersion.isBlank()) "ukjent" else "v" + vm.bridgeVersion,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            item { TextButton(onClick = { vm.checkUpdate() }) { Text("Se etter oppdatering") } }
+            item {
+                if (vm.updateStatus.isNotBlank()) {
+                    Text(
+                        vm.updateStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }        }
     }
 }
+
 
 // ------------------------------------------------------------------ terminal
 
@@ -463,7 +503,7 @@ fun WolScreen(vm: AppViewModel, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ToolsScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
+fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = { ToolBar("Verktøy", onBack) },

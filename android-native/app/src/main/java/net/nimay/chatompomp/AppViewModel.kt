@@ -97,7 +97,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var updateTag by mutableStateOf<String?>(null)
         private set
-
+    var updateStatus by mutableStateOf("")
+        private set
+    var bridgeVersion by mutableStateOf("")
+        private set
     init {
         darkTheme = bridge.loadTheme()
         checkUpdate()
@@ -397,6 +400,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun onFrame(frame: JSONObject) {
         when (frame.optString("type")) {
             "hello", "state" -> {
+                frame.optString("version").takeIf { it.isNotBlank() }?.let { bridgeVersion = it }
                 val state = frame.optJSONObject("state") ?: return
                 stream = StreamState(
                     active = state.optBoolean("isStreaming"),
@@ -1005,7 +1009,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     val name = assets.optJSONObject(index)?.optString("name").orEmpty()
                     latest = pattern.find(name)?.groupValues?.get(1) ?: latest
                 }
-                if (latest != null && latest != BuildConfig.VERSION_NAME) updateTag = latest
+                if (latest != null && latest != BuildConfig.VERSION_NAME) {
+                    updateTag = latest
+                    updateStatus = "Ny versjon latest tilgjengelig"
+                } else {
+                    updateStatus = "Du kjører nyeste versjon"
+                }
             }
         }
     }
