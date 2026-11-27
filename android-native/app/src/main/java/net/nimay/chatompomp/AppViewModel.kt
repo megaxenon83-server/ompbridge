@@ -567,6 +567,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             "agent_end", "session_settled" -> {
                 modelMetrics = null
+                val endedFile = frame.optString("sessionFile")
+                if (endedFile.isNotBlank() && endedFile != activeFile) {
+                    val endedTitle = sessions.firstOrNull { it.file == endedFile }?.title ?: activeTitle
+                    runCatching {
+                        Notifications.answer(
+                            getApplication(),
+                            endedTitle,
+                            tr("Svaret er klart", "The answer is ready"),
+                        )
+                    }
+                }
                 if (activeFile.isNotBlank()) markSeen(activeFile, messages.size)
                 busy = false
                 stream = stream.copy(active = false, phase = "")

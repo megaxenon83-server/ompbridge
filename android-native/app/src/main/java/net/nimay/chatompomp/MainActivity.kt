@@ -18,11 +18,16 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
 
     private val vm: AppViewModel by viewModels()
+    private val notifications = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     private var pendingLink by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            notifications.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         setContent {
             ChatOmpTheme(spec = vm.theme) {
             androidx.compose.runtime.CompositionLocalProvider(LocalLang provides vm.lang) {
