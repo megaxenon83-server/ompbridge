@@ -1888,6 +1888,7 @@ sidebarResize.onkeydown = event => {
 };
 wire('workspace', () => thread() ? newThread(thread().project) : $('openProject').click());
 wire('manageModels', () => openSettings('models'));
+wire('composerGear', () => openSettings('plugins'));
 wire('modelSettings', () => { $('modelDialog').close(); openSettings('models'); });
 wire('changes', () => {
   if (document.body.classList.contains('hide-review') || !$('settingsDialog').hidden) {

@@ -45,6 +45,7 @@
   </main>
   <footer>
     <button type="button" id="jumpLatest" class="jump-latest" aria-controls="timeline" aria-label="Gå til siste melding" title="Gå til siste melding" hidden><span aria-hidden="true">↓</span></button>
+    <div id="workStatus" class="work-status" role="status" hidden></div>
     <div id="status" role="status"></div>
     <form id="composer">
       <div id="attachmentChip" hidden></div>
@@ -53,17 +54,22 @@
       <div class="composer-controls">
         <button class="icon" id="attach" type="button" aria-label="Legg ved bilde">＋</button>
         <div class="model-slot"><button class="model-chip" id="modelBtn" type="button">Velg modell</button></div>
+        <button class="icon composer-gear" id="composerSettings" type="button" aria-label="Innstillinger for samtalen" aria-haspopup="dialog" title="Resonnering, kontekst, plugins og skills">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"/></svg>
+        </button>
+        <button class="icon" id="voiceOpen" type="button" aria-label="Talemodus" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4m4-7v10m4-14v18m4-14v10m4-7v4"/></svg>
+        </button>
+        <button class="send" id="stop" type="button" aria-label="Stopp" hidden>■</button>
+        <button class="send" id="send" type="submit" aria-label="Send">↑</button>
+      </div>
+      <div id="composerAdvanced" hidden>
         <select id="thinkingLevel" class="model-chip" aria-label="Resonneringsnivå" hidden></select>
         <button class="model-chip" id="lightContext" type="button" role="switch" aria-checked="false" title="Begrens ekstra prosjektkontekst">Lett</button>
         <div class="mobile-mode">
           <button type="button" id="modePicker" class="mode-trigger" aria-haspopup="dialog"><span aria-hidden="true"></span></button>
           <select id="chatMode" hidden aria-label="Arbeidsmodus"><option value="chat">Chat</option><option value="plan">Plan</option><option value="build" selected>Bygg</option></select>
         </div>
-        <button class="icon" id="voiceOpen" type="button" aria-label="Talemodus" aria-haspopup="dialog">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4m4-7v10m4-14v18m4-14v10m4-7v4"/></svg>
-        </button>
-        <button class="send" id="stop" type="button" aria-label="Stopp" hidden>■</button>
-        <button class="send" id="send" type="submit" aria-label="Send">↑</button>
       </div>
     </form>
   </footer>

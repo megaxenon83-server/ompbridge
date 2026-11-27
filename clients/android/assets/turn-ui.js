@@ -34,7 +34,7 @@
     const remaining = tasks.length - completed - abandoned;
     container.dataset.pending = String(remaining > 0);
     const details = element('details');
-    details.open = remaining > 0 && (!sameThread || !wasPending || !previous || previous.open);
+    details.open = previous ? previous.open : false;
     const summary = element('summary');
     const heading = element('span', 'Oppgaver', 'todo-heading');
     const parts = [completed + ' av ' + tasks.length + ' ferdig', remaining + ' gjenstår'];
@@ -700,7 +700,7 @@
     const placed = new Set();
     const append = () => {
       if (index < 0) return;
-      result.push(...cards.filter(card => card.userIndex === index && !placed.has(card.id)).map(card => ({ role: 'turn_changes', card })));
+      result.push(...cards.filter(card => card.files?.length && card.userIndex === index && !placed.has(card.id)).map(card => ({ role: 'turn_changes', card })));
       result.push(...checks.filter(check => check.userIndex === index + 1).map(check => ({ role: 'project_check', check })));
     };
     const seen = new Set();
@@ -713,7 +713,7 @@
       if (item.role === 'tool') {
         const id = item.toolCallId || item.id;
         for (const card of cards) {
-          if (!id || card.anchorToolId !== id || card.userIndex !== index || placed.has(card.id)) continue;
+          if (!id || !card.files?.length || card.anchorToolId !== id || card.userIndex !== index || placed.has(card.id)) continue;
           result.push({ role: 'turn_changes', card });
           placed.add(card.id);
         }

@@ -1,5 +1,5 @@
 #ifndef DesktopVersion
-  #define DesktopVersion "0.8.29"
+  #define DesktopVersion "0.8.30"
 #endif
 #ifndef DesktopPayload
   #define DesktopPayload "..\clients\dist\" + DesktopVersion + "\OMP Desktop"

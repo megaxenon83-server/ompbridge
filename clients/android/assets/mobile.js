@@ -246,12 +246,21 @@ function renderWorkIndicator() {
   const working = activeFile && sessions.some(item => same(item.file, activeFile) && item.activity === 'working');
   const active = submitting || streaming || working || !!activeModelPhase;
   const label = activeModelPhase ? window.ompTurnUI.modelProgress(activeModelPhase) : workPhase || 'OMP arbeider';
-  if ($('workLabel').textContent !== label) $('workLabel').textContent = label;
-  $('generationRow').hidden = !active;
-  const rate = window.ompTurnUI.speedButton(window.ompTurnUI.generation(generationKey()), $('tokenUsage'));
-  const speed = $('generationSpeed');
-  if ((rate?.textContent || '') !== speed.textContent) speed.replaceChildren(...(rate ? [rate] : []));
-  $('workIndicator').classList.toggle('settled', ['ready', 'cloud', 'failed'].includes(activeModelPhase?.phase));
+  const strip = $('workStatus');
+  if (strip) {
+    strip.hidden = !active;
+    if (active) {
+      const rate = window.ompTurnUI.speedButton(window.ompTurnUI.generation(generationKey()), $('tokenUsage'));
+      const sig = label + '|' + (rate?.textContent || '');
+      if (strip.dataset.sig !== sig) {
+        strip.dataset.sig = sig;
+        strip.replaceChildren(node('span', label, { class: 'work-status-text' }), ...(rate ? [rate] : []));
+      }
+      strip.classList.toggle('settled', ['ready', 'cloud', 'failed'].includes(activeModelPhase?.phase));
+    }
+  }
+  const row = $('generationRow');
+  if (row) row.hidden = true;
 }
 
 let chatScroll;
@@ -1304,6 +1313,53 @@ function settingsLink(icon, name, action) {
   return control;
 }
 
+function composerSettings() {
+  const body = sheet('Samtaleinnstillinger');
+
+  const level = $('thinkingLevel');
+  if (level && !level.hidden && level.options.length) {
+    const section = node('section', null, { class: 'composer-sheet-section' });
+    section.append(node('h3', 'Resonnering'));
+    const select = node('select', null, { class: 'sheet-select', 'aria-label': 'Resonneringsnivå' });
+    select.innerHTML = level.innerHTML;
+    select.value = level.value;
+    select.onchange = () => { level.value = select.value; level.dispatchEvent(new Event('change')); };
+    section.append(select);
+    body.append(section);
+  }
+
+  const light = node('section', null, { class: 'composer-sheet-section' });
+  light.append(node('h3', 'Kontekst'));
+  const row = node('label', null, { class: 'skill-switch composer-sheet-switch' });
+  const input = node('input', null, { type: 'checkbox', role: 'switch', class: 'switch-input', 'aria-label': 'Lett kontekst' });
+  input.checked = !!(lightContext ?? currentProfile?.light);
+  const track = node('span', null, { class: 'switch-track' });
+  track.append(node('span', null, { class: 'switch-thumb' }));
+  input.onchange = () => { lightContext = input.checked; render(); };
+  row.append(node('span', 'Lett kontekst', { class: 'skill-switch-label' }), input, track);
+  light.append(row);
+  body.append(light);
+
+  const mode = node('section', null, { class: 'composer-sheet-section' });
+  mode.append(node('h3', 'Arbeidsmodus'));
+  const modeSelect = node('select', null, { class: 'sheet-select', 'aria-label': 'Arbeidsmodus' });
+  for (const [value, label] of [['chat', 'Chat'], ['plan', 'Plan'], ['build', 'Bygg']]) {
+    modeSelect.append(new Option(label, value));
+  }
+  modeSelect.value = chatMode ?? currentProfile?.mode ?? 'build';
+  modeSelect.onchange = () => { chatMode = modeSelect.value; $('chatMode').value = chatMode; render(); };
+  mode.append(modeSelect);
+  body.append(mode);
+
+  const more = node('section', null, { class: 'composer-sheet-section' });
+  more.append(node('h3', 'Utvidelser'),
+    settingsLink('plugins', 'Plugins', () => showSharedWorkspace(true)),
+    settingsLink('resources', 'Skills og verktøy', () => showSharedWorkspace(false)));
+  body.append(more);
+
+  body.append(button('Lukk', () => $('sheet').close(), 'accent'));
+}
+
 function showDeviceSettings() {
   sheet('Enheter').append(window.ompTurnUI.adbPanel({
     read: () => api('/api/adb/status', { identity: bridge.adbIdentity() }),
@@ -1653,6 +1709,7 @@ $('closeDrawer').onclick = $('scrim').onclick = () => showDrawer(false);
 $('topTitle').onclick = showProjects;
 $('computerPicker').onclick = showComputers;
 $('lightContext').onclick = () => { lightContext = !(lightContext ?? currentProfile?.light ?? false); render(); };
+$('composerSettings').onclick = composerSettings;
 $('chatMode').onchange = () => { chatMode = $('chatMode').value; render(); };
 const voiceMode = window.createVoiceMode({
   button: $('voiceMode'), indicator: $('voiceStatus'), language: $('voiceLanguage'),
