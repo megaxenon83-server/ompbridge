@@ -314,7 +314,7 @@ function renderConversation() {
       }
       const card = element('article', null, { class: 'message ' + entry.role });
       card.append(element('small', entry.role === 'user' ? 'Du' : 'Oh My Pi'));
-      turnUI.appendSegments(card, entry, activeId + ':' + (entry.id || index), text => card.append(element('p', text)));
+      turnUI.appendSegments(card, entry, activeId + ':' + (entry.id || index), text => turnUI.markdown(card, text));
       const group = element('div', null, 'chat-turn ' + entry.role);
       const actions = messageActions.row(entry.text, activeId + ':' + (entry.id || entry.clientMessageId || entry.toolCallId || index));
       const time = window.ompLocale.messageTime(entry.timestamp);
@@ -327,9 +327,10 @@ function renderConversation() {
     current.gitFiles === 1 ? '1 fil endret' : current.gitFiles + ' filer endret',
     () => openReview('changes'), { class: 'git-summary' }
   ));
-  if (current.busy || current.modelPhase) {
+  if (current.busy || current.modelPhase || current.modelMetrics) {
     const settled = ['ready', 'cloud', 'failed'].includes(current.modelPhase?.phase);
-    const indicator = element('div', (current.modelPhase && turnUI.modelProgress(current.modelPhase)) || current.workPhase || 'OMP arbeider',
+    const indicator = element('div', turnUI.metricsStatus(current.modelMetrics)
+      || (current.modelPhase && turnUI.modelProgress(current.modelPhase)) || current.workPhase || 'OMP arbeider',
       { class: 'work-indicator' + (settled ? ' settled' : ''), role: 'status' });
     const dots = element('span', '', { class: 'work-dots', 'aria-hidden': 'true' });
     dots.append(element('i', '.'), element('i', '.'), element('i', '.'));
@@ -838,7 +839,11 @@ window.desktop.onEvent(({ id, frame }) => {
       current.busy = true;
       current.remoteBusy = !!frame.remote;
       current.modelPhase = null;
+      current.modelMetrics = null;
       current.workPhase = 'OMP tenker';
+      break;
+    case 'model_metrics':
+      current.modelMetrics = frame;
       break;
     case 'auto_retry_start':
     case 'auto_retry_end': {

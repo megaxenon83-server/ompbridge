@@ -46,7 +46,7 @@ let live = [];
 let streaming = false;
 let workPhase = '';
 let recoveryFailure = '';
-let lightContext;
+let modelMetrics = null;let lightContext;
 let chatMode;
 let currentProfile;
 let submitting = false;
@@ -245,7 +245,8 @@ function generationKey() {
 function renderWorkIndicator() {
   const working = activeFile && sessions.some(item => same(item.file, activeFile) && item.activity === 'working');
   const active = submitting || streaming || working || !!activeModelPhase;
-  const label = activeModelPhase ? window.ompTurnUI.modelProgress(activeModelPhase) : workPhase || 'OMP arbeider';
+  const label = window.ompTurnUI.metricsStatus(modelMetrics)
+    || (activeModelPhase ? window.ompTurnUI.modelProgress(activeModelPhase) : workPhase || 'OMP arbeider');
   const strip = $('workStatus');
   if (strip) {
     strip.hidden = !active;
@@ -343,9 +344,7 @@ function buildRow(item, messageIndex) {
   const entry = node('article', null, { class: 'entry ' + item.role });
   if (item.role === 'assistant') entry.append(node('small', 'Oh My Pi'));
   window.ompTurnUI.appendSegments(entry, item, selection + ':' + (item.id || messageIndex), value => {
-    for (const [index, text] of value.split('\x60\x60\x60').entries()) {
-      if (text) entry.append(node(index % 2 ? 'pre' : 'p', index % 2 ? text.replace(/^[a-z]+\n/i, '') : text));
-    }
+    window.ompTurnUI.markdown(entry, value);
   });
   const group = node('div', null, { class: 'chat-turn ' + item.role });
   group.append(entry);
@@ -1015,6 +1014,7 @@ window.onBridgeEvent = (raw, address) => {
     streaming = true;
     workPhase = 'OMP tenker';
     recoveryFailure = '';
+    modelMetrics = null;
     status('');
   } else if (frame.type === 'agent_end' || frame.type === 'session_settled' || frame.type === 'prompt_result') {
     activeModelPhase = null;
@@ -1073,6 +1073,8 @@ window.onBridgeEvent = (raw, address) => {
     activeModelPhase = frame;
     const feedback = $('sheetBody').querySelector('[data-model-phase]');
     if (feedback) feedback.textContent = window.ompTurnUI.modelProgress(frame);
+  } else if (frame.type === 'model_metrics') {
+    modelMetrics = frame;
   } else return;
   if (frame.type === 'message_delta' || frame.type === 'tool_update' || frame.type === 'tool_stream') {
     const selected = selection;

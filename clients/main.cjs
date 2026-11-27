@@ -497,6 +497,7 @@ function bridgeActivity(frame, stream) {
     case 'auto_retry_start':
     case 'auto_retry_end':
     case 'model_preparing':
+    case 'model_metrics':
     case 'state': return frame;
     default: return null;
   }

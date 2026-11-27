@@ -51,6 +51,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var activeModelName by mutableStateOf("")
         private set
+    var modelMetrics by mutableStateOf<JSONObject?>(null)
+        private set
 
     private val sseClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -316,7 +318,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 stream = stream.copy(active = false, phase = "")
                 if (!streamingId.isBlank()) finalizeStreaming()
             }
+            "model_metrics" -> modelMetrics = frame
         }
+    }
+
+    /** Live status from the model server's own metrics, or empty when it exposes none. */
+    fun metricsLabel(): String {
+        val live = modelMetrics?.optJSONObject("live") ?: return ""
+        val phase = live.optString("phase")
+        val queued = live.optInt("queued", 0)
+        if (phase.contains("think", true) || phase.contains("reason", true)) {
+            val rate = live.optDouble("tok_s", 0.0)
+            return "Resonerer" + if (rate > 0) " · ${rate.toInt()} tok/s" else ""
+        }
+        val total = live.optInt("prompt_total", 0).takeIf { it > 0 } ?: live.optInt("prompt_tokens", 0)
+        val read = live.optInt("prompt_read", 0)
+        if (phase.contains("prefill", true) || phase.contains("prompt", true) || phase.contains("reading", true) || (total > 0 && read > 0 && read < total)) {
+            val percent = if (total > 0) ((read * 100) / total).coerceIn(0, 100) else 0
+            val rate = live.optDouble("prefill_tok_s_mean", 0.0)
+            return "Behandler kontekst ${count(total)}" + (if (percent > 0) " · $percent %" else "") + (if (rate > 0) " · ${rate.toInt()} tok/s" else "")
+        }
+        if (phase.contains("decode", true) || phase.contains("generat", true) || phase.contains("answer", true) || phase.contains("respond", true)) {
+            val rate = live.optDouble("tok_s", 0.0)
+            return "Genererer" + if (rate > 0) " · ${rate.toInt()} tok/s" else ""
+        }
+        if (queued > 0) return "I kø · $queued"
+        val reused = live.optInt("reused", 0).takeIf { it > 0 } ?: (modelMetrics?.optJSONObject("request")?.optInt("reused", 0) ?: 0)
+        if (reused > 0) {
+            val tokens = live.optInt("prompt_tokens", 0).takeIf { it > 0 } ?: (modelMetrics?.optJSONObject("request")?.optInt("prompt_tokens", 0) ?: 0)
+            val percent = if (tokens > 0) ((reused * 100) / tokens).coerceIn(0, 100) else 0
+            return "Cache · ${count(reused)}" + (if (percent > 0) " · $percent %" else "")
+        }
+        return ""
+    }
+
+    private fun count(value: Int): String = when {
+        value >= 1_000_000 -> "%.1fM".format(value / 1_000_000.0).replace(".0M", "M")
+        value >= 10_000 -> "${value / 1000}K"
+        else -> value.toString()
     }
 
     private fun phaseFor(tool: String): String = when (tool) {
@@ -363,6 +402,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val optimistic = Entry(id = "local-" + System.currentTimeMillis(), role = "user", text = text, timestamp = System.currentTimeMillis())
         messages = messages + optimistic
         busy = true
+        modelMetrics = null
         stream = StreamState(active = true, phase = "Klargjør OMP")
         viewModelScope.launch {
             runCatching {

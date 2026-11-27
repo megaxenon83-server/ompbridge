@@ -516,21 +516,194 @@
   }
 
   const openThinking = new Set();
+  const closedThinking = new Set();
   function appendSegments(container, entry, key, appendText) {
     const segments = entry.segments?.length ? entry.segments : [{ type: 'text', text: entry.text }];
+    const streaming = !entry.done;
     for (const [index, block] of segments.entries()) {
       if (!block.text) continue;
       if (block.type !== 'thinking') { appendText(block.text); continue; }
       const id = key + ':' + index;
       const details = element('details', null, 'message-thinking');
-      details.open = openThinking.has(id);
+      // Open while the model is still reasoning so the text is visible as it
+      // streams, unless the user closed it on purpose.
+      details.open = openThinking.has(id) || (streaming && !closedThinking.has(id));
       details.ontoggle = () => {
-        if (details.open) openThinking.add(id);
-        else openThinking.delete(id);
+        if (details.open) { openThinking.add(id); closedThinking.delete(id); }
+        else { openThinking.delete(id); closedThinking.add(id); }
       };
-      details.append(element('summary', window.ompLocale?.translate('Resonnering') || 'Resonnering'), element('pre', block.text));
+      const label = window.ompLocale?.translate('Resonnering') || 'Resonnering';
+      const count = streaming ? ' · ' + formatCount(block.text.length) + ' tegn' : '';
+      details.append(element('summary', label + count), element('pre', block.text));
       container.append(details);
     }
+  }
+
+  function formatCount(value) {
+    const number = Number(value) || 0;
+    if (number >= 1e6) return (number / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (number >= 1e4) return Math.round(number / 1000) + 'K';
+    return String(number);
+  }
+
+  // Compact status from the model server's own live metrics (prefill, queue,
+  // cache reuse, generation). Empty when the server reports nothing.
+  function metricsStatus(metrics) {
+    const live = metrics?.live;
+    if (!live) return '';
+    const translate = (text) => window.ompLocale?.translate(text) || text;
+    const queued = Number(live.queued) || 0;
+    const total = Number(live.prompt_total) || Number(live.prompt_tokens) || 0;
+    const read = Number(live.prompt_read) || 0;
+    const phase = String(live.phase || '');
+    if (/think|reason/i.test(phase)) {
+      const rate = Number(live.tok_s) || Number(live.tok_s_mean) || 0;
+      return translate('Resonerer') + (rate ? ' · ' + Math.round(rate) + ' tok/s' : '');
+    }
+    if (/prefill|prompt|reading/i.test(phase) || (total > 0 && read > 0 && read < total)) {
+      const percent = total ? Math.min(100, Math.round((read / total) * 100)) : 0;
+      const rate = Number(live.prefill_tok_s_mean) || 0;
+      const elapsed = Number(live.elapsed_s) || 0;
+      return translate('Behandler kontekst') + ' ' + formatCount(total)
+        + (percent ? ' · ' + percent + ' %' : '')
+        + (rate ? ' · ' + Math.round(rate) + ' tok/s' : '')
+        + (elapsed > 0 && !rate ? ' · ' + Math.round(elapsed) + ' s' : '');
+    }
+    if (/decode|generat|answer|respond|writ/i.test(phase)) {
+      const rate = Number(live.tok_s) || Number(live.tok_s_mean) || 0;
+      const generated = Number(live.generated) || 0;
+      return translate('Genererer') + (rate ? ' · ' + Math.round(rate) + ' tok/s' : '')
+        + (generated ? ' · ' + formatCount(generated) + ' tokens' : '');
+    }
+    if (queued > 0) return translate('I kø') + ' · ' + queued;
+    const reused = Number(live.reused ?? metrics?.request?.reused) || 0;
+    if (reused > 0) {
+      const tokens = Number(live.prompt_tokens ?? metrics?.request?.prompt_tokens) || 0;
+      const percent = tokens ? Math.round((reused / tokens) * 100) : 0;
+      return translate('Cache') + ' · ' + formatCount(reused) + (percent ? ' · ' + percent + ' %' : '');
+    }
+    return '';
+  }
+
+  function inlineInto(container, text) {
+    const lines = String(text ?? '').split('\n');
+    lines.forEach((line, lineIndex) => {
+      if (lineIndex > 0) container.append(document.createElement('br'));
+      const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\([^)\s]+\))/g;
+      let last = 0;
+      let match;
+      while ((match = pattern.exec(line))) {
+        if (match.index > last) container.append(document.createTextNode(line.slice(last, match.index)));
+        const token = match[0];
+        if (token[0] === '`') container.append(element('code', token.slice(1, -1)));
+        else if (token.startsWith('**')) container.append(element('strong', token.slice(2, -2)));
+        else if (token[0] === '*') container.append(element('em', token.slice(1, -1)));
+        else {
+          const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
+          if (link && /^(https?:|mailto:)/i.test(link[2])) {
+            const anchor = element('a', link[1]);
+            anchor.href = link[2];
+            anchor.target = '_blank';
+            anchor.rel = 'noreferrer noopener';
+            container.append(anchor);
+          } else container.append(document.createTextNode(token));
+        }
+        last = pattern.lastIndex;
+      }
+      if (last < line.length) container.append(document.createTextNode(line.slice(last)));
+    });
+  }
+
+  // Small, allocation-light Markdown renderer for chat answers. It handles
+  // fences (including an unclosed one while streaming), headings, lists,
+  // quotes, inline code, bold/italic and links, and never injects raw HTML.
+  function markdown(container, text) {
+    const source = String(text ?? '').replace(/\r\n/g, '\n');
+    if (!source.trim()) return;
+    const lines = source.split('\n');
+    let index = 0;
+    let paragraph = [];
+    const flushParagraph = () => {
+      if (!paragraph.length) return;
+      const block = element('p');
+      inlineInto(block, paragraph.join('\n'));
+      container.append(block);
+      paragraph = [];
+    };
+    while (index < lines.length) {
+      const line = lines[index];
+      const fence = /^```([\w+-]*)\s*$/.exec(line);
+      if (fence) {
+        flushParagraph();
+        const code = [];
+        index++;
+        while (index < lines.length && !/^```\s*$/.test(lines[index])) { code.push(lines[index]); index++; }
+        index++;
+        const pre = element('pre');
+        pre.append(element('code', code.join('\n')));
+        if (fence[1]) pre.dataset.language = fence[1];
+        container.append(pre);
+        continue;
+      }
+      if (!line.trim()) { flushParagraph(); index++; continue; }
+      const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+      if (heading) {
+        flushParagraph();
+        const block = element('p', null, 'md-heading');
+        inlineInto(block, heading[2]);
+        container.append(block);
+        index++;
+        continue;
+      }
+      const quote = /^>\s?(.*)$/.exec(line);
+      if (quote) {
+        flushParagraph();
+        const quoted = [];
+        while (index < lines.length) {
+          const match = /^>\s?(.*)$/.exec(lines[index]);
+          if (!match) break;
+          quoted.push(match[1]);
+          index++;
+        }
+        const block = element('blockquote');
+        inlineInto(block, quoted.join('\n'));
+        container.append(block);
+        continue;
+      }
+      const bullet = /^[-*+]\s+(.+)$/.exec(line);
+      if (bullet) {
+        flushParagraph();
+        const list = element('ul');
+        while (index < lines.length) {
+          const match = /^[-*+]\s+(.+)$/.exec(lines[index]);
+          if (!match) break;
+          const item = element('li');
+          inlineInto(item, match[1]);
+          list.append(item);
+          index++;
+        }
+        container.append(list);
+        continue;
+      }
+      const ordered = /^(\d+)[.)]\s+(.+)$/.exec(line);
+      if (ordered) {
+        flushParagraph();
+        const list = element('ol');
+        while (index < lines.length) {
+          const match = /^(\d+)[.)]\s+(.+)$/.exec(lines[index]);
+          if (!match) break;
+          const item = element('li');
+          inlineInto(item, match[2]);
+          list.append(item);
+          index++;
+        }
+        container.append(list);
+        continue;
+      }
+      paragraph.push(line);
+      index++;
+    }
+    flushParagraph();
   }
 
   function scrollEntryKey(entry, index) {
@@ -830,5 +1003,5 @@
     return (labels[frame.phase] || (frame.queued ? 'Venter på ledig GPU-minne' : 'Klargjør lokal modell')) + name;
   }
 
-  window.ompTurnUI = { conversationScroll, scrollEntryKey, syncRows, renderKey, recoveryStatus, thinkingChoice, thinkingRequest, todo, timeline, card, diff, messageActions, iconButton, adbPanel, pluginTest, skillControls, tokenUsage, usageTotals, machinePanel, modelProgress, sameMessage, userEcho, messageId, segmentsOf, appendSegments, generation, speedButton, generationDetails };
+  window.ompTurnUI = { conversationScroll, scrollEntryKey, syncRows, renderKey, recoveryStatus, thinkingChoice, thinkingRequest, todo, timeline, card, diff, messageActions, iconButton, adbPanel, pluginTest, skillControls, tokenUsage, usageTotals, machinePanel, modelProgress, sameMessage, userEcho, messageId, segmentsOf, appendSegments, markdown, metricsStatus, formatCount, generation, speedButton, generationDetails };
 })();

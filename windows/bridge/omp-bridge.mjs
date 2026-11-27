@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.64";
+const VERSION = "2.9.65";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -1206,10 +1206,12 @@ class OmpRuntime {
     if (frame.type === "agent_start") {
       this.working = true;
       this.modelPhase = null;
+      this.startModelMetrics();
     }
     if (frame.type === "agent_end" || frame.type === "prompt_result" || frame.type === "session_settled") {
       this.working = false;
       this.clientMessageId = undefined;
+      this.stopModelMetrics();
       releaseRuntimeGpu(this);
       this.promptTiming = null;
       finishTurn(this);
@@ -1568,6 +1570,83 @@ class OmpRuntime {
     globalBroadcast(payload);
   }
 
+  /**
+   * Forward the local model server's own live metrics while a turn runs, so the
+   * clients can show prefill/context progress, cache reuse and tok/s instead of
+   * a generic "thinking" label. Reads the server the bridge already manages; if
+   * it exposes no /metrics the poll simply stays silent.
+   */
+  startModelMetrics() {
+    this.stopModelMetrics();
+    if (process.env.OMPCHAT_BRIDGE_METRICS === "0") return;
+    const resident = localModels.readResident();
+    if (!resident?.origin || !resident.id) return;
+    const model = this.state?.model;
+    if (model?.id && model.id !== resident.id) return;
+    let last = "";
+    const poll = async () => {
+      try {
+        // Only report the model this runtime is actually using, so a
+        // concurrently running conversation cannot inherit another model's
+        // numbers.
+        const current = this.state?.model;
+        if (current?.id && current.id !== resident.id) return;
+        const response = await fetch(resident.origin + "/metrics", { signal: AbortSignal.timeout(2500) });
+        if (!response.ok) return;
+        const data = await response.json();
+        const live = data?.live || {};
+        const request = Array.isArray(data?.requests) ? data.requests[0] : null;
+        const cache = data?.conversation_cache || {};
+        const payload = {
+          type: "model_metrics",
+          cwd: this.cwd,
+          sessionFile: this.sessionFile,
+          engine: resident.mode || resident.engine || "llama.cpp",
+          live: {
+            state: live.state ?? null,
+            phase: live.phase ?? null,
+            queued: live.queued ?? 0,
+            prompt_tokens: live.prompt_tokens ?? null,
+            prompt_read: live.prompt_read ?? null,
+            prompt_total: live.prompt_total ?? null,
+            generated: live.generated ?? null,
+            max_tokens: live.max_tokens ?? null,
+            elapsed_s: live.elapsed_s ?? null,
+            tok_s: live.tok_s ?? null,
+            tok_s_mean: live.tok_s_mean ?? null,
+            prefill_tok_s_mean: live.prefill_tok_s_mean ?? null,
+            reused: live.reused ?? null,
+          },
+          request: request ? {
+            prompt_tokens: request.prompt_tokens ?? null,
+            reused: request.reused ?? null,
+            prompt_ms: request.prompt_ms ?? null,
+            decode_ms: request.decode_ms ?? null,
+            first_engine_token_s: request.first_engine_token_s ?? null,
+            hit_rate: request.hit_rate ?? null,
+            duration_s: request.duration_s ?? null,
+          } : null,
+          cache: { parked: cache.parked ?? 0, bytes: cache.bytes ?? 0, evictions: cache.evictions ?? 0, restores: cache.restores ?? 0 },
+        };
+        const signature = JSON.stringify([payload.live, payload.request, payload.cache]);
+        if (signature === last) return;
+        last = signature;
+        this.broadcast(payload);
+      } catch {
+        // The model server has no metrics endpoint; nothing to forward.
+      }
+    };
+    this.modelMetricsTimer = setInterval(poll, 1000);
+    void poll();
+  }
+
+  stopModelMetrics() {
+    if (this.modelMetricsTimer) {
+      clearInterval(this.modelMetricsTimer);
+      this.modelMetricsTimer = null;
+    }
+  }
+
   subscribe(fn) {
     this.subscribers.add(fn);
     return () => this.subscribers.delete(fn);
@@ -1576,6 +1655,7 @@ class OmpRuntime {
   async stop() {
     this.subscribers.clear();
     this.working = false;
+    this.stopModelMetrics();
     if (this.modelPreparation) this.modelPreparation.cancelled = true;
     if (!this.child) return;
     try {

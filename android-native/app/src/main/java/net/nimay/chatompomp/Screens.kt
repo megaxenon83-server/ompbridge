@@ -327,20 +327,22 @@ private fun EntryRow(entry: Entry) {
         else -> Column(Modifier.fillMaxWidth()) {
             if (entry.thinking.isNotBlank()) {
                 var expanded by remember { mutableStateOf(false) }
+                val showThinking = expanded || entry.streaming
                 Text(
-                    if (expanded) "Skjul resonnering" else "Vis resonnering",
+                    if (entry.streaming) "Resonnering · ${entry.thinking.length} tegn"
+                    else if (expanded) "Skjul resonnering" else "Vis resonnering",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp),
                 )
-                if (expanded) {
+                if (showThinking) {
                     Text(entry.thinking, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.clip(RoundedCornerShape(10.dp))
                             .background(MaterialTheme.colorScheme.surface).padding(10.dp).fillMaxWidth())
                 }
             }
-            Text(entry.text, color = MaterialTheme.colorScheme.onBackground)
+            MarkdownText(entry.text)
             if (entry.streaming) {
                 Text("▍", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
@@ -390,16 +392,19 @@ private fun ComposerBar(vm: AppViewModel) {
     val keyboard = LocalSoftwareKeyboardController.current
 
     Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 10.dp, vertical = 4.dp)) {
-        if (vm.stream.active) {
+        val metrics = vm.metricsLabel()
+        if (vm.stream.active || metrics.isNotBlank()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(vm.stream.phase.ifBlank { "OMP arbeider" }, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (vm.stream.tokensPerSecond > 0) {
+                Text(metrics.ifBlank { vm.stream.phase.ifBlank { "OMP arbeider" } },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1)
+                if (metrics.isBlank() && vm.stream.tokensPerSecond > 0) {
                     Spacer(Modifier.width(8.dp))
                     Text("${vm.stream.tokensPerSecond.toInt()} tok/s", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
