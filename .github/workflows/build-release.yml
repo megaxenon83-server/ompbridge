@@ -73,8 +73,13 @@ jobs:
       - name: Install Android platform + build-tools
         shell: pwsh
         run: |
-          "y" | sdkmanager --licenses | Out-Host
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" | Out-Host
+          $sdk = $env:ANDROID_HOME
+          $sdkmanager = "$sdk\cmdline-tools\latest\bin\sdkmanager.bat"
+          (1..30 | ForEach-Object { 'y' }) | & $sdkmanager --sdk_root="$sdk" --licenses | Out-Host
+          & $sdkmanager --sdk_root="$sdk" 'platforms;android-35' 'build-tools;35.0.0'
+          if ($LASTEXITCODE -ne 0) { throw 'sdkmanager failed to install android-35' }
+          if (-not (Test-Path "$sdk\platforms\android-35\android.jar")) { throw 'android-35 platform missing after sdkmanager' }
+          if (-not (Test-Path "$sdk\build-tools\35.0.0\aapt2.exe")) { throw 'build-tools 35.0.0 missing after sdkmanager' }
 
       - name: Restore Chat OMP OMP signing keystore
         id: keystore
@@ -161,11 +166,8 @@ jobs:
           Write-Host "Electron: $((Get-Item 'node_modules\electron\dist\electron.exe').FullName)"
 
       - name: Build portable Desktop ZIP
-        shell: pwsh
-        run: |
-          node clients/scripts/build.cjs
-          $zip = (Get-ChildItem 'clients\dist' -Recurse -Filter 'OMP-Desktop-*-win-x64.zip' | Select-Object -First 1).FullName
-          Write-Host "Built $zip"
+        working-directory: clients
+        run: npm run build
 
       - name: Ensure Inno Setup
         shell: pwsh
