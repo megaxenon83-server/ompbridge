@@ -1,6 +1,6 @@
 #requires -version 5.1
 <#
-  PolyStrata compatibility for OMP Bridge 2.9.66.
+  PolyStrata compatibility for OMP Bridge 2.9.67.
 
   Finds a PolyStrata source tree, verifies that it contains the /v1/cancel fix, and applies the
   version-controlled patch when it does not.  Exits non-zero when the tree cannot be brought to a
@@ -176,7 +176,7 @@ function Get-NewServerText([string]$Text) {
 }
 
 function Backup-Server([string]$Server) {
-    $backup = $Server + ".omp-bak-2.9.66"
+    $backup = $Server + ".omp-bak-2.9.67"
     if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $Server -Destination $backup }
     return $backup
 }
@@ -185,7 +185,7 @@ try {
     if (-not $LogFile) { $LogFile = Join-Path ([IO.Path]::GetTempPath()) "polystrata-compat.log" }
     if (-not $ErrorFile) { $ErrorFile = Join-Path ([IO.Path]::GetTempPath()) "polystrata-compat-error.txt" }
     Clear-Error
-    Write-Log "PolyStrata compatibility check for OMP Bridge 2.9.66"
+    Write-Log "PolyStrata compatibility check for OMP Bridge 2.9.67"
 
     $root = Resolve-PolyStrata $PolyStrataDir
     if (-not $root) {
@@ -267,7 +267,7 @@ try {
 
     Test-RunningServer $RuntimeUrl
     Clear-Error
-    Write-Log "PolyStrata is compatible with OMP Bridge 2.9.66."
+    Write-Log "PolyStrata is compatible with OMP Bridge 2.9.67."
     exit 0
 } catch {
     Fail 3 ("Unexpected error: " + $_.Exception.Message)
