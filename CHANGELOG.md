@@ -1,5 +1,20 @@
 # Changelog
 
+## Bridge 2.9.88 / Desktop 0.8.45 / Android 1.0.18 — Fase 16a: Rutiner
+
+- Bridge: new `POST /api/device/action` endpoint that reuses the ADB device-control
+  commands behind OMP's `omp_device` tool (`open`, `tap`, `type`, `key`, `screen`,
+  `apps`, `check`, `foreground`). Nothing else in the bridge changed.
+- Android: new «Rutiner» screen in the drawer. Create routines with plain-language
+  steps — open app, open URL, tap by text or by a point picked on a live screenshot,
+  type, key, wait, check — stored as JSON on the phone.
+- Android: Test runs every step with a big STOPP overlay, plus a STOPP action in a
+  notification so a routine can be stopped while another app is in front.
+- Android: template «Stemple inn» (no real secrets in this phase); a failing step
+  stops the routine with a clear message and the last result is kept per routine.
+- Verified on the emulator: «Åpne app» opened Settings, STOPP cancelled a running
+  routine immediately, and a failing check stopped with «Fant ikke … på skjermen.»
+
 ## OMP Suite 0.3.0 — Fase 1: native Android app
 
 - New native Jetpack Compose app in `android-native/` (package `net.nimay.chatompomp.native`, preview) shipped alongside the stable WebView app.

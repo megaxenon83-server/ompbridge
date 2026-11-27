@@ -62,6 +62,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(Notifications.EXTRA_STOP_ROUTINE, false) == true) {
+            vm.stopRoutine()
+            intent.removeExtra(Notifications.EXTRA_STOP_ROUTINE)
+        }
         val data = intent?.data?.toString() ?: return
         if (data.startsWith("chatomp://pair/")) pendingLink = data
     }

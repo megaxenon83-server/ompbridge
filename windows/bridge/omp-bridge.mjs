@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.87";
+const VERSION = "2.9.88";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -2254,6 +2254,189 @@ function rateLimited(req) {
 }
 
 // ---------------------------------------------------------------------------
+// Enhetshandlinger for Rutiner (fase 16a): de samme ADB-kommandoene som
+// workspace-extension.mjs bruker for OMP-verktøyet omp_device, eksponert over
+// HTTP slik at appen kan kjøre rutiner uten å gå via OMP.
+// ---------------------------------------------------------------------------
+
+const DEVICE_KEYS = {
+  enter: "66", escape: "111", tab: "61", up: "19", down: "20", left: "21", right: "22",
+  backspace: "67", delete: "67", back: "4", home: "3", space: "62", power: "26", recent: "187",
+};
+const DEVICE_PACKAGE = /^[a-zA-Z][a-zA-Z\d_]*(?:\.[a-zA-Z][a-zA-Z\d_]*)+$/;
+const DEVICE_COMPONENT = /^[a-zA-Z][\w.]+\/[\w.$]+$/;
+const DEVICE_LAUNCH = ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"];
+let deviceHandle = null;
+
+async function deviceForAction() {
+  // Rutiner kan ha mange steg; ikke kjør `adb devices` for hvert eneste.
+  if (!deviceHandle || Date.now() - deviceHandle.at > 10000) {
+    const handle = await adb.device();
+    deviceHandle = { at: Date.now(), serial: handle.serial, run: handle.run };
+  }
+  return deviceHandle;
+}
+
+function deviceWords(value, max = 200) {
+  const text = String(value ?? "").trim();
+  if (!text) throw new Error("Mangler tekst.");
+  if (text.length > max) throw new Error(`For lang tekst (maks ${max} tegn).`);
+  return text;
+}
+
+function deviceXmlText(value) {
+  return String(value || "")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&apos;", "'")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
+}
+
+async function deviceUiNodes(device) {
+  const file = "/sdcard/_omp_ui.xml";
+  await device.run(["shell", "uiautomator", "dump", file], { timeout: 20000 });
+  const { stdout } = await device.run(["shell", "cat", file], { timeout: 15000, maxBuffer: 8 * 1024 * 1024 });
+  const nodes = [];
+  for (const tag of stdout.match(/<node\b[^>]*>/g) || []) {
+    const attr = (name) => new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
+    const bounds = /bounds="\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]"/.exec(tag);
+    if (!bounds) continue;
+    nodes.push({
+      text: deviceXmlText(attr("text")),
+      desc: deviceXmlText(attr("content-desc")),
+      cls: attr("class") || "",
+      clickable: attr("clickable") === "true",
+      x1: Number(bounds[1]), y1: Number(bounds[2]),
+      x2: Number(bounds[3]), y2: Number(bounds[4]),
+    });
+  }
+  return nodes;
+}
+
+function deviceFindNode(nodes, query) {
+  const needle = query.toLowerCase();
+  const label = (node) => `${node.text} ${node.desc}`.trim().toLowerCase();
+  const text = (node) => (node.text || "").toLowerCase();
+  const desc = (node) => (node.desc || "").toLowerCase();
+  return nodes.find((node) => text(node) === needle)
+    || nodes.find((node) => desc(node) === needle)
+    || nodes.find((node) => text(node).includes(needle))
+    || nodes.find((node) => desc(node).includes(needle))
+    || nodes.find((node) => label(node).includes(needle));
+}
+
+async function deviceAction(input) {
+  if ((input.device || "android") !== "android") throw new Error("Bare Android støttes av dette endepunktet.");
+  const action = String(input.action || "").trim();
+  const device = await deviceForAction();
+  const result = { ok: true, device: device.serial, action };
+
+  if (action === "screen") {
+    const { stdout } = await device.run(["exec-out", "screencap", "-p"], { encoding: "buffer" });
+    if (stdout.length < 24 || stdout.readUInt32BE(0) !== 0x89504e47) throw new Error("Android gav ikke et skjermbilde.");
+    return {
+      ...result,
+      image: stdout.toString("base64"),
+      width: stdout.readUInt32BE(16),
+      height: stdout.readUInt32BE(20),
+    };
+  }
+
+  if (action === "apps") {
+    const { stdout } = await device.run(["shell", "cmd", "package", "query-activities", "--brief", ...DEVICE_LAUNCH]);
+    const apps = [...new Set(stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => DEVICE_COMPONENT.test(line))
+      .map((line) => line.split("/")[0]))].sort();
+    return { ...result, apps };
+  }
+
+  if (action === "open") {
+    const target = String(input.package || "").trim();
+    const url = String(input.url || "").trim();
+    if (target) {
+      if (!DEVICE_PACKAGE.test(target)) throw new Error("Ugyldig package-navn.");
+      const { stdout } = await device.run(["shell", "cmd", "package", "resolve-activity", "--brief", ...DEVICE_LAUNCH, target]);
+      const component = stdout.trim().split(/\r?\n/).at(-1);
+      if (!DEVICE_COMPONENT.test(component) || !component.startsWith(target + "/")) {
+        throw new Error("Fant ingen startaktivitet for " + target);
+      }
+      const started = await device.run(["shell", "am", "start", "-W", "-n", component]);
+      if (/^Error\b/m.test(started.stdout) || !/Status: ok/.test(started.stdout)) {
+        throw new Error("Android bekreftet ikke at appen åpnet.");
+      }
+      return { ...result, opened: target, component };
+    }
+    if (url) {
+      if (!/^https?:\/\/[^\s]+$/i.test(url) || url.length > 2000) throw new Error("Ugyldig nettadresse.");
+      const started = await device.run(["shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", url]);
+      if (/^Error\b/m.test(started.stdout)) throw new Error("Android avviste nettadressen.");
+      return { ...result, opened: url };
+    }
+    throw new Error("Handlingen «open» trenger package eller url.");
+  }
+
+  if (action === "tap") {
+    const hasPoint = Number.isFinite(Number(input.x)) && Number.isFinite(Number(input.y));
+    if (hasPoint) {
+      const x = Number(input.x);
+      const y = Number(input.y);
+      if (x < 0 || x >= 1 || y < 0 || y >= 1) throw new Error("Punktet må være relativt (0–1).");
+      const { stdout } = await device.run(["exec-out", "screencap", "-p"], { encoding: "buffer" });
+      if (stdout.length < 24) throw new Error("Android gav ikke et skjermbilde.");
+      const px = Math.floor(x * stdout.readUInt32BE(16));
+      const py = Math.floor(y * stdout.readUInt32BE(20));
+      await device.run(["shell", "input", "tap", String(px), String(py)]);
+      return { ...result, x: px, y: py };
+    }
+    const query = deviceWords(input.text);
+    const nodes = await deviceUiNodes(device);
+    const node = deviceFindNode(nodes, query);
+    if (!node) throw new Error(`Fant ikke «${query}» på skjermen.`);
+    const x = Math.round((node.x1 + node.x2) / 2);
+    const y = Math.round((node.y1 + node.y2) / 2);
+    await device.run(["shell", "input", "tap", String(x), String(y)]);
+    return { ...result, tapped: node.text || node.desc, x, y };
+  }
+
+  if (action === "type") {
+    const text = deviceWords(input.text, 500);
+    if (!/^[a-z0-9 _.,@!?+-]+$/i.test(text)) {
+      throw new Error("Android-inndata støtter bokstaver A–Z, tall og enkel tegnsetting.");
+    }
+    await device.run(["shell", "input", "text", text.replaceAll(" ", "%s")]);
+    return { ...result, typed: text.length };
+  }
+
+  if (action === "key") {
+    const key = String(input.key || "").trim().toLowerCase();
+    if (!Object.hasOwn(DEVICE_KEYS, key)) throw new Error("Ukjent tast: " + key);
+    await device.run(["shell", "input", "keyevent", DEVICE_KEYS[key]]);
+    return { ...result, key };
+  }
+
+  if (action === "check") {
+    const query = deviceWords(input.text);
+    const nodes = await deviceUiNodes(device);
+    const needle = query.toLowerCase();
+    const matches = nodes
+      .filter((node) => `${node.text} ${node.desc}`.toLowerCase().includes(needle))
+      .map((node) => node.text || node.desc)
+      .filter(Boolean)
+      .slice(0, 5);
+    return { ...result, found: matches.length > 0, query, matches };
+  }
+
+  if (action === "foreground") {
+    const { stdout } = await device.run(["shell", "dumpsys", "window"]);
+    const focus = /mCurrentFocus=([^\r\n]+)/.exec(stdout)?.[1]?.trim() || "";
+    return { ...result, title: focus };
+  }
+
+  throw new Error("Ukjent handling: " + (action || "(tom)"));
+}
+
+// ---------------------------------------------------------------------------
 // HTTP routes
 // ---------------------------------------------------------------------------
 
@@ -3353,6 +3536,17 @@ async function handle(req, res) {
         return json(res, 200, await adb.status(url.searchParams.get("identity")));
       case "POST /api/adb/install":
         return json(res, 200, await adb.install());
+
+      // Rutiner (fase 16a): samme ADB-handlinger som OMP-verktøyet omp_device,
+      // men over HTTP slik at appen kan kjøre dem uten OMP.
+      case "POST /api/device/action": {
+        const body = await readBody(req);
+        try {
+          return json(res, 200, await deviceAction(body));
+        } catch (error) {
+          return json(res, 400, { error: error.message });
+        }
+      }
 
       case "GET /api/omp/workspace/resources":
       case "POST /api/omp/workspace/resources":

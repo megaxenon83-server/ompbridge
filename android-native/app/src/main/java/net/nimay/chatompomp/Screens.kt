@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Send
@@ -205,6 +206,8 @@ fun MainApp(vm: AppViewModel) {
     var screen by remember { mutableStateOf("chat") }
     LaunchedEffect(Unit) { vm.refresh() }
     vm.approval?.let { ApprovalDialog(vm, it) }
+    // Rutiner (fase 16a): overlegget ligger over alle skjermer, også verktøyene.
+    vm.routineRun?.let { RoutineRunOverlay(vm, it) }
     vm.diffText?.let { text ->
         DiffScreen(vm.diffTitle, text) { vm.closeDiff() }
         return
@@ -212,6 +215,17 @@ fun MainApp(vm: AppViewModel) {
 
 
     when (screen) {
+        "routines" -> {
+            RoutinesScreen(vm, onBack = { screen = "chat" }, onOpen = { id ->
+                vm.openRoutine(id)
+                screen = "routine"
+            })
+            return
+        }
+        "routine" -> {
+            RoutineDetailScreen(vm, onBack = { screen = "routines" })
+            return
+        }
         "plugins" -> { PluginsScreen(vm, onBack = { screen = "chat" }); return }
         "projects" -> { ProjectsScreen(vm, onBack = { screen = "chat" }); return }
         "providers" -> { ProvidersScreen(vm, onBack = { screen = "chat" }); return }
@@ -527,6 +541,7 @@ private fun DrawerContent(
         }
         HorizontalDivider(Modifier.padding(top = 4.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            SidebarIcon(Icons.Filled.PlayCircle, "Rutiner") { onOpenScreen("routines") }
             SidebarIcon(Icons.Filled.Folder, "Filer") { onOpenScreen("files") }
             SidebarIcon(Icons.Filled.AccountTree, "Git") { onOpenScreen("git") }
             SidebarIcon(Icons.Filled.Terminal, "Terminal") { onOpenScreen("terminal") }

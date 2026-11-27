@@ -1,13 +1,16 @@
 package net.nimay.chatompomp
 
 import android.app.Application
+import android.graphics.Bitmap
 import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -19,6 +22,7 @@ import okhttp3.sse.EventSources
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -129,10 +133,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var bridgeVersion by mutableStateOf("")
         private set
+
+    // ---------------------------------------------------------------- rutiner
+
+    private val routineStore = RoutineStore(app)
+    var routines by mutableStateOf<List<Routine>>(emptyList())
+        private set
+    var activeRoutineId by mutableStateOf("")
+        private set
+    var routineRun by mutableStateOf<RoutineRunState?>(null)
+        private set
+    var routineScreen by mutableStateOf<Bitmap?>(null)
+        private set
+    var deviceApps by mutableStateOf<List<String>>(emptyList())
+        private set
+    var routineNotice by mutableStateOf("")
+        private set
+    private var routineJob: Job? = null
+
+    val activeRoutine: Routine?
+        get() = routines.firstOrNull { it.id == activeRoutineId }
+
     init {
         themeId = bridge.loadThemeId()
         lang = runCatching { AppLang.valueOf(bridge.loadLang()) }.getOrDefault(AppLang.NB)
         pinned = bridge.pinnedFiles()
+        routines = routineStore.load()
         checkUpdate()
     }
     var activeModelName by mutableStateOf("")
@@ -1056,6 +1082,208 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         terminalSocket = null
         terminalRunning = false
     }
+    // ---------------------------------------------------------------- rutiner
+
+    fun openRoutine(id: String) {
+        activeRoutineId = id
+    }
+
+    fun createRoutine(name: String): String {
+        val routine = Routine(id = UUID.randomUUID().toString(), name = name.ifBlank { "Ny rutine" })
+        routines = routines + routine
+        routineStore.save(routines)
+        activeRoutineId = routine.id
+        return routine.id
+    }
+
+    fun addTemplate() {
+        if (routines.any { it.name == "Stemple inn" }) return
+        routines = routines + stempleInnTemplate()
+        routineStore.save(routines)
+        routineNotice = "Malen «Stemple inn» er lagt til."
+    }
+
+    fun renameRoutine(id: String, name: String) {
+        if (name.isBlank()) return
+        updateRoutine(id) { it.copy(name = name.trim()) }
+    }
+
+    fun deleteRoutine(id: String) {
+        routines = routines.filterNot { it.id == id }
+        routineStore.save(routines)
+        if (activeRoutineId == id) activeRoutineId = ""
+    }
+
+    fun addStep(routineId: String, step: RoutineStep) {
+        updateRoutine(routineId) { it.copy(steps = it.steps + step) }
+    }
+
+    fun updateStep(routineId: String, index: Int, step: RoutineStep) {
+        updateRoutine(routineId) { routine ->
+            if (index !in routine.steps.indices) {
+                routine
+            } else {
+                routine.copy(steps = routine.steps.toMutableList().also { it[index] = step })
+            }
+        }
+    }
+
+    fun deleteStep(routineId: String, index: Int) {
+        updateRoutine(routineId) { routine ->
+            if (index !in routine.steps.indices) routine else routine.copy(steps = routine.steps.filterIndexed { at, _ -> at != index })
+        }
+    }
+
+    fun moveStep(routineId: String, index: Int, delta: Int) {
+        updateRoutine(routineId) { routine ->
+            val target = index + delta
+            if (index !in routine.steps.indices || target !in routine.steps.indices) {
+                routine
+            } else {
+                val steps = routine.steps.toMutableList()
+                val moved = steps.removeAt(index)
+                steps.add(target, moved)
+                routine.copy(steps = steps)
+            }
+        }
+    }
+
+    private fun updateRoutine(id: String, block: (Routine) -> Routine) {
+        routines = routines.map { if (it.id == id) block(it) else it }
+        routineStore.save(routines)
+    }
+
+    /** Runs the routine step by step; STOPP cancels the job between (and during) steps. */
+    fun startRoutine(routine: Routine) {
+        if (routineJob?.isActive == true) return
+        if (routine.steps.isEmpty()) {
+            routineNotice = "Rutinen «${routine.name}» har ingen steg ennå."
+            return
+        }
+        routineNotice = ""
+        routineRun = RoutineRunState(routine.name, routine.steps.size, 0, "Starter …", running = true)
+        updateRoutineNotification()
+        routineJob = viewModelScope.launch {
+            try {
+                for ((index, step) in routine.steps.withIndex()) {
+                    routineRun = routineRun?.copy(
+                        index = index + 1,
+                        label = stepSummary(step, lang == AppLang.NB),
+                        running = true,
+                        error = "",
+                    )
+                    updateRoutineNotification()
+                    runRoutineStep(step)
+                    kotlinx.coroutines.delay(220)
+                }
+                routineRun = routineRun?.copy(index = routine.steps.size, running = false, done = true, label = "Ferdig")
+                Notifications.routineFinished(getApplication())
+                markRoutineResult(routine.id, "OK")
+            } catch (cancelled: CancellationException) {
+                routineRun = routineRun?.copy(running = false, done = true, stopped = true, label = "Stoppet")
+                Notifications.routineFinished(getApplication())
+                markRoutineResult(routine.id, "Stoppet")
+                throw cancelled
+            } catch (failure: Exception) {
+                routineRun = routineRun?.copy(
+                    running = false,
+                    done = true,
+                    error = failure.message ?: "Steget feilet.",
+                )
+                Notifications.routineFinished(getApplication())
+                markRoutineResult(routine.id, "Feil")
+            }
+        }
+    }
+
+    /** Keeps a STOPP action reachable while the routine opens other apps. */
+    private fun updateRoutineNotification() {
+        val run = routineRun ?: return
+        if (!run.running) return
+        val body = if (run.total > 0) {
+            "Steg ${run.index.coerceAtLeast(1)} av ${run.total} · ${run.label}"
+        } else {
+            run.label
+        }
+        Notifications.routineRunning(getApplication(), body)
+    }
+
+    fun stopRoutine() {
+        routineJob?.cancel()
+        routineJob = null
+        routineRun = routineRun?.copy(running = false, done = true, stopped = true, label = "Stoppet")
+        Notifications.routineFinished(getApplication())
+    }
+
+    fun dismissRoutineRun() {
+        routineRun = null
+        Notifications.routineFinished(getApplication())
+    }
+
+    private suspend fun runRoutineStep(step: RoutineStep) {
+        when (step.type) {
+            "wait" -> kotlinx.coroutines.delay(step.ms.coerceIn(0, 60_000).toLong())
+            "check" -> {
+                val data = devicePost("check") { put("text", step.text) }
+                if (!data.optBoolean("found")) {
+                    throw IllegalStateException("Fant ikke «${step.text}» på skjermen.")
+                }
+            }
+            "open_app" -> devicePost("open") { put("package", step.packageName) }
+            "open_url" -> devicePost("open") { put("url", step.url) }
+            "tap" -> if (step.usesPoint) {
+                devicePost("tap") {
+                    put("x", step.rx.toDouble())
+                    put("y", step.ry.toDouble())
+                }
+            } else {
+                devicePost("tap") { put("text", step.text) }
+            }
+            "type" -> devicePost("type") { put("text", step.text) }
+            "key" -> devicePost("key") { put("key", step.key) }
+            else -> throw IllegalStateException("Ukjent stegtype: ${step.type}")
+        }
+    }
+
+    private suspend fun devicePost(action: String, extra: JSONObject.() -> Unit = {}): JSONObject =
+        bridge.post("/api/device/action", JSONObject().apply {
+            put("device", "android")
+            put("action", action)
+            extra()
+        })
+
+    private fun markRoutineResult(id: String, result: String) {
+        updateRoutine(id) { it.copy(lastRunAt = System.currentTimeMillis(), lastResult = result) }
+    }
+
+    fun loadDeviceApps() {
+        viewModelScope.launch {
+            runCatching {
+                val data = devicePost("apps")
+                val array = data.optJSONArray("apps")
+                deviceApps = if (array == null) emptyList() else (0 until array.length()).mapNotNull { array.optString(it).takeIf { value -> value.isNotBlank() } }
+            }.onFailure { routineNotice = "Kunne ikke hente apper: ${it.message}" }
+        }
+    }
+
+    fun loadDeviceScreen() {
+        viewModelScope.launch {
+            runCatching {
+                val data = devicePost("screen")
+                val encoded = data.optString("image")
+                require(encoded.isNotBlank()) { "Tomt skjermbilde." }
+                val bytes = Base64.decode(encoded, Base64.DEFAULT)
+                val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                requireNotNull(bitmap) { "Kunne ikke lese skjermbildet." }
+                routineScreen = bitmap
+                routineNotice = ""
+            }.onFailure {
+                routineScreen = null
+                routineNotice = "Kunne ikke hente skjermbilde: ${it.message}"
+            }
+        }
+    }
+
     fun selectTheme(id: String) { themeId = id; bridge.saveThemeId(id) }
 
     fun selectLang(value: AppLang) {
