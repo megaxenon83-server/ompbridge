@@ -51,6 +51,31 @@ class BridgeClient(private val context: Context) {
     }
 
     fun loadDraft(key: String): String = prefs.getString("draft:" + key, "") ?: ""
+
+
+    fun loadTheme(): Boolean = prefs.getBoolean("darkTheme", true)
+
+
+    fun saveTheme(dark: Boolean) { prefs.edit().putBoolean("darkTheme", dark).apply() }
+
+
+    fun githubLatestRelease(): String? {
+
+        val request = Request.Builder()
+
+            .url("https://api.github.com/repos/megaxenon83-server/ompbridge/releases/latest")
+
+            .header("User-Agent", "chat-omp-omp")
+
+            .build()
+
+        return runCatching {
+
+            OkHttpClient().newCall(request).execute().use { it.body?.string() }
+
+        }.getOrNull()
+
+    }
     /** Open the bridge's terminal PTY over WebSocket (auth via header). */
     fun terminalWebSocket(id: String, onText: (String) -> Unit, onClosed: () -> Unit): okhttp3.WebSocket? {
         val p = pairing ?: return null

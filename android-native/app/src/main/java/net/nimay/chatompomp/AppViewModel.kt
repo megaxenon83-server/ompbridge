@@ -91,7 +91,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var darkTheme by mutableStateOf(true)
         private set
-    var activeModelName by mutableStateOf("")
+    var folderPath by mutableStateOf("")
+        private set
+    var folders by mutableStateOf<List<FsEntry>>(emptyList())
+        private set
+    var updateTag by mutableStateOf<String?>(null)
+        private set
+
+    init {
+        darkTheme = bridge.loadTheme()
+        checkUpdate()
+    }    var activeModelName by mutableStateOf("")
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
         private set
@@ -477,6 +487,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val id = check.optString("id")
                 projectChecks = projectChecks.filter { it.optString("id") != id } + check
             }
+            "schedule_status" -> noticeText = frame.optString("status").ifBlank { frame.optString("error") }
             "notice" -> noticeText = frame.optString("message").ifBlank {
                 frame.optJSONObject("notice")?.optString("message").orEmpty()
             }
@@ -761,7 +772,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 .onFailure { error = it.message ?: "Kunne ikke lese opp." }
         }
     }
-    fun respondApproval(confirmed: Boolean? = null, value: String? = null, allowAlways: Boolean = false, cancelled: Boolean = false) {
+    fun respondApproval(confirmed: Boolean? = null, value: String? = null, allowAlways: Boolean = false, cancelled: Boolean = false, answers: org.json.JSONArray? = null) {
         val pending = approval ?: return
         approval = null
         viewModelScope.launch {
@@ -769,6 +780,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 bridge.post("/api/ask", JSONObject().apply {
                     put("cwd", activeCwd)
                     put("id", pending.optString("id"))
+                    if (answers != null) put("answers", answers)
                     if (allowAlways) put("allowAlways", true)
                     if (cancelled) put("cancelled", true)
                     if (confirmed != null) put("confirmed", confirmed)
@@ -901,7 +913,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         terminalSocket = null
         terminalRunning = false
     }
-    fun toggleTheme() { darkTheme = !darkTheme }
+    fun toggleTheme() { darkTheme = !darkTheme; bridge.saveTheme(darkTheme) }
 
     fun dismissNotice() { noticeText = "" }
 
@@ -933,6 +945,72 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+    fun loadFolders(path: String) {
+        folderPath = path
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/folders", mapOf("path" to path))
+                val array = data.optJSONArray("dirs")
+                folders = if (array == null) emptyList() else (0 until array.length()).mapNotNull { index ->
+                    val item = array.optJSONObject(index) ?: return@mapNotNull null
+                    FsEntry(item.optString("name"), item.optString("path"), true, 0)
+                }
+            }.onFailure { error = it.message ?: "Kunne ikke lese mappen." }
+        }
+    }
+
+    fun makeFolder(path: String) {
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/fs/mkdir", JSONObject().apply { put("path", path) }) }
+                .onFailure { error = it.message ?: "Kunne ikke opprette mappen." }
+            loadFolders(folderPath)
+        }
+    }
+
+    fun deleteFolder(path: String) {
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/fs/delete", JSONObject().apply { put("path", path) }) }
+                .onFailure { error = it.message ?: "Kunne ikke slette mappen." }
+            loadFolders(folderPath)
+        }
+    }
+
+    fun renameFolder(from: String, to: String) {
+        if (from.isBlank() || to.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/fs/rename", JSONObject().apply { put("from", from); put("to", to) }) }
+                .onFailure { error = it.message ?: "Kunne ikke døpe om mappen." }
+            loadFolders(folderPath)
+        }
+    }
+
+    fun registerProject(path: String) {
+        if (path.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/projects/create", JSONObject().apply { put("path", path) }) }
+                .onFailure { error = it.message ?: "Kunne ikke registrere prosjektet." }
+            loadRegistry()
+        }
+    }
+
+    fun checkUpdate() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val body = bridge.githubLatestRelease() ?: return@launch
+            runCatching {
+                val release = JSONObject(body)
+                val assets = release.optJSONArray("assets") ?: return@runCatching
+                val pattern = Regex("Chat-OMP-OMP-Native-([0-9.]+)\\\\.apk")
+                var latest: String? = null
+                for (index in 0 until assets.length()) {
+                    val name = assets.optJSONObject(index)?.optString("name").orEmpty()
+                    latest = pattern.find(name)?.groupValues?.get(1) ?: latest
+                }
+                if (latest != null && latest != BuildConfig.VERSION_NAME) updateTag = latest
+            }
+        }
+    }
+
+    fun dismissUpdate() { updateTag = null }
 
     override fun onCleared() {
         stopEvents()

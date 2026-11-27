@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -64,6 +65,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -78,6 +80,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.unit.dp
@@ -206,7 +209,7 @@ fun MainApp(vm: AppViewModel) {
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
-                DrawerContent(vm, drawerState, scope, onOpenScreen = { screen = it })
+                DrawerContent(vm, drawerState, scope, onOpenScreen = { screen = it }, onNewChat = { showNewChat = true })
             }
         },
     ) {
@@ -248,58 +251,117 @@ fun MainApp(vm: AppViewModel) {
 }
 
 @Composable
-private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.material3.DrawerState, scope: kotlinx.coroutines.CoroutineScope, onOpenScreen: (String) -> Unit) {
+private fun sessionGroup(updatedAt: Long): String {
+    val now = System.currentTimeMillis()
+    val day = 86_400_000L
+    return when {
+        updatedAt >= now - day -> "I dag"
+        updatedAt >= now - 2 * day -> "I går"
+        updatedAt >= now - 7 * day -> "Siste 7 dager"
+        else -> "Eldre"
+    }
+}
+
+@Composable
+private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
+        Text(
+            label,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun DrawerContent(
+    vm: AppViewModel,
+    drawerState: androidx.compose.material3.DrawerState,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onOpenScreen: (String) -> Unit,
+    onNewChat: () -> Unit,
+) {
     var query by remember { mutableStateOf("") }
+    var projectFilter by remember { mutableStateOf<String?>(null) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<SessionInfo?>(null) }
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(14.dp)) {
+
+    val projects = vm.sessions.map { it.projectName }.distinct().sorted()
+    val filtered = vm.sessions.filter {
+        (projectFilter == null || it.projectName == projectFilter) &&
+            (query.isBlank() || it.title.contains(query, true))
+    }
+    val groups = filtered.groupBy { sessionGroup(it.updatedAt) }
+
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Samtaler", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("OMP", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.forget() }) { Text("Koble fra") }
         }
-        Row(Modifier.fillMaxWidth()) {
-            TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text("Prosjekter") }
-            TextButton(onClick = { onOpenScreen("tools") }) { Text("Verktøy") }
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.fillMaxWidth().clickable {
+                scope.launch { drawerState.close() }
+                onNewChat()
+            },
+        ) {
+            Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
+                Text("+  Ny samtale", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
+            }
         }
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
             placeholder = { Text("Søk i samtaler") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-        Spacer(Modifier.height(4.dp))
-        val filtered = vm.sessions.filter { query.isBlank() || it.title.contains(query, true) }
-        if (filtered.isEmpty()) {
-            Text("Ingen samtaler.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+        ) {
+            item { ChoiceChip("Alle", projectFilter == null) { projectFilter = null } }
+            items(projects) { name ->
+                ChoiceChip(name, projectFilter == name) {
+                    projectFilter = if (projectFilter == name) null else name
+                }
+            }
         }
-        LazyColumn(Modifier.fillMaxSize()) {
-            val groups = filtered.groupBy { it.cwd }
-            for ((cwd, list) in groups) {
-                item(key = "h-$cwd") {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            for (label in listOf("I dag", "I går", "Siste 7 dager", "Eldre")) {
+                val list = groups[label] ?: continue
+                item(key = "h-$label") {
                     Text(
-                        cwd.trimEnd('\\', '/').split('\\', '/').lastOrNull().orEmpty(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
                     )
                 }
                 items(list, key = { it.file }) { session ->
                     Row(
                         Modifier.fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
+                            .background(if (session.file == vm.activeFile) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
                             .clickable {
                                 vm.openSession(session)
                                 scope.launch { drawerState.close() }
                             }
-                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                            .padding(start = 10.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(session.title, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
                             Text(
-                                session.model.ifBlank { "${session.messageCount} meldinger" },
+                                if (projectFilter == null) session.projectName else session.model.ifBlank { "${session.messageCount} meldinger" },
                                 maxLines = 1,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -309,7 +371,8 @@ private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.materi
                             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                         }
                         IconButton(onClick = { menuFor = session.file }) {
-                            Text("⋯", style = MaterialTheme.typography.titleMedium)
+                            Text("⋯", style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         DropdownMenu(expanded = menuFor == session.file, onDismissRequest = { menuFor = null }) {
                             DropdownMenuItem(text = { Text("Døp om") }, onClick = { renameTarget = session; menuFor = null })
@@ -318,6 +381,20 @@ private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.materi
                     }
                 }
             }
+            if (filtered.isEmpty()) {
+                item { Text("Ingen samtaler.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
+        HorizontalDivider(Modifier.padding(top = 4.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            TextButton(onClick = { onOpenScreen("files") }) { Text("Filer") }
+            TextButton(onClick = { onOpenScreen("git") }) { Text("Git") }
+            TextButton(onClick = { onOpenScreen("terminal") }) { Text("Terminal") }
+            TextButton(onClick = { onOpenScreen("devices") }) { Text("Enheter") }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text("Prosjekter") }
+            TextButton(onClick = { onOpenScreen("tools") }) { Text("Verktøy og innstillinger") }
         }
     }
     renameTarget?.let { target ->
@@ -359,6 +436,20 @@ private fun ChatList(vm: AppViewModel, modifier: Modifier = Modifier) {
                 }
             }
         }
+        vm.updateTag?.let { tag ->
+            item {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ny versjon $tag tilgjengelig", style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { vm.dismissUpdate() }) { Text("Lukk") }
+                    }
+                }
+            }
+        }
         vm.todoPhases?.let { phases -> item { TodoPanel(phases) } }
         items(vm.messages, key = { it.id + it.role }) { entry -> EntryRow(entry) }
         vm.turnCards.forEach { card -> item { TurnCard(card) } }
@@ -380,6 +471,7 @@ private fun ChatList(vm: AppViewModel, modifier: Modifier = Modifier) {
 
 @Composable
 private fun EntryRow(entry: Entry) {
+    val clipboard = LocalClipboardManager.current
     when (entry.role) {
         "user" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(
@@ -411,6 +503,11 @@ private fun EntryRow(entry: Entry) {
                 }
             }
             MarkdownText(entry.text)
+            if (entry.text.isNotBlank()) {
+                TextButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(entry.text)) }) {
+                    Text("Kopier")
+                }
+            }
             if (entry.streaming) {
                 Text("▍", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
             }
@@ -863,54 +960,138 @@ private fun PackageRow(pkg: org.json.JSONObject) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
-    LaunchedEffect(Unit) { vm.loadRegistry() }
-    var showCreate by remember { mutableStateOf(false) }
-    var renameTarget by remember { mutableStateOf<ProjectInfo?>(null) }
+    LaunchedEffect(Unit) {
+        if (vm.folderPath.isBlank()) vm.loadFolders(vm.activeCwd.ifBlank { "C:\\" })
+        vm.loadRegistry()
+    }
+    var renameTarget by remember { mutableStateOf<FsEntry?>(null) }
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var showMkdir by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = {
+                        val trimmed = vm.folderPath.trimEnd('\\', '/')
+                        val parent = trimmed.substringBeforeLast('\\', "").substringBeforeLast('/', "")
+                        if (parent.isNotBlank() && parent != trimmed) vm.loadFolders(parent) else onBack()
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Tilbake")
                     }
                 },
                 title = { Text("Prosjekter", fontWeight = FontWeight.SemiBold) },
                 actions = {
-                    IconButton(onClick = { showCreate = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = "Nytt prosjekt")
+                    IconButton(onClick = { showMkdir = true }) {
+                        Icon(Icons.Filled.Add, contentDescription = "Ny mappe")
+                    }
+                    IconButton(onClick = { vm.loadFolders(vm.folderPath); vm.loadRegistry() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
                     }
                 },
             )
         },
     ) { padding ->
-        if (vm.registry.isEmpty()) {
-            Box(
-                Modifier.padding(padding).fillMaxSize().padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "Ingen prosjekter ennå. Trykk + for å opprette ett.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                )
+        LazyColumn(
+            Modifier.padding(padding).fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            item {
+                Text("REGISTRERTE PROSJEKTER", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.padding(padding).fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                items(vm.registry) { project -> ProjectRow(vm, project, onRename = { renameTarget = project }) }
+            if (vm.registry.isEmpty()) {
+                item { Text("Ingen registrerte prosjekter.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(vm.registry) { project ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(project.name, style = MaterialTheme.typography.bodyMedium)
+                        Text(project.path, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                    TextButton(onClick = { vm.setProjectHidden(project.id, !project.hidden) }) {
+                        Text(if (project.hidden) "Vis" else "Skjul")
+                    }
+                }
+            }
+            item {
+                Text("MAPPE", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+            }
+            item {
+                Text(vm.folderPath, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            item {
+                TextButton(onClick = { vm.registerProject(vm.folderPath) }) {
+                    Text("Registrer denne mappen som prosjekt")
+                }
+            }
+            if (vm.folders.isEmpty()) {
+                item { Text("Ingen undermapper.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(vm.folders) { folder ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "📁 " + folder.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f).clickable { vm.loadFolders(folder.path) },
+                    )
+                    TextButton(onClick = { vm.registerProject(folder.path) }) { Text("Bruk") }
+                    IconButton(onClick = { menuFor = folder.path }) {
+                        Text("⋯", style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    DropdownMenu(expanded = menuFor == folder.path, onDismissRequest = { menuFor = null }) {
+                        DropdownMenuItem(text = { Text("Døp om") }, onClick = { renameTarget = folder; menuFor = null })
+                        DropdownMenuItem(text = { Text("Slett") }, onClick = { vm.deleteFolder(folder.path); menuFor = null })
+                    }
+                }
             }
         }
     }
-    if (showCreate) {
-        CreateProjectDialog(onDismiss = { showCreate = false }, onCreate = { name -> vm.createProject(name); showCreate = false })
+    if (showMkdir) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showMkdir = false },
+            title = { Text("Ny mappe") },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (name.isNotBlank()) {
+                            vm.makeFolder(vm.folderPath.trimEnd('\\', '/') + "\\" + name.trim())
+                            showMkdir = false
+                        }
+                    },
+                    enabled = name.isNotBlank(),
+                ) { Text("Opprett") }
+            },
+            dismissButton = { TextButton(onClick = { showMkdir = false }) { Text("Avbryt") } },
+        )
     }
-    renameTarget?.let { target ->
-        RenameProjectDialog(target, onDismiss = { renameTarget = null }, onRename = { name -> vm.renameProject(target.id, name); renameTarget = null })
+    renameTarget?.let { folder ->
+        var name by remember(folder.path) { mutableStateOf(folder.name) }
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Døp om mappen") },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.renameFolder(folder.path, vm.folderPath.trimEnd('\\', '/') + "\\" + name.trim())
+                        renameTarget = null
+                    },
+                    enabled = name.isNotBlank(),
+                ) { Text("Lagre") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Avbryt") } },
+        )
     }
 }
 
@@ -980,7 +1161,9 @@ private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
     val message = request.optString("message")
     val allowAlways = request.optBoolean("allowAlways")
     val options = request.optJSONArray("options")
+    val questions = request.optJSONArray("questions")
     var input by remember { mutableStateOf(request.optString("prefill")) }
+    val answers = remember { mutableStateMapOf<Int, String>() }
 
     AlertDialog(
         onDismissRequest = { vm.respondApproval(cancelled = true) },
@@ -988,7 +1171,21 @@ private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
         text = {
             Column {
                 if (message.isNotBlank()) Text(message)
-                if (method == "select" && options != null) {
+                if (questions != null) {
+                    for (index in 0 until questions.length()) {
+                        val question = questions.optJSONObject(index)
+                        val label = question?.optString("question").orEmpty()
+                            .ifBlank { question?.optString("title").orEmpty() }
+                            .ifBlank { questions.optString(index) }
+                        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+                        OutlinedTextField(
+                            value = answers[index].orEmpty(),
+                            onValueChange = { answers[index] = it },
+                            label = { Text("Svar") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else if (method == "select" && options != null) {
                     for (index in 0 until options.length()) {
                         val option = options.optJSONObject(index)
                         val value = option?.optString("value") ?: options.optString(index)
@@ -1006,19 +1203,33 @@ private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
             }
         },
         confirmButton = {
-            if (method != "select") {
+            if (questions != null) {
+                TextButton(onClick = {
+                    val array = org.json.JSONArray()
+                    for (index in 0 until questions.length()) {
+                        val question = questions.optJSONObject(index)
+                        val label = question?.optString("question").orEmpty()
+                            .ifBlank { question?.optString("title").orEmpty() }
+                            .ifBlank { questions.optString(index) }
+                        array.put(org.json.JSONObject().apply {
+                            put("question", label)
+                            put("answer", answers[index].orEmpty())
+                        })
+                    }
+                    vm.respondApproval(answers = array)
+                }) { Text("Svar") }
+            } else if (method != "select") {
                 TextButton(onClick = {
                     if (method == "input") vm.respondApproval(value = input) else vm.respondApproval(confirmed = true)
                 }) { Text("Tillat") }
             }
-            if (allowAlways) {
+            if (allowAlways && questions == null) {
                 TextButton(onClick = { vm.respondApproval(allowAlways = true) }) { Text("Tillat alltid") }
             }
         },
         dismissButton = { TextButton(onClick = { vm.respondApproval(cancelled = true) }) { Text("Avbryt") } },
     )
 }
-
 // ------------------------------------------------------------------ work summary
 
 @Composable
