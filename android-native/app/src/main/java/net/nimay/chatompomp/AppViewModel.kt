@@ -49,6 +49,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var projects by mutableStateOf<List<ProjectInfo>>(emptyList())
         private set
+    var registry by mutableStateOf<List<ProjectInfo>>(emptyList())
+        private set
     var activeModelName by mutableStateOf("")
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
@@ -136,6 +138,49 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val data = bridge.get("/api/projects")
                 projects = ProjectInfo.list(data.optJSONArray("projects"))
             }.onFailure { error = it.message ?: "Kunne ikke hente prosjekter." }
+        }
+    }
+
+    fun loadRegistry() {
+        if (pairing == null) return
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/projects/registry")
+                registry = ProjectInfo.list(data.optJSONArray("projects"))
+            }.onFailure { error = it.message ?: "Kunne ikke hente prosjekter." }
+        }
+    }
+
+    fun createProject(name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/projects/create", JSONObject().apply { put("name", name.trim()) })
+                loadRegistry()
+                loadProjects()
+            }.onFailure { error = it.message ?: "Kunne ikke opprette prosjekt." }
+        }
+    }
+
+    fun renameProject(id: String, name: String) {
+        if (id.isBlank() || name.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/projects/rename", JSONObject().apply { put("id", id); put("name", name.trim()) })
+                loadRegistry()
+                loadProjects()
+            }.onFailure { error = it.message ?: "Kunne ikke døpe om prosjektet." }
+        }
+    }
+
+    fun setProjectHidden(id: String, hidden: Boolean) {
+        if (id.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post(if (hidden) "/api/projects/hide" else "/api/projects/unhide", JSONObject().apply { put("id", id) })
+                loadRegistry()
+                loadProjects()
+            }.onFailure { error = it.message ?: "Kunne ikke endre prosjektet." }
         }
     }
 

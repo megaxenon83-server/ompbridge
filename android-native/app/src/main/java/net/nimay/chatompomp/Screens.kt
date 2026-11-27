@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DrawerValue
@@ -47,6 +48,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -184,12 +186,16 @@ fun MainApp(vm: AppViewModel) {
         PluginsScreen(vm, onBack = { screen = "chat" })
         return
     }
+    if (screen == "projects") {
+        ProjectsScreen(vm, onBack = { screen = "chat" })
+        return
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
-                DrawerContent(vm, drawerState, scope)
+                DrawerContent(vm, drawerState, scope, onOpenProjects = { screen = "projects" })
             }
         },
     ) {
@@ -228,12 +234,15 @@ fun MainApp(vm: AppViewModel) {
 }
 
 @Composable
-private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.material3.DrawerState, scope: kotlinx.coroutines.CoroutineScope) {
+private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.material3.DrawerState, scope: kotlinx.coroutines.CoroutineScope, onOpenProjects: () -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Samtaler", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.forget() }) { Text("Koble fra") }
+        }
+        TextButton(onClick = { vm.loadRegistry(); onOpenProjects() }, modifier = Modifier.padding(top = 2.dp)) {
+            Text("Prosjekter")
         }
         Spacer(Modifier.height(8.dp))
         if (vm.sessions.isEmpty()) {
@@ -766,4 +775,117 @@ private fun PackageRow(pkg: org.json.JSONObject) {
             }
         }
     }
+}
+
+// ------------------------------------------------------------------ projects
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
+    LaunchedEffect(Unit) { vm.loadRegistry() }
+    var showCreate by remember { mutableStateOf(false) }
+    var renameTarget by remember { mutableStateOf<ProjectInfo?>(null) }
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Tilbake")
+                    }
+                },
+                title = { Text("Prosjekter", fontWeight = FontWeight.SemiBold) },
+                actions = {
+                    IconButton(onClick = { showCreate = true }) {
+                        Icon(Icons.Filled.Add, contentDescription = "Nytt prosjekt")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        if (vm.registry.isEmpty()) {
+            Box(
+                Modifier.padding(padding).fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Ingen prosjekter ennå. Trykk + for å opprette ett.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(vm.registry) { project -> ProjectRow(vm, project, onRename = { renameTarget = project }) }
+            }
+        }
+    }
+    if (showCreate) {
+        CreateProjectDialog(onDismiss = { showCreate = false }, onCreate = { name -> vm.createProject(name); showCreate = false })
+    }
+    renameTarget?.let { target ->
+        RenameProjectDialog(target, onDismiss = { renameTarget = null }, onRename = { name -> vm.renameProject(target.id, name); renameTarget = null })
+    }
+}
+
+@Composable
+private fun ProjectRow(vm: AppViewModel, project: ProjectInfo, onRename: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(project.name.ifBlank { project.path }, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                project.path + (if (project.hidden) " · skjult" else ""),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+        TextButton(onClick = onRename) { Text("Døp om") }
+        TextButton(onClick = { vm.setProjectHidden(project.id, !project.hidden) }) {
+            Text(if (project.hidden) "Vis" else "Skjul")
+        }
+    }
+}
+
+@Composable
+private fun CreateProjectDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nytt prosjekt") },
+        text = {
+            Column {
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Opprettes under Documents/OMP/Prosjekter.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { if (name.isNotBlank()) onCreate(name) }, enabled = name.isNotBlank()) { Text("Opprett") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Avbryt") } },
+    )
+}
+
+@Composable
+private fun RenameProjectDialog(project: ProjectInfo, onDismiss: () -> Unit, onRename: (String) -> Unit) {
+    var name by remember { mutableStateOf(project.name) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Døp om prosjekt") },
+        text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+        confirmButton = {
+            TextButton(onClick = { if (name.isNotBlank()) onRename(name) }, enabled = name.isNotBlank()) { Text("Lagre") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Avbryt") } },
+    )
 }

@@ -65,12 +65,20 @@ data class StreamState(
 data class ChatProfile(val mode: String = "build", val light: Boolean = false)
 
 /** A project folder that can host a new conversation. */
-data class ProjectInfo(val path: String, val name: String, val sessionCount: Int) {
+data class ProjectInfo(
+    val path: String,
+    val name: String,
+    val sessionCount: Int = 0,
+    val id: String = "",
+    val hidden: Boolean = false,
+) {
     companion object {
         fun from(json: JSONObject) = ProjectInfo(
             path = json.optString("path"),
             name = json.optString("name").ifBlank { json.optString("path") },
             sessionCount = json.optInt("sessionCount"),
+            id = json.optString("id"),
+            hidden = json.optBoolean("hidden"),
         )
 
         fun list(array: JSONArray?): List<ProjectInfo> {
