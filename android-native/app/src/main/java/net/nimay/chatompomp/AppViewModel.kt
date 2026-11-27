@@ -417,6 +417,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadTurnCards(info.file)
         loadModels()
         startEvents()
+        viewModelScope.launch {
+            runCatching {
+                val snapshot = bridge.get("/api/state", mapOf("cwd" to info.cwd))
+                snapshot.optJSONObject("state")?.optJSONObject("contextUsage")?.let { usage ->
+                    contextTokens = usage.optInt("tokens", 0)
+                    val window = usage.optInt("contextWindow", 0)
+                    if (window > 0) contextWindow = window
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- events
