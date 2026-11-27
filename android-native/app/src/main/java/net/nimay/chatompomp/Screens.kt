@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -29,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
@@ -78,7 +80,19 @@ import kotlinx.coroutines.launch
 fun PairingScreen(vm: AppViewModel) {
     var link by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    if (scanning) {
+        QrScanner(
+            onFound = { text ->
+                scanning = false
+                scope.launch { vm.pair(text).onFailure { vm.reportError(it.message ?: "Paring feilet.") } }
+            },
+            onCancel = { scanning = false },
+        )
+        return
+    }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -98,7 +112,17 @@ fun PairingScreen(vm: AppViewModel) {
                 "Åpne OMP Desktop, vis QR-koden (eller kopier paringslenken) og lim den inn her.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium,
             )
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().clickable { scanning = true },
+            ) {
+                Box(Modifier.padding(vertical = 15.dp), contentAlignment = Alignment.Center) {
+                    Text("Skann QR-kode", fontWeight = FontWeight.SemiBold)
+                }
+            }
+            Spacer(Modifier.height(22.dp))
             BasicTextField(
                 value = link,
                 onValueChange = { link = it },
@@ -150,6 +174,7 @@ fun PairingScreen(vm: AppViewModel) {
 fun MainApp(vm: AppViewModel) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var showNewChat by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { vm.refresh() }
 
     ModalNavigationDrawer(
@@ -179,7 +204,7 @@ fun MainApp(vm: AppViewModel) {
                         }
                     },
                     actions = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(onClick = { vm.loadProjects(); showNewChat = true }) {
                             Icon(Icons.Filled.Add, contentDescription = "Ny samtale")
                         }
                     },
@@ -190,6 +215,8 @@ fun MainApp(vm: AppViewModel) {
             ChatList(vm, Modifier.padding(padding))
         }
     }
+
+    if (showNewChat) NewChatSheet(vm, onDismiss = { showNewChat = false })
 }
 
 @Composable
@@ -356,6 +383,7 @@ private fun ToolRow(entry: Entry) {
 private fun ComposerBar(vm: AppViewModel) {
     var text by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
+    var showModels by remember { mutableStateOf(false) }
     var light by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("build") }
     val scope = rememberCoroutineScope()
@@ -404,10 +432,10 @@ private fun ComposerBar(vm: AppViewModel) {
                     Surface(
                         shape = RoundedCornerShape(999.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.clickable { },
+                        modifier = Modifier.clickable { vm.loadModels(); showModels = true },
                     ) {
                         Text(
-                            vm.models.firstOrNull()?.optString("name")?.takeIf { it.isNotBlank() } ?: "Velg modell",
+                            vm.activeModelName.ifBlank { "Velg modell" },
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
@@ -480,6 +508,81 @@ private fun ComposerBar(vm: AppViewModel) {
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 10.dp))
                 Spacer(Modifier.height(20.dp))
             }
+        }
+    }
+
+    if (showModels) ModelSheet(vm, onDismiss = { showModels = false })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelSheet(vm: AppViewModel, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+            Text("Velg modell", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            if (vm.models.isEmpty()) {
+                Text("Henter modeller …", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            }
+            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                items(vm.models) { model ->
+                    val provider = model.optString("provider")
+                    val id = model.optString("id")
+                    val name = model.optString("name").ifBlank { id }
+                    val current = name == vm.activeModelName
+                    Row(
+                        Modifier.fillMaxWidth().clickable { vm.chooseModel(provider, id, name); onDismiss() }.padding(vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(name, style = MaterialTheme.typography.bodyMedium)
+                            Text("$provider/$id", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (current) {
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewChatSheet(vm: AppViewModel, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+            Text("Ny samtale", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text("Velg prosjektmappen samtalen skal ligge i.", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(12.dp))
+            if (vm.projects.isEmpty()) {
+                Text("Ingen prosjekter funnet. Åpne en mappe i OMP Desktop først.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            }
+            LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                items(vm.projects) { project ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { vm.newSession(project.path); onDismiss() }.padding(vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(project.name, style = MaterialTheme.typography.bodyMedium)
+                            Text(project.path, style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                        Text("${project.sessionCount}", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

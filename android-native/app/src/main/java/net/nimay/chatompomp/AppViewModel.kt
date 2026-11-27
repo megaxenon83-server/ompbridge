@@ -47,6 +47,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var models by mutableStateOf<List<JSONObject>>(emptyList())
         private set
+    var projects by mutableStateOf<List<ProjectInfo>>(emptyList())
+        private set
+    var activeModelName by mutableStateOf("")
+        private set
 
     private val sseClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -115,11 +119,64 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 val data = bridge.get("/api/sessions", mapOf("archived" to "1"))
                 sessions = SessionInfo.list(data.optJSONArray("sessions"))
-                val catalogue = runCatching { bridge.get("/api/models") }.getOrNull()
-                models = (catalogue?.optJSONArray("models")?.let { array ->
-                    (0 until array.length()).mapNotNull { array.optJSONObject(it) }
-                }) ?: emptyList()
             }.onFailure { error = it.message ?: "Kunne ikke hente samtaler." }
+        }
+    }
+
+    fun loadProjects() {
+        if (pairing == null) return
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/projects")
+                projects = ProjectInfo.list(data.optJSONArray("projects"))
+            }.onFailure { error = it.message ?: "Kunne ikke hente prosjekter." }
+        }
+    }
+
+    fun newSession(cwd: String) {
+        if (cwd.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.post("/api/sessions/new", JSONObject().apply { put("cwd", cwd) })
+                val file = data.optString("sessionFile")
+                require(file.isNotBlank()) { "Fikk ingen samtale fra OMP." }
+                activeFile = file
+                activeCwd = cwd
+                activeTitle = "Ny samtale"
+                activeModelName = data.optJSONObject("session")?.optString("model") ?: ""
+                messages = emptyList()
+                stream = StreamState()
+                error = ""
+                refresh()
+                loadModels()
+                startEvents()
+            }.onFailure { error = it.message ?: "Kunne ikke lage ny samtale." }
+        }
+    }
+
+    fun loadModels() {
+        if (pairing == null || activeCwd.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/models", mapOf("cwd" to activeCwd))
+                val array = data.optJSONArray("models")
+                models = if (array == null) emptyList() else (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+            }.onFailure { error = it.message ?: "Kunne ikke hente modeller." }
+        }
+    }
+
+    fun chooseModel(provider: String, modelId: String, name: String) {
+        if (activeCwd.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/model", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("provider", provider)
+                    put("modelId", modelId)
+                    if (activeFile.isNotBlank()) put("file", activeFile)
+                })
+                activeModelName = name.ifBlank { modelId }
+            }.onFailure { error = it.message ?: "Kunne ikke bytte modell." }
         }
     }
 
@@ -127,6 +184,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         activeFile = info.file
         activeCwd = info.cwd
         activeTitle = info.title
+        activeModelName = info.model
         messages = emptyList()
         stream = StreamState()
         error = ""
@@ -149,6 +207,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }.onFailure { error = it.message ?: "Kunne ikke hente samtalen." }
         }
+        loadModels()
         startEvents()
     }
 

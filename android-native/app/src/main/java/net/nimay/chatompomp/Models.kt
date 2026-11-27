@@ -42,8 +42,7 @@ data class SessionInfo(
     }
 }
 
-/** One entry in the transcript. */
-data class Entry(
+/** One entry in the transcript. */data class Entry(
     val id: String,
     val role: String,           // user | assistant | tool | system
     val text: String,
@@ -64,3 +63,21 @@ data class StreamState(
 
 /** Settings gathered in the composer's gear sheet. */
 data class ChatProfile(val mode: String = "build", val light: Boolean = false)
+
+/** A project folder that can host a new conversation. */
+data class ProjectInfo(val path: String, val name: String, val sessionCount: Int) {
+    companion object {
+        fun from(json: JSONObject) = ProjectInfo(
+            path = json.optString("path"),
+            name = json.optString("name").ifBlank { json.optString("path") },
+            sessionCount = json.optInt("sessionCount"),
+        )
+
+        fun list(array: JSONArray?): List<ProjectInfo> {
+            if (array == null) return emptyList()
+            return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                .map { from(it) }
+                .filter { it.path.isNotBlank() }
+        }
+    }
+}
