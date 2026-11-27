@@ -315,15 +315,14 @@ dialog header { padding: 9px 13px 7px 17px; border-bottom: 1px solid var(--borde
 .muted { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .topbar {
-  background: linear-gradient(180deg, var(--surface), var(--bg));
+  background: var(--surface);
   box-shadow: 0 2px 10px #0000000d;
   box-shadow: 0 2px 10px color-mix(in srgb, var(--shade) 10%, transparent);
   z-index: 1;
 }
 .topbar .icon { border-color: transparent; background: var(--raised); border-radius: 15px; }
 main {
-  background: radial-gradient(ellipse 95% 48% at 12% 1%, var(--surface), transparent);
-  background: radial-gradient(ellipse 95% 48% at 12% 1%, color-mix(in srgb, var(--wash) 42%, transparent), transparent);
+  background: var(--bg);
 }
 .brand-mark, .send { box-shadow: 0 2px 8px color-mix(in srgb, var(--brand) 24%, transparent); }
 .entry.user {
