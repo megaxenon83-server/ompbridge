@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.79";
+const VERSION = "2.9.80";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -3064,12 +3064,65 @@ function ompProviderToApp(id, entry) {
     baseUrl,
     authType,
     headerName,
-    apiKey: String(e.apiKey || ""),
+    apiKey: "",
+    keyHint: (() => {
+      const key = String(e.apiKey || "");
+      return key ? (key.length > 8 ? key.slice(0, 3) + "…" + key.slice(-4) : "…") : "";
+    })(),
     models,
     enabled: e.enabled !== false,
     source: "omp",
     api: api || "openai-completions",
     hasKey: !!String(e.apiKey || "").trim(),
+  };
+}
+function ompAuthArgs(extra) {
+  return OMP_BIN_ENTRY ? [OMP_BIN_ENTRY, "auth", ...extra] : ["auth", ...extra];
+}
+function runOmpAuth(extra) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(OMP_BIN_EXEC, ompAuthArgs(extra), { windowsHide: true, env: process.env });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk) => { out += chunk; });
+    child.stderr.on("data", (chunk) => { err += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve(out);
+      else reject(new Error(err.trim() || out.trim() || "omp auth " + extra[0] + " feilet (" + code + ")"));
+    });
+  });
+}
+async function exportOmpCredentials() {
+  const raw = await runOmpAuth(["export"]);
+  const data = JSON.parse(raw || "{}");
+  if (!Array.isArray(data.credentials)) data.credentials = [];
+  return data;
+}
+async function importOmpCredentials(data) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "omp-auth-"));
+  const file = path.join(dir, "credentials.json");
+  try {
+    fs.writeFileSync(file, JSON.stringify(data), { mode: 0o600 });
+    await runOmpAuth(["import", file]);
+  } finally {
+    try { fs.unlinkSync(file); } catch {}
+    try { fs.rmdirSync(dir); } catch {}
+  }
+}
+function credentialHint(key) {
+  const value = String(key || "");
+  if (!value) return "";
+  return value.length > 8 ? value.slice(0, 3) + "…" + value.slice(-4) : "…";
+}
+function publicCredential(entry) {
+  const credential = entry && typeof entry.credential === "object" ? entry.credential : {};
+  const key = String(credential.key || "");
+  return {
+    provider: String(entry?.provider || ""),
+    type: String(credential.type || "api_key"),
+    hasKey: !!key,
+    hint: credentialHint(key),
   };
 }
 function listOmpProviders() {
@@ -4141,7 +4194,57 @@ async function handle(req, res) {
           return json(res, 400, { ok: false, error: String(error?.message || error) });
         }
       }
-      case "POST /api/prompt": {
+      case "GET /api/omp/credentials": {
+        try {
+          const data = await exportOmpCredentials();
+          return json(res, 200, { ok: true, credentials: data.credentials.map(publicCredential) });
+        } catch (error) {
+          return json(res, 500, { ok: false, error: String(error?.message || error) });
+        }
+      }
+      case "POST /api/omp/credentials": {
+        try {
+          const body = await readBody(req);
+          const provider = normalizeProviderId(body.provider || body.id || "");
+          const apiKey = String(body.apiKey || body.key || "").trim();
+          if (!provider || !apiKey) return json(res, 400, { ok: false, error: "Mangler provider eller nøkkel." });
+          const data = await exportOmpCredentials();
+          const existing = data.credentials.find(item => String(item.provider || "") === provider);
+          const credential = existing && typeof existing.credential === "object"
+            ? { ...existing.credential }
+            : { type: "api_key", source: "login" };
+          credential.key = apiKey;
+          data.credentials = data.credentials.filter(item => String(item.provider || "") !== provider);
+          data.credentials.push({ provider, credential });
+          await importOmpCredentials(data);
+          const after = await exportOmpCredentials();
+          const found = after.credentials.find(item => String(item.provider || "") === provider);
+          return json(res, 200, { ok: true, credential: found ? publicCredential(found) : null });
+        } catch (error) {
+          return json(res, 400, { ok: false, error: String(error?.message || error) });
+        }
+      }
+      case "DELETE /api/omp/credentials": {
+        try {
+          let id = url.searchParams.get("id") || "";
+          if (!id) {
+            try { const b = await readBody(req); id = b.id || b.provider || ""; } catch { id = ""; }
+          }
+          const provider = normalizeProviderId(id);
+          if (!provider) return json(res, 400, { ok: false, error: "Mangler provider." });
+          const dbFile = path.join(HOME, ".omp", "agent", "agent.db");
+          const { DatabaseSync } = await import("node:sqlite");
+          const db = new DatabaseSync(dbFile);
+          try {
+            db.prepare("DELETE FROM auth_credentials WHERE provider = ?").run(provider);
+          } finally {
+            db.close();
+          }
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 400, { ok: false, error: String(error?.message || error) });
+        }
+      }      case "POST /api/prompt": {
         const started = Date.now();
         const body = await readBody(req);
         const cwd = existingDir(body.cwd);

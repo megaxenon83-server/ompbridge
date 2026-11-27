@@ -214,6 +214,7 @@ fun MainApp(vm: AppViewModel) {
     when (screen) {
         "plugins" -> { PluginsScreen(vm, onBack = { screen = "chat" }); return }
         "projects" -> { ProjectsScreen(vm, onBack = { screen = "chat" }); return }
+        "providers" -> { ProvidersScreen(vm, onBack = { screen = "chat" }); return }
         "tools" -> { ToolsScreen(vm = vm, onBack = { screen = "chat" }, onOpen = { screen = it }); return }
         "files" -> { FilesScreen(vm, onBack = { screen = "tools" }); return }
         "git" -> { GitScreen(vm, onBack = { screen = "tools" }); return }

@@ -97,6 +97,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var contextWindow by mutableStateOf(0)
         private set
+    var providers by mutableStateOf<List<JSONObject>>(emptyList())
+        private set
     var thinkingLevels by mutableStateOf<List<String>>(emptyList())
         private set
     var thinkingLevel by mutableStateOf("")
@@ -1086,6 +1088,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val todos = data.optJSONArray("todos")
                 if (todos != null) todoPhases = todos
             }
+        }
+    }
+    fun loadProviders() {
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/omp/credentials")
+                val array = data.optJSONArray("credentials")
+                providers = if (array == null) emptyList() else (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+            }.onFailure { error = it.message ?: "Kunne ikke hente leverandører." }
+        }
+    }
+
+    fun addProvider(id: String, key: String, baseUrl: String) {
+        if (id.isBlank() || key.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/omp/credentials", JSONObject().apply {
+                    put("provider", id.trim().lowercase())
+                    put("apiKey", key.trim())
+                })
+                loadProviders()
+            }.onFailure { error = it.message ?: "Kunne ikke lagre nøkkelen." }
+        }
+    }
+
+    fun deleteProvider(id: String) {
+        if (id.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.delete("/api/omp/credentials", mapOf("id" to id))
+                loadProviders()
+            }.onFailure { error = it.message ?: "Kunne ikke slette leverandøren." }
         }
     }
     fun loadFolders(path: String) {

@@ -11,8 +11,8 @@ android {
         applicationId = "net.nimay.chatompomp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 53
-        versionName = "1.0.11"
+        versionCode = 54
+        versionName = "1.0.12"
     }
 
     signingConfigs {

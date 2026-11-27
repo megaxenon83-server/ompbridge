@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
@@ -481,6 +482,7 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) 
                 "Enheter" to "devices",
                 "Tale" to "voice",
                 "Wake-on-LAN" to "wol",
+                "Modeller og nøkler" to "providers",
             )
             items(tools) { tool ->
                 Row(
@@ -530,5 +532,113 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) 
                     )
                 }
             }        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ProvidersScreen(vm: AppViewModel, onBack: () -> Unit) {
+    LaunchedEffect(Unit) { vm.loadProviders() }
+    var showAdd by remember { mutableStateOf(false) }
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { ToolBar(t("Modeller og nøkler", "Models and keys"), onBack) },
+    ) { padding ->
+        LazyColumn(
+            Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(16.dp),
+        ) {
+            item {
+                Text(
+                    t("SKYLEVERANDØRER", "CLOUD PROVIDERS"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+            if (vm.providers.isEmpty()) {
+                item { Muted(t("Ingen leverandører ennå.", "No providers yet.")) }
+            }
+            items(vm.providers) { provider ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            provider.optString("provider"),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            (if (provider.optBoolean("hasKey")) "✓ " + t("nøkkel satt", "key set") + " " + provider.optString("hint") else "✗ " + t("mangler nøkkel", "no key")),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    IconButton(onClick = { vm.deleteProvider(provider.optString("id")) }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "Slett",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+            item {
+                TextButton(onClick = { showAdd = true }) {
+                    Text(t("+ Legg til leverandør", "+ Add provider"))
+                }
+            }
+            item { HorizontalDivider(Modifier.padding(vertical = 10.dp)) }
+            item {
+                Text(
+                    t("LOKALE MODELLER", "LOCAL MODELS"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
+            item { Muted(t("Lokal modellstyring kommer i neste oppdatering.", "Local model controls arrive in the next update.")) }
+        }
+    }
+    if (showAdd) {
+        var id by remember { mutableStateOf("") }
+        var key by remember { mutableStateOf("") }
+        var baseUrl by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAdd = false },
+            title = { Text(t("Legg til leverandør", "Add provider")) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = id,
+                        onValueChange = { id = it },
+                        label = { Text(t("Leverandør (f.eks. deepseek)", "Provider (e.g. deepseek)")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = key,
+                        onValueChange = { key = it },
+                        label = { Text(t("API-nøkkel", "API key")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                    OutlinedTextField(
+                        value = baseUrl,
+                        onValueChange = { baseUrl = it },
+                        label = { Text(t("Base-URL (valgfritt)", "Base URL (optional)")) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { vm.addProvider(id, key, baseUrl); showAdd = false },
+                    enabled = id.isNotBlank() && key.isNotBlank(),
+                ) { Text(t("Lagre", "Save")) }
+            },
+            dismissButton = { TextButton(onClick = { showAdd = false }) { Text(t("Avbryt", "Cancel")) } },
+        )
     }
 }
