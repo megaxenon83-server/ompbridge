@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.80";
+const VERSION = "2.9.81";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -4331,7 +4331,13 @@ async function handle(req, res) {
           await saveAttachments(runtime.cwd, body.attachments);
         }
         const images = Array.isArray(body.images) ? body.images : [];
-        const inProgress = turnChanges.isActive(runtime);
+        let inProgress = turnChanges.isActive(runtime);
+        if (inProgress && !runtime.working && !runtime.state?.isStreaming && !runtime.pendingUi.size) {
+          // The turn tracker outlived its turn (failed abort, app restart). Drop it
+          // instead of blocking the user with "wait until the reply is finished".
+          turnChanges.cancel(runtime);
+          inProgress = false;
+        }
         if (inProgress && !body.streamingBehavior) return json(res, 409, { error: "Vent til det aktive svaret er ferdig." });
         if (inProgress) turnChanges.invalidate(runtime);
         else {
@@ -4406,8 +4412,10 @@ async function handle(req, res) {
       case "POST /api/abort": {
         const body = await readBody(req);
         if (!body.cwd) return json(res, 400, { error: "Mangler cwd" });
-        const runtime = body.file ? runtimeForSession(body.cwd, body.file) : await getRuntime(body.cwd);
-        if (!runtime || (body.file && !samePath(body.file, runtime.sessionFile))) {
+        // Stop must work even when the app is showing a different session in the
+        // same project: aborting the project's runtime is what frees the model.
+        const runtime = (body.file && runtimeForSession(body.cwd, body.file)) || runtimes.get(runtimeKey(body.cwd));
+        if (!runtime) {
           return json(res, 409, { error: "Den valgte samtalen har ingen aktiv oppgave i denne arbeidsmappen." });
         }
         if (runtime.modelPreparation) {
@@ -4434,6 +4442,7 @@ async function handle(req, res) {
           // Still wedged: stop the child so the next request spawns a fresh
           // OMP process instead of piling up timeouts.
           log("warn", `abort feilet for ${runtime.cwd}: ${error.message}`);
+          turnChanges.cancel(runtime);
           await runtime.stop();
           return json(res, 200, { ok: true, restarted: true });
         }
@@ -4441,6 +4450,7 @@ async function handle(req, res) {
         // frame is still on its way.
         runtime.working = false;
         if (runtime.state?.isStreaming) runtime.state.isStreaming = false;
+        turnChanges.cancel(runtime);
         releaseRuntimeGpu(runtime);
         runtime.refreshState().catch(() => {});
         return json(res, 200, { ok: true, localCancelled });
