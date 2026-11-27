@@ -391,13 +391,13 @@ private fun SessionRow(
                 text = { Text(if (session.file in vm.pinned) "Løsne" else "Fest") },
                 onClick = { vm.togglePin(session.file); onMenu(null) },
             )
-            DropdownMenuItem(text = { Text("Endre navn") }, onClick = { onRename(session); onMenu(null) })
+            DropdownMenuItem(text = { Text(t("Endre navn", "Rename")) }, onClick = { onRename(session); onMenu(null) })
             DropdownMenuItem(
-                text = { Text("Merk som lest") },
+                text = { Text(t("Merk som lest", "Mark as read")) },
                 onClick = { vm.markSeen(session.file, session.messageCount); onMenu(null) },
             )
-            DropdownMenuItem(text = { Text("Arkiver") }, onClick = { vm.archiveSession(session.file, true); onMenu(null) })
-            DropdownMenuItem(text = { Text("Slett") }, onClick = { onDelete(session); onMenu(null) })
+            DropdownMenuItem(text = { Text(t("Arkiver", "Archive")) }, onClick = { vm.archiveSession(session.file, true); onMenu(null) })
+            DropdownMenuItem(text = { Text(t("Slett", "Delete")) }, onClick = { onDelete(session); onMenu(null) })
         }
     }
 }
@@ -439,7 +439,7 @@ private fun DrawerContent(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("OMP", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = { vm.forget() }) { Text("Koble fra") }
+            TextButton(onClick = { vm.forget() }) { Text(t("Koble fra", "Disconnect")) }
         }
         Surface(
             shape = RoundedCornerShape(14.dp),
@@ -450,13 +450,13 @@ private fun DrawerContent(
             },
         ) {
             Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.Center) {
-                Text("+  Ny samtale", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
+                Text(t("+  Ny samtale", "+  New chat"), color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.SemiBold)
             }
         }
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            placeholder = { Text("Søk i samtaler") },
+            placeholder = { Text(t("Søk i samtaler", "Search chats")) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
@@ -466,20 +466,29 @@ private fun DrawerContent(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
             ) {
-                item { ChoiceChip("Alle", projectFilter == null) { projectFilter = null } }
+                item { ChoiceChip(t("Alle", "All"), projectFilter == null) { projectFilter = null } }
                 items(projects) { name ->
                     ChoiceChip(name, projectFilter == name) {
                         projectFilter = if (projectFilter == name) null else name
                     }
                 }
             }
-            TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text("Prosjekter") }
+            TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text(t("Prosjekter", "Projects")) }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             for ((label, list) in sections) {
                 item(key = "h-$label") {
                     Text(
-                        label,
+                        when (label) {
+                            "AKTIVE" -> t("AKTIVE", "ACTIVE")
+                            "ULESTE SVAR" -> t("ULESTE SVAR", "UNREAD")
+                            "FESTET" -> t("FESTET", "PINNED")
+                            "I DAG" -> t("I DAG", "TODAY")
+                            "I GÅR" -> t("I GÅR", "YESTERDAY")
+                            "SISTE 7 DAGER" -> t("SISTE 7 DAGER", "LAST 7 DAYS")
+                            "ELDRE" -> t("ELDRE", "OLDER")
+                            else -> label
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
@@ -510,7 +519,7 @@ private fun DrawerContent(
             }
             if (unread.isNotEmpty()) {
                 item {
-                    TextButton(onClick = { vm.markAllRead() }) { Text("Merk alle som lest") }
+                    TextButton(onClick = { vm.markAllRead() }) { Text(t("Merk alle som lest", "Mark all as read")) }
                 }
             }
         }
@@ -527,25 +536,25 @@ private fun DrawerContent(
         var name by remember(target.file) { mutableStateOf(target.title) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Endre navn") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            title = { Text(t("Endre navn", "Rename")) },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(t("Navn", "Name")) }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = { vm.renameSession(target.file, name); renameTarget = null }, enabled = name.isNotBlank()) {
-                    Text("Lagre")
+                    Text(t("Lagre", "Save"))
                 }
             },
-            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Avbryt") } },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text(t("Avbryt", "Cancel")) } },
         )
     }
     deleteTarget?.let { target ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
-            title = { Text("Slette samtalen?") },
+            title = { Text(t("Slette samtalen?", "Delete this chat?")) },
             text = { Text("«${target.title}» flyttes til papirkurven på PC-en.") },
             confirmButton = {
-                TextButton(onClick = { vm.deleteSession(target.file); deleteTarget = null }) { Text("Slett") }
+                TextButton(onClick = { vm.deleteSession(target.file); deleteTarget = null }) { Text(t("Slett", "Delete")) }
             },
-            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Avbryt") } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(t("Avbryt", "Cancel")) } },
         )
     }
 }
@@ -571,9 +580,9 @@ private fun ChatList(vm: AppViewModel, modifier: Modifier = Modifier) {
         if (vm.activeFile.isBlank()) {
             item {
                 Column(Modifier.fillMaxWidth().padding(top = 60.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Hva bygger vi?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(t("Hva bygger vi?", "What are we building?"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    Text("Velg en samtale fra menyen for å begynne.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(t("Velg en samtale fra menyen for å begynne.", "Pick a chat from the menu to begin."), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -785,7 +794,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                     decorationBox = { inner ->
-                        if (vm.draft.isBlank()) Text("Skriv en oppgave …", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
+                        if (vm.draft.isBlank()) Text(t("Skriv en oppgave …", "Write a task …"), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
                         inner()
                     },
                 )
@@ -839,11 +848,17 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
         ModalBottomSheet(onDismissRequest = { showSettings = false }, sheetState = sheetState,
             containerColor = MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                Text("Samtaleinnstillinger", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(t("Samtaleinnstillinger", "Chat settings"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(16.dp))
-                Text("KONTEKST", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("SPRÅK / LANGUAGE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChoiceChip("Norsk", vm.lang == AppLang.NB) { vm.selectLang(AppLang.NB) }
+                    ChoiceChip("English", vm.lang == AppLang.EN) { vm.selectLang(AppLang.EN) }
+                }
+                HorizontalDivider()
+                Text(t("KONTEKST", "CONTEXT"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Light context", modifier = Modifier.weight(1f))
+                    Text(t("Light context", "Light context"), modifier = Modifier.weight(1f))
                     Switch(checked = light, onCheckedChange = { light = it })
                 }
                 Row(
@@ -856,7 +871,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                         .padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Tema", modifier = Modifier.weight(1f))
+                    Text(t("Tema", "Theme"), modifier = Modifier.weight(1f))
                     Box(Modifier.size(14.dp).clip(RoundedCornerShape(4.dp)).background(vm.theme.brand))
                     Spacer(Modifier.width(6.dp))
                     Text(
@@ -872,7 +887,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                     )
                 }
                 HorizontalDivider()
-                Text("ARBEIDSMODUS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(t("ARBEIDSMODUS", "WORK MODE"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp))
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (option in listOf("chat" to "Chat", "plan" to "Plan", "build" to "Bygg")) {
@@ -889,7 +904,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                     }
                 }
                 HorizontalDivider()
-                Text("UTVIDELSER", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Text(t("UTVIDELSER", "EXTENSIONS"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp))
                 Row(
                     Modifier.fillMaxWidth()
@@ -898,7 +913,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                         .padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Plugins og skills", modifier = Modifier.weight(1f))
+                    Text(t("Plugins og skills", "Plugins and skills"), modifier = Modifier.weight(1f))
                     Text("›", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(Modifier.padding(top = 12.dp))
@@ -922,7 +937,7 @@ private fun ModelSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).verticalScroll(rememberScrollState())) {
-            Text("Velg modell", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(t("Velg modell", "Choose model"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             if (vm.models.isEmpty()) {
                 Text("Henter modeller …", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -984,7 +999,7 @@ private fun NewChatSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-            Text("Ny samtale", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(t("Ny samtale", "New chat"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
             Text("Velg prosjektmappen samtalen skal ligge i.", color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall)
@@ -1030,7 +1045,7 @@ private fun PluginsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Tilbake")
                     }
                 },
-                title = { Text("Plugins og skills", fontWeight = FontWeight.SemiBold) },
+                title = { Text(t("Plugins og skills", "Plugins and skills"), fontWeight = FontWeight.SemiBold) },
                 actions = {
                     IconButton(onClick = { vm.loadPlugins() }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
@@ -1276,8 +1291,8 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     DropdownMenu(expanded = menuFor == folder.path, onDismissRequest = { menuFor = null }) {
-                        DropdownMenuItem(text = { Text("Endre navn") }, onClick = { renameTarget = folder; menuFor = null })
-                        DropdownMenuItem(text = { Text("Slett") }, onClick = { vm.deleteFolder(folder.path); menuFor = null })
+                        DropdownMenuItem(text = { Text(t("Endre navn", "Rename")) }, onClick = { renameTarget = folder; menuFor = null })
+                        DropdownMenuItem(text = { Text(t("Slett", "Delete")) }, onClick = { vm.deleteFolder(folder.path); menuFor = null })
                     }
                 }
             }
@@ -1288,7 +1303,7 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { showMkdir = false },
             title = { Text("Ny mappe") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(t("Navn", "Name")) }, singleLine = true) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -1300,15 +1315,15 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     enabled = name.isNotBlank(),
                 ) { Text("Opprett") }
             },
-            dismissButton = { TextButton(onClick = { showMkdir = false }) { Text("Avbryt") } },
+            dismissButton = { TextButton(onClick = { showMkdir = false }) { Text(t("Avbryt", "Cancel")) } },
         )
     }
     renameTarget?.let { folder ->
         var name by remember(folder.path) { mutableStateOf(folder.name) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Endre navn") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            title = { Text(t("Endre navn", "Rename")) },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(t("Navn", "Name")) }, singleLine = true) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -1316,9 +1331,9 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         renameTarget = null
                     },
                     enabled = name.isNotBlank(),
-                ) { Text("Lagre") }
+                ) { Text(t("Lagre", "Save")) }
             },
-            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Avbryt") } },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text(t("Avbryt", "Cancel")) } },
         )
     }
     deleteProjectTarget?.let { target ->
@@ -1331,9 +1346,9 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 )
             },
             confirmButton = {
-                TextButton(onClick = { vm.deleteProject(target.id); deleteProjectTarget = null }) { Text("Slett") }
+                TextButton(onClick = { vm.deleteProject(target.id); deleteProjectTarget = null }) { Text(t("Slett", "Delete")) }
             },
-            dismissButton = { TextButton(onClick = { deleteProjectTarget = null }) { Text("Avbryt") } },
+            dismissButton = { TextButton(onClick = { deleteProjectTarget = null }) { Text(t("Avbryt", "Cancel")) } },
         )
     }
 }
@@ -1350,7 +1365,7 @@ private fun ProjectRow(vm: AppViewModel, project: ProjectInfo, onRename: () -> U
                 maxLines = 1,
             )
         }
-        TextButton(onClick = onRename) { Text("Endre navn") }
+        TextButton(onClick = onRename) { Text(t("Endre navn", "Rename")) }
     }
 }
 
@@ -1362,7 +1377,7 @@ private fun CreateProjectDialog(onDismiss: () -> Unit, onCreate: (String) -> Uni
         title = { Text("Nytt prosjekt") },
         text = {
             Column {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(t("Navn", "Name")) }, singleLine = true)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "Opprettes under Documents/OMP/Prosjekter.",
@@ -1374,7 +1389,7 @@ private fun CreateProjectDialog(onDismiss: () -> Unit, onCreate: (String) -> Uni
         confirmButton = {
             TextButton(onClick = { if (name.isNotBlank()) onCreate(name) }, enabled = name.isNotBlank()) { Text("Opprett") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Avbryt") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Avbryt", "Cancel")) } },
     )
 }
 
@@ -1383,12 +1398,12 @@ private fun RenameProjectDialog(project: ProjectInfo, onDismiss: () -> Unit, onR
     var name by remember { mutableStateOf(project.name) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Endre navn") },
-        text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+        title = { Text(t("Endre navn", "Rename")) },
+        text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(t("Navn", "Name")) }, singleLine = true) },
         confirmButton = {
-            TextButton(onClick = { if (name.isNotBlank()) onRename(name) }, enabled = name.isNotBlank()) { Text("Lagre") }
+            TextButton(onClick = { if (name.isNotBlank()) onRename(name) }, enabled = name.isNotBlank()) { Text(t("Lagre", "Save")) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Avbryt") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(t("Avbryt", "Cancel")) } },
     )
 }
 
@@ -1421,7 +1436,7 @@ private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
                         OutlinedTextField(
                             value = answers[index].orEmpty(),
                             onValueChange = { answers[index] = it },
-                            label = { Text("Svar") },
+                            label = { Text(t("Svar", "Answer")) },
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -1436,7 +1451,7 @@ private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
-                        label = { Text("Svar") },
+                        label = { Text(t("Svar", "Answer")) },
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
@@ -1457,17 +1472,17 @@ private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
                         })
                     }
                     vm.respondApproval(answers = array)
-                }) { Text("Svar") }
+                }) { Text(t("Svar", "Answer")) }
             } else if (method != "select") {
                 TextButton(onClick = {
                     if (method == "input") vm.respondApproval(value = input) else vm.respondApproval(confirmed = true)
-                }) { Text("Tillat") }
+                }) { Text(t("Tillat", "Allow")) }
             }
             if (allowAlways && questions == null) {
-                TextButton(onClick = { vm.respondApproval(allowAlways = true) }) { Text("Tillat alltid") }
+                TextButton(onClick = { vm.respondApproval(allowAlways = true) }) { Text(t("Tillat alltid", "Always allow")) }
             }
         },
-        dismissButton = { TextButton(onClick = { vm.respondApproval(cancelled = true) }) { Text("Avbryt") } },
+        dismissButton = { TextButton(onClick = { vm.respondApproval(cancelled = true) }) { Text(t("Avbryt", "Cancel")) } },
     )
 }
 // ------------------------------------------------------------------ work summary
@@ -1678,7 +1693,7 @@ private fun ThemeSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).verticalScroll(rememberScrollState())) {
-            Text("Tema", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(t("Tema", "Theme"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Velg et tema for hele appen.",

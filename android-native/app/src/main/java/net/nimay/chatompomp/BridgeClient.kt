@@ -55,6 +55,12 @@ class BridgeClient(private val context: Context) {
 
     fun saveTheme(dark: Boolean) { prefs.edit().putBoolean("darkTheme", dark).apply() }
 
+    fun loadLang(): String = prefs.getString("lang", "NB") ?: "NB"
+
+
+    fun saveLang(value: String) { prefs.edit().putString("lang", value).apply() }
+
+
     fun loadThemeId(): String = prefs.getString("themeId", "omp") ?: "omp"
 
     fun saveThemeId(id: String) { prefs.edit().putString("themeId", id).apply() }

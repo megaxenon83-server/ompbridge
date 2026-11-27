@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
         setContent {
             ChatOmpTheme(spec = vm.theme) {
+            androidx.compose.runtime.CompositionLocalProvider(LocalLang provides vm.lang) {
                 pendingLink?.let { link ->
                     AlertDialog(
                         onDismissRequest = { pendingLink = null },
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 if (vm.pairing == null) PairingScreen(vm) else MainApp(vm)
+                }
             }
         }
     }

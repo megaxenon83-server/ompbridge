@@ -91,6 +91,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var themeId by mutableStateOf("omp")
         private set
+    var lang by mutableStateOf(AppLang.NB)
+        private set
     var thinkingLevels by mutableStateOf<List<String>>(emptyList())
         private set
     var thinkingLevel by mutableStateOf("")
@@ -121,9 +123,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     init {
         themeId = bridge.loadThemeId()
+        lang = runCatching { AppLang.valueOf(bridge.loadLang()) }.getOrDefault(AppLang.NB)
         pinned = bridge.pinnedFiles()
         checkUpdate()
-    }    var activeModelName by mutableStateOf("")
+    }
+    var activeModelName by mutableStateOf("")
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
         private set
@@ -1001,6 +1005,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         terminalRunning = false
     }
     fun selectTheme(id: String) { themeId = id; bridge.saveThemeId(id) }
+
+    fun selectLang(value: AppLang) {
+        lang = value
+        bridge.saveLang(value.name)
+    }
+
+    fun tr(nb: String, en: String): String = if (lang == AppLang.EN) en else nb
     fun dismissNotice() { noticeText = "" }
 
     fun togglePin(file: String) {
