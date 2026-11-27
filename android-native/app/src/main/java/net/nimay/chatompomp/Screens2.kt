@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -90,14 +91,32 @@ private fun jsonItems(array: org.json.JSONArray?): List<JSONObject> {
 fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
     LaunchedEffect(Unit) { if (vm.fsPath.isBlank()) vm.loadFs(vm.activeCwd.ifBlank { "C:\\" }) }
     val file = vm.fsFile
+    val editing = vm.editingContent
+    var showMkdir by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             ToolBar(
                 title = if (file != null) file.path.substringAfterLast('\\').substringAfterLast('/') else "Filer",
-                onBack = { if (file != null) vm.closeFile() else if (vm.canGoUp()) vm.fsUp() else onBack() },
+                onBack = {
+                    when {
+                        editing != null -> vm.stopEditing()
+                        file != null -> vm.closeFile()
+                        vm.canGoUp() -> vm.fsUp()
+                        else -> onBack()
+                    }
+                },
                 actions = {
-                    if (file == null) {
+                    if (file != null) {
+                        if (editing == null) {
+                            TextButton(onClick = { vm.startEditing(file.path) }) { Text("Rediger") }
+                        } else {
+                            TextButton(onClick = { vm.saveFile(file.path, editing) }) { Text("Lagre") }
+                            TextButton(onClick = { vm.stopEditing() }) { Text("Avbryt") }
+                        }
+                        TextButton(onClick = { vm.deleteEntry(file.path); vm.closeFile() }) { Text("Slett") }
+                    } else {
+                        TextButton(onClick = { showMkdir = true }) { Text("Ny mappe") }
                         IconButton(onClick = { vm.loadFs(vm.fsPath) }) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
                         }
@@ -106,15 +125,23 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        if (file != null) {
-            LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
+        when {
+            editing != null -> OutlinedTextField(
+                value = editing,
+                onValueChange = { vm.updateEditing(it) },
+                modifier = Modifier.padding(padding).fillMaxSize().padding(8.dp),
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            )
+            file != null -> LazyColumn(
+                Modifier.padding(padding).fillMaxSize(),
+                contentPadding = PaddingValues(12.dp),
+            ) {
                 item {
                     Text(file.content, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onBackground)
                 }
             }
-        } else {
-            Column(Modifier.padding(padding).fillMaxSize()) {
+            else -> Column(Modifier.padding(padding).fillMaxSize()) {
                 Text(
                     vm.fsPath,
                     style = MaterialTheme.typography.labelSmall,
@@ -145,6 +172,26 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+    if (showMkdir && vm.fsPath.isNotBlank()) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showMkdir = false },
+            title = { Text("Ny mappe") },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (name.isNotBlank()) {
+                            vm.makeDir(vm.fsPath.trimEnd('\\', '/') + "\\" + name.trim())
+                            showMkdir = false
+                        }
+                    },
+                    enabled = name.isNotBlank(),
+                ) { Text("Opprett") }
+            },
+            dismissButton = { TextButton(onClick = { showMkdir = false }) { Text("Avbryt") } },
+        )
     }
 }
 
@@ -219,12 +266,13 @@ fun GitScreen(vm: AppViewModel, onBack: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TerminalScreen(vm: AppViewModel, onBack: () -> Unit) {
+    LaunchedEffect(Unit) { vm.terminalStart() }
     var command by remember { mutableStateOf("") }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             ToolBar("Terminal", onBack, actions = {
-                TextButton(onClick = { vm.clearTerminal() }) { Text("Tøm") }
+                TextButton(onClick = { vm.terminalStop() }) { Text("Stopp") }
             })
         },
     ) { padding ->
@@ -235,17 +283,14 @@ fun TerminalScreen(vm: AppViewModel, onBack: () -> Unit) {
             ) {
                 item {
                     Text(
-                        vm.terminalOutput.ifBlank { "Kjør en kommando i prosjektmappen." },
+                        vm.terminalOutput.ifBlank { "Starter terminal …" },
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().padding(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = command,
                     onValueChange = { command = it },
@@ -254,12 +299,8 @@ fun TerminalScreen(vm: AppViewModel, onBack: () -> Unit) {
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
-                Button(
-                    onClick = { vm.runCommand(command); command = "" },
-                    enabled = !vm.terminalRunning && command.isNotBlank(),
-                ) {
-                    if (vm.terminalRunning) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    else Text("Kjør")
+                Button(onClick = { vm.terminalSend(command); command = "" }, enabled = command.isNotBlank()) {
+                    Text("Send")
                 }
             }
         }

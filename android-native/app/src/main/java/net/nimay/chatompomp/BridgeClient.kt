@@ -51,6 +51,18 @@ class BridgeClient(private val context: Context) {
     }
 
     fun loadDraft(key: String): String = prefs.getString("draft:" + key, "") ?: ""
+    /** Open the bridge's terminal PTY over WebSocket (auth via header). */
+    fun terminalWebSocket(id: String, onText: (String) -> Unit, onClosed: () -> Unit): okhttp3.WebSocket? {
+        val p = pairing ?: return null
+        val base = p.origin.replaceFirst("http://", "ws://").replaceFirst("https://", "wss://")
+        val url = base + "/ws/terminal?id=" + java.net.URLEncoder.encode(id, "UTF-8")
+        val request = Request.Builder().url(url).header("Authorization", "Bearer " + p.credential).build()
+        return client.newWebSocket(request, object : okhttp3.WebSocketListener() {
+            override fun onMessage(webSocket: okhttp3.WebSocket, text: String) { onText(text) }
+            override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) { onClosed() }
+            override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) { onClosed() }
+        })
+    }
 
     private fun originOrThrow(): String = pairing?.origin ?: throw IllegalStateException("Ikke koblet til en PC.")
 

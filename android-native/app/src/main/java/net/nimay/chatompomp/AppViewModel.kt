@@ -75,6 +75,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var wolInfo by mutableStateOf<JSONObject?>(null)
         private set
+    var approval by mutableStateOf<JSONObject?>(null)
+        private set
+    var attachments by mutableStateOf<List<String>>(emptyList())
+        private set
+    var editingContent by mutableStateOf<String?>(null)
+        private set
     var activeModelName by mutableStateOf("")
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
@@ -89,6 +95,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
     private var eventSource: EventSource? = null
+    private var terminalSocket: okhttp3.WebSocket? = null
     private var streamingId: String = ""
     private var streamingText: StringBuilder = StringBuilder()
     private var streamingThinking: StringBuilder = StringBuilder()
@@ -441,6 +448,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 if (!streamingId.isBlank()) finalizeStreaming()
             }
             "model_metrics" -> modelMetrics = frame
+            "ui_request", "extension_ui_request" -> approval = frame
+            "ui_cancel" -> if (approval?.optString("id") == frame.optString("targetId")) approval = null
         }
     }
 
@@ -527,13 +536,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         modelMetrics = null
         draft = ""
         if (activeFile.isNotBlank()) bridge.saveDraft(activeFile, "")
+        val attached = attachments
+        attachments = emptyList()
+        val promptText = if (attached.isEmpty()) text else text + "\n\nVedlegg:\n" + attached.joinToString("\n") { "- $it" }
         stream = StreamState(active = true, phase = "Klargjør OMP")
         viewModelScope.launch {
             runCatching {
                 bridge.post("/api/prompt", JSONObject().apply {
                     put("cwd", activeCwd)
                     put("file", activeFile)
-                    put("text", text)
+                    put("text", promptText)
                 })
             }.onFailure {
                 error = it.message ?: "Kunne ikke sende."
@@ -717,6 +729,146 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runCatching { bridge.post("/api/voice/speak", JSONObject().apply { put("text", text) }) }
                 .onFailure { error = it.message ?: "Kunne ikke lese opp." }
         }
+    }
+    fun respondApproval(confirmed: Boolean? = null, value: String? = null, allowAlways: Boolean = false, cancelled: Boolean = false) {
+        val pending = approval ?: return
+        approval = null
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/ask", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("id", pending.optString("id"))
+                    if (allowAlways) put("allowAlways", true)
+                    if (cancelled) put("cancelled", true)
+                    if (confirmed != null) put("confirmed", confirmed)
+                    else if (value != null) put("value", value)
+                })
+            }.onFailure { error = it.message ?: "Kunne ikke svare på forespørselen." }
+        }
+    }
+
+    fun uploadAttachment(name: String, bytes: ByteArray) {
+        if (activeCwd.isBlank() || bytes.isEmpty()) return
+        viewModelScope.launch {
+            runCatching {
+                val data = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                val result = bridge.post("/api/upload", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("files", org.json.JSONArray().apply {
+                        put(JSONObject().apply { put("name", name); put("data", data) })
+                    })
+                })
+                val saved = result.optJSONArray("files")
+                if (saved != null) {
+                    val list = attachments.toMutableList()
+                    for (index in 0 until saved.length()) {
+                        saved.optJSONObject(index)?.optString("relative")?.takeIf { it.isNotBlank() }?.let { list.add(it) }
+                    }
+                    attachments = list
+                }
+            }.onFailure { error = it.message ?: "Kunne ikke laste opp vedlegget." }
+        }
+    }
+
+    fun clearAttachments() { attachments = emptyList() }
+
+    fun renameSession(file: String, name: String) {
+        if (file.isBlank() || name.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/sessions/name", JSONObject().apply {
+                    put("file", file); put("cwd", activeCwd); put("name", name.trim())
+                })
+            }.onFailure { error = it.message ?: "Kunne ikke døpe om samtalen." }
+            refresh()
+        }
+    }
+
+    fun archiveSession(file: String, archived: Boolean) {
+        if (file.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/sessions/archive", JSONObject().apply { put("file", file); put("archived", archived) }) }
+                .onFailure { error = it.message ?: "Kunne ikke arkivere samtalen." }
+            refresh()
+        }
+    }
+
+    fun startEditing(path: String) {
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/files/read", mapOf("path" to path))
+                editingContent = data.optString("content")
+            }.onFailure { error = it.message ?: "Kunne ikke åpne filen." }
+        }
+    }
+
+    fun updateEditing(value: String) { editingContent = value }
+
+
+    fun stopEditing() { editingContent = null }
+
+    fun saveFile(path: String, content: String) {
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/files/write", JSONObject().apply { put("path", path); put("content", content) })
+                editingContent = null
+                readFile(path)
+            }.onFailure { error = it.message ?: "Kunne ikke lagre filen." }
+        }
+    }
+
+    fun deleteEntry(path: String) {
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/fs/delete", JSONObject().apply { put("path", path) })
+                loadFs(fsPath)
+            }.onFailure { error = it.message ?: "Kunne ikke slette." }
+        }
+    }
+
+    fun makeDir(path: String) {
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/fs/mkdir", JSONObject().apply { put("path", path) })
+                loadFs(fsPath)
+            }.onFailure { error = it.message ?: "Kunne ikke opprette mappen." }
+        }
+    }
+
+    fun terminalStart() {
+        if (terminalSocket != null) return
+        viewModelScope.launch {
+            runCatching {
+                val cwd = if (activeCwd.isNotBlank()) activeCwd else {
+                    bridge.get("/api/projects").optJSONArray("projects")?.optJSONObject(0)?.optString("path").orEmpty()
+                }
+                require(cwd.isNotBlank()) { "Ingen prosjektmappe valgt." }
+                val data = bridge.post("/api/terminal/create", JSONObject().apply {
+                    put("cwd", cwd); put("cols", 120); put("rows", 30)
+                })
+                val id = data.optString("id")
+                require(id.isNotBlank()) { "Fikk ingen terminal." }
+                terminalOutput = ""
+                terminalRunning = true
+                terminalSocket = bridge.terminalWebSocket(
+                    id,
+                    onText = { text -> terminalOutput += text },
+                    onClosed = { terminalRunning = false; terminalSocket = null },
+                )
+            }.onFailure { terminalOutput = it.message ?: "Kunne ikke starte terminal." }
+        }
+    }
+
+    fun terminalSend(input: String) {
+        val socket = terminalSocket ?: return
+        if (input.isBlank()) return
+        socket.send(JSONObject().apply { put("type", "input"); put("data", input + "\r") }.toString())
+    }
+
+    fun terminalStop() {
+        terminalSocket?.close(1000, "bye")
+        terminalSocket = null
+        terminalRunning = false
     }
 
     override fun onCleared() {

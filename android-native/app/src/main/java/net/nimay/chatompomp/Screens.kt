@@ -41,6 +41,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -74,6 +76,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -181,6 +186,8 @@ fun MainApp(vm: AppViewModel) {
     var showNewChat by remember { mutableStateOf(false) }
     var screen by remember { mutableStateOf("chat") }
     LaunchedEffect(Unit) { vm.refresh() }
+    vm.approval?.let { ApprovalDialog(vm, it) }
+
 
     when (screen) {
         "plugins" -> { PluginsScreen(vm, onBack = { screen = "chat" }); return }
@@ -238,6 +245,9 @@ fun MainApp(vm: AppViewModel) {
 
 @Composable
 private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.material3.DrawerState, scope: kotlinx.coroutines.CoroutineScope, onOpenScreen: (String) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var menuFor by remember { mutableStateOf<String?>(null) }
+    var renameTarget by remember { mutableStateOf<SessionInfo?>(null) }
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Samtaler", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -248,12 +258,20 @@ private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.materi
             TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text("Prosjekter") }
             TextButton(onClick = { onOpenScreen("tools") }) { Text("Verktøy") }
         }
-        Spacer(Modifier.height(8.dp))
-        if (vm.sessions.isEmpty()) {
-            Text("Ingen samtaler ennå.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Søk i samtaler") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        )
+        Spacer(Modifier.height(4.dp))
+        val filtered = vm.sessions.filter { query.isBlank() || it.title.contains(query, true) }
+        if (filtered.isEmpty()) {
+            Text("Ingen samtaler.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LazyColumn(Modifier.fillMaxSize()) {
-            val groups = vm.sessions.groupBy { it.cwd }
+            val groups = filtered.groupBy { it.cwd }
             for ((cwd, list) in groups) {
                 item(key = "h-$cwd") {
                     Text(
@@ -265,31 +283,52 @@ private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.materi
                 }
                 items(list, key = { it.file }) { session ->
                     Row(
-                        Modifier
-                            .fillMaxWidth()
+                        Modifier.fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .clickable {
                                 vm.openSession(session)
                                 scope.launch { drawerState.close() }
                             }
-                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(session.title, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
                             Text(
                                 session.model.ifBlank { "${session.messageCount} meldinger" },
-                                maxLines = 1, style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         if (session.activity == "working") {
                             CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                         }
+                        IconButton(onClick = { menuFor = session.file }) {
+                            Text("⋯", style = MaterialTheme.typography.titleMedium)
+                        }
+                        DropdownMenu(expanded = menuFor == session.file, onDismissRequest = { menuFor = null }) {
+                            DropdownMenuItem(text = { Text("Døp om") }, onClick = { renameTarget = session; menuFor = null })
+                            DropdownMenuItem(text = { Text("Arkiver") }, onClick = { vm.archiveSession(session.file, true); menuFor = null })
+                        }
                     }
                 }
             }
         }
+    }
+    renameTarget?.let { target ->
+        var name by remember(target.file) { mutableStateOf(target.title) }
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Døp om samtalen") },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = { vm.renameSession(target.file, name); renameTarget = null }, enabled = name.isNotBlank()) {
+                    Text("Lagre")
+                }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Avbryt") } },
+        )
     }
 }
 
@@ -404,6 +443,14 @@ private fun ToolRow(entry: Entry) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
+    val context = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null && vm.activeCwd.isNotBlank()) {
+            val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "vedlegg"
+            if (bytes != null) vm.uploadAttachment(name, bytes)
+        }
+    }
     var showSettings by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
     var light by remember { mutableStateOf(false) }
@@ -412,6 +459,25 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
     val keyboard = LocalSoftwareKeyboardController.current
 
     Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 10.dp, vertical = 4.dp)) {
+        if (vm.attachments.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                vm.attachments.take(3).forEach { path ->
+                    Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Text(
+                            path.substringAfterLast('/'),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            maxLines = 1,
+                        )
+                    }
+                }
+                TextButton(onClick = { vm.clearAttachments() }) { Text("Fjern") }
+            }
+        }
         val metrics = vm.metricsLabel()
         if (vm.stream.active || metrics.isNotBlank()) {
             Row(
@@ -453,7 +519,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { }) { Icon(Icons.Filled.Add, contentDescription = "Legg ved", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = { picker.launch("image/*") }) { Icon(Icons.Filled.Add, contentDescription = "Legg ved", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                     Surface(
                         shape = RoundedCornerShape(999.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -889,5 +955,53 @@ private fun RenameProjectDialog(project: ProjectInfo, onDismiss: () -> Unit, onR
             TextButton(onClick = { if (name.isNotBlank()) onRename(name) }, enabled = name.isNotBlank()) { Text("Lagre") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Avbryt") } },
+    )
+}
+
+// ------------------------------------------------------------------ approval
+
+@Composable
+private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
+    val method = request.optString("method")
+    val title = request.optString("title").ifBlank { "OMP trenger godkjenning" }
+    val message = request.optString("message")
+    val allowAlways = request.optBoolean("allowAlways")
+    val options = request.optJSONArray("options")
+    var input by remember { mutableStateOf(request.optString("prefill")) }
+
+    AlertDialog(
+        onDismissRequest = { vm.respondApproval(cancelled = true) },
+        title = { Text(title) },
+        text = {
+            Column {
+                if (message.isNotBlank()) Text(message)
+                if (method == "select" && options != null) {
+                    for (index in 0 until options.length()) {
+                        val option = options.optJSONObject(index)
+                        val value = option?.optString("value") ?: options.optString(index)
+                        val label = option?.optString("label").orEmpty().ifBlank { value }
+                        TextButton(onClick = { vm.respondApproval(value = value) }) { Text(label) }
+                    }
+                } else if (method == "input") {
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        label = { Text("Svar") },
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (method != "select") {
+                TextButton(onClick = {
+                    if (method == "input") vm.respondApproval(value = input) else vm.respondApproval(confirmed = true)
+                }) { Text("Tillat") }
+            }
+            if (allowAlways) {
+                TextButton(onClick = { vm.respondApproval(allowAlways = true) }) { Text("Tillat alltid") }
+            }
+        },
+        dismissButton = { TextButton(onClick = { vm.respondApproval(cancelled = true) }) { Text("Avbryt") } },
     )
 }
