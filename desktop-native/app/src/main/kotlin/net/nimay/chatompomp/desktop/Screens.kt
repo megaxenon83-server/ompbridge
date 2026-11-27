@@ -28,13 +28,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -249,6 +254,7 @@ private fun ChatScreen(vm: ChatViewModel) {
     var menuFor by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<SessionInfo?>(null) }
     var archiveTarget by remember { mutableStateOf<SessionInfo?>(null) }
+    var screen by remember { mutableStateOf("chat") }
 
     Row(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Sidebar(
@@ -260,17 +266,24 @@ private fun ChatScreen(vm: ChatViewModel) {
             onArchive = { archiveTarget = it },
             onNewChat = { vm.loadProjects(); dialog = "new" },
             onSettings = { dialog = "settings" },
+            screen = screen,
+            onOpenScreen = { screen = it },
         )
         Box(Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.outline))
-        Column(Modifier.weight(1f).fillMaxHeight()) {
-            TopBar(vm, onNewChat = { vm.loadProjects(); dialog = "new" })
-            Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline))
-            ChatList(vm, Modifier.weight(1f))
-            Composer(
-                vm = vm,
-                onOpenModels = { vm.loadModels(); dialog = "model" },
-                onOpenSettings = { dialog = "settings" },
-            )
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            when (screen) {
+                "files" -> FilesScreen(vm, onBack = { screen = "chat" })
+                "git" -> GitScreen(vm, onBack = { screen = "chat" })
+                "terminal" -> TerminalScreen(vm, onBack = { screen = "chat" })
+                "devices" -> DevicesScreen(vm, onBack = { screen = "chat" })
+                "voice" -> VoiceScreen(vm, onBack = { screen = "chat" })
+                else -> ChatPane(
+                    vm = vm,
+                    onNewChat = { vm.loadProjects(); dialog = "new" },
+                    onOpenModels = { vm.loadModels(); dialog = "model" },
+                    onOpenSettings = { dialog = "settings" },
+                )
+            }
         }
     }
 
@@ -283,6 +296,17 @@ private fun ChatScreen(vm: ChatViewModel) {
     }
     renameTarget?.let { session -> RenameDialog(vm, session, onClose = { renameTarget = null }) }
     archiveTarget?.let { session -> ArchiveDialog(vm, session, onClose = { archiveTarget = null }) }
+}
+
+/** Chat column: header, transcript and composer. Shown when no tool screen is open. */
+@Composable
+private fun ChatPane(vm: ChatViewModel, onNewChat: () -> Unit, onOpenModels: () -> Unit, onOpenSettings: () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        TopBar(vm, onNewChat = onNewChat)
+        Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outline))
+        ChatList(vm, Modifier.weight(1f))
+        Composer(vm = vm, onOpenModels = onOpenModels, onOpenSettings = onOpenSettings)
+    }
 }
 
 @Composable
@@ -356,6 +380,8 @@ private fun Sidebar(
     onArchive: (SessionInfo) -> Unit,
     onNewChat: () -> Unit,
     onSettings: () -> Unit,
+    screen: String,
+    onOpenScreen: (String) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var projectFilter by remember { mutableStateOf<String?>(null) }
@@ -474,6 +500,16 @@ private fun Sidebar(
         }
         HorizontalDivider(Modifier.padding(top = 4.dp))
         Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            SidebarIcon(Icons.Filled.Folder, t("Filer", "Files"), screen == "files") { onOpenScreen("files") }
+            SidebarIcon(Icons.Filled.AccountTree, "Git", screen == "git") { onOpenScreen("git") }
+            SidebarIcon(Icons.Filled.Terminal, "Terminal", screen == "terminal") { onOpenScreen("terminal") }
+            SidebarIcon(Icons.Filled.PhoneAndroid, t("Enheter", "Devices"), screen == "devices") { onOpenScreen("devices") }
+            SidebarIcon(Icons.Filled.RecordVoiceOver, t("Tale", "Voice"), screen == "voice") { onOpenScreen("voice") }
+        }
+        Row(
             Modifier.fillMaxWidth().padding(top = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -490,6 +526,37 @@ private fun Sidebar(
                 maxLines = 1,
             )
         }
+    }
+}
+
+@Composable
+private fun SidebarIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        Modifier.clip(RoundedCornerShape(10.dp))
+            .background(if (selected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 9.sp,
+            maxLines = 1,
+        )
     }
 }
 
@@ -910,7 +977,7 @@ private fun Composer(vm: ChatViewModel, onOpenModels: () -> Unit, onOpenSettings
 
 private const val APP_VERSION = "0.14.0"
 
-private fun copyToClipboard(text: String) {
+fun copyToClipboard(text: String) {
     runCatching {
         java.awt.Toolkit.getDefaultToolkit().systemClipboard
             .setContents(java.awt.datatransfer.StringSelection(text), null)
@@ -937,7 +1004,7 @@ private fun sectionLabel(label: String): String = when (label) {
     else -> t("ELDRE", "OLDER")
 }
 
-private fun relativeTime(ts: Long): String {
+fun relativeTime(ts: Long): String {
     if (ts <= 0) return ""
     val diff = System.currentTimeMillis() - ts
     return when {

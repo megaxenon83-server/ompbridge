@@ -71,6 +71,37 @@ class BridgeClient(private val prefs: Prefs) {
     }
 
     /**
+     * Open the bridge's terminal PTY over WebSocket. The bridge authorises the
+     * upgrade itself, so the bearer token travels in the header like every other
+     * call. Output arrives as text frames; input is sent back as JSON frames.
+     */
+    fun terminalSocket(
+        id: String,
+        onText: (String) -> Unit,
+        onOpen: () -> Unit,
+        onClosed: () -> Unit,
+    ): okhttp3.WebSocket? {
+        val current = pairing ?: return null
+        val base = current.origin.trimEnd('/')
+            .replaceFirst("http://", "ws://")
+            .replaceFirst("https://", "wss://")
+        val url = base + "/ws/terminal?id=" + enc(id)
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer " + current.token)
+            .build()
+        return sseClient.newWebSocket(request, object : okhttp3.WebSocketListener() {
+            override fun onOpen(webSocket: okhttp3.WebSocket, response: okhttp3.Response) = onOpen()
+
+            override fun onMessage(webSocket: okhttp3.WebSocket, text: String) = onText(text)
+
+            override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) = onClosed()
+
+            override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) = onClosed()
+        })
+    }
+
+    /**
      * Subscribe to /api/events for one conversation. Frames arrive on an OkHttp
      * thread; the caller is responsible for hopping to the UI dispatcher.
      */
@@ -103,8 +134,7 @@ class BridgeClient(private val prefs: Prefs) {
         path: String,
         query: Map<String, String>,
         body: JSONObject?,
-    ): JSONObject = withContext(Dispatchers.IO) {
-        val current = pairing ?: throw IllegalStateException("Ikke koblet til en PC.")
+    ): JSONObject = withContext(Dispatchers.IO) {        val current = pairing ?: throw IllegalStateException("Ikke koblet til en PC.")
         val request = Request.Builder()
             .url(buildUrl(current.origin, path, query))
             .header("Authorization", "Bearer " + current.token)

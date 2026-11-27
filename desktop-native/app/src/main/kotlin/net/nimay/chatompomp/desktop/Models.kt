@@ -119,3 +119,41 @@ data class ProjectInfo(
         }
     }
 }
+
+/** One entry in the file browser. */
+data class FsEntry(
+    val name: String,
+    val path: String,
+    val isDir: Boolean,
+    val size: Long,
+    val mtime: Long,
+) {
+    companion object {
+        fun from(json: JSONObject) = FsEntry(
+            name = json.optString("name"),
+            path = json.optString("path"),
+            isDir = json.optString("type") == "dir",
+            size = json.optLong("size"),
+            mtime = json.optLong("mtime"),
+        )
+
+        fun list(array: JSONArray?): List<FsEntry> {
+            if (array == null) return emptyList()
+            return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                .map { from(it) }
+                .filter { it.name.isNotBlank() || it.path.isNotBlank() }
+        }
+    }
+}
+
+/** A file opened from the browser. */
+data class FileContent(
+    val path: String,
+    val content: String,
+    val size: Long,
+    val mtime: Long,
+) {
+    val name: String
+        get() = path.substringAfterLast('\\').substringAfterLast('/')
+}
+

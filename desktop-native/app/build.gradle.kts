@@ -14,6 +14,8 @@ dependencies {
     // Android app). `currentOs` picks the Skiko build for the machine we build on.
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
+    // Same icon set as android-native (Folder, AccountTree, Terminal, ...).
+    implementation(compose.materialIconsExtended)
 
     // Same HTTP stack as android-native: OkHttp for JSON calls and okhttp-sse for
     // the /api/events stream, so the BridgeClient pattern is shared.

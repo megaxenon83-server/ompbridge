@@ -87,6 +87,77 @@ class ChatViewModel {
     var thinkingLevel by mutableStateOf("")
         private set
 
+    // ------------------------------------------------------------------- files
+
+    var fsPath by mutableStateOf("")
+        private set
+    var fsEntries by mutableStateOf<List<FsEntry>>(emptyList())
+        private set
+    var fsRoots by mutableStateOf<List<FsEntry>>(emptyList())
+        private set
+    var fsPlaces by mutableStateOf<List<FsEntry>>(emptyList())
+        private set
+    var fsFile by mutableStateOf<FileContent?>(null)
+        private set
+    var editingContent by mutableStateOf<String?>(null)
+        private set
+    var fsError by mutableStateOf("")
+        private set
+    var fsBusy by mutableStateOf(false)
+        private set
+    var fsNotice by mutableStateOf("")
+        private set
+
+    // --------------------------------------------------------------------- git
+
+    var gitPath by mutableStateOf("")
+        private set
+    var gitStatus by mutableStateOf<JSONObject?>(null)
+        private set
+    var gitLog by mutableStateOf<List<JSONObject>>(emptyList())
+        private set
+    var gitDiffText by mutableStateOf<String?>(null)
+        private set
+    var gitDiffTitle by mutableStateOf("")
+        private set
+    var gitError by mutableStateOf("")
+        private set
+    var gitBusy by mutableStateOf(false)
+        private set
+
+    // ---------------------------------------------------------------- terminal
+
+    var terminalOutput by mutableStateOf("")
+        private set
+    var terminalRunning by mutableStateOf(false)
+        private set
+    var terminalCwd by mutableStateOf("")
+        private set
+    var terminalId by mutableStateOf("")
+        private set
+    var terminalError by mutableStateOf("")
+        private set
+
+    // --------------------------------------------------------------------- adb
+
+    var adbStatus by mutableStateOf<JSONObject?>(null)
+        private set
+    var adbError by mutableStateOf("")
+        private set
+    var adbBusy by mutableStateOf(false)
+        private set
+
+    // ------------------------------------------------------------------- voice
+
+    var voiceLocal by mutableStateOf<JSONObject?>(null)
+        private set
+    var voiceEngines by mutableStateOf<JSONObject?>(null)
+        private set
+    var voiceNotice by mutableStateOf("")
+        private set
+    var voiceBusy by mutableStateOf(false)
+        private set
+
     val theme: ThemeSpec get() = themeById(themeId)
 
     // ---------------------------------------------------------------- internals
@@ -94,6 +165,7 @@ class ChatViewModel {
     private var eventSource: EventSource? = null
     private var eventsToken = 0
     private var retryJob: Job? = null
+    private var terminalSocket: okhttp3.WebSocket? = null
     private var streamingId = ""
     private var streamingText = StringBuilder()
     private var streamingThinking = StringBuilder()
@@ -739,6 +811,397 @@ class ChatViewModel {
         sessions.forEach { markSeen(it.file, it.messageCount) }
     }
 
+    // ---------------------------------------------------------------- files
+
+    /** The folder the files screen should look at when nothing else is chosen. */
+    fun toolCwd(): String = activeCwd.takeIf { it.isNotBlank() }
+        ?: projects.firstOrNull()?.path.orEmpty()
+
+    fun loadFs(path: String) {
+        scope.launch {
+            fsBusy = true
+            fsError = ""
+            fsNotice = ""
+            runCatching {
+                val data = bridge.get("/api/fs/list", mapOf("path" to path))
+                if (data.optBoolean("roots")) {
+                    fsPath = ""
+                    fsRoots = FsEntry.list(data.optJSONArray("entries"))
+                    val places = data.optJSONArray("places")
+                    fsPlaces = if (places == null) emptyList() else (0 until places.length()).mapNotNull { index ->
+                        val item = places.optJSONObject(index) ?: return@mapNotNull null
+                        FsEntry(
+                            name = item.optString("label"),
+                            path = item.optString("path"),
+                            isDir = true,
+                            size = 0,
+                            mtime = 0,
+                        )
+                    }
+                    fsEntries = emptyList()
+                    fsFile = null
+                    editingContent = null
+                } else {
+                    fsPath = data.optString("path")
+                    fsEntries = FsEntry.list(data.optJSONArray("entries"))
+                        .sortedWith(compareByDescending<FsEntry> { it.isDir }.thenBy { it.name.lowercase() })
+                    fsRoots = emptyList()
+                    fsPlaces = emptyList()
+                }
+            }.onFailure { fsError = it.message ?: "Kunne ikke lese mappen." }
+            fsBusy = false
+        }
+    }
+
+    fun fsRootsListing() = loadFs("")
+
+    fun canGoUp(): Boolean = fsPath.isNotBlank() && java.io.File(fsPath).parent != null
+
+    fun fsUp() {
+        if (fsPath.isBlank()) return
+        val parent = java.io.File(fsPath).parent ?: ""
+        loadFs(parent)
+    }
+
+    fun openFile(path: String) {
+        scope.launch {
+            fsError = ""
+            runCatching {
+                val data = bridge.get("/api/files/read", mapOf("path" to path))
+                fsFile = FileContent(
+                    path = data.optString("path"),
+                    content = data.optString("content"),
+                    size = data.optLong("size"),
+                    mtime = data.optLong("mtime"),
+                )
+                editingContent = null
+            }.onFailure { fsError = it.message ?: "Kunne ikke lese filen." }
+        }
+    }
+
+    fun closeFile() {
+        fsFile = null
+        editingContent = null
+    }
+
+    fun startEditing() {
+        editingContent = fsFile?.content
+    }
+
+    fun updateEditing(value: String) {
+        editingContent = value
+    }
+
+    fun cancelEditing() {
+        editingContent = null
+    }
+
+    fun saveFile() {
+        val file = fsFile ?: return
+        val content = editingContent ?: return
+        scope.launch {
+            fsError = ""
+            runCatching {
+                bridge.post("/api/files/write", JSONObject().apply {
+                    put("path", file.path)
+                    put("content", content)
+                    if (file.mtime > 0) put("expectedMtime", file.mtime)
+                })
+                editingContent = null
+                fsNotice = "Lagret ${file.name}"
+                val data = bridge.get("/api/files/read", mapOf("path" to file.path))
+                fsFile = FileContent(
+                    path = data.optString("path"),
+                    content = data.optString("content"),
+                    size = data.optLong("size"),
+                    mtime = data.optLong("mtime"),
+                )
+            }.onFailure { fsError = it.message ?: "Kunne ikke lagre filen." }
+        }
+    }
+
+    fun makeDir(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank() || fsPath.isBlank()) return
+        val target = java.io.File(fsPath, trimmed).path
+        scope.launch {
+            runCatching {
+                bridge.post("/api/fs/mkdir", JSONObject().apply { put("path", target) })
+                fsNotice = "Opprettet $trimmed"
+                loadFs(fsPath)
+            }.onFailure { fsError = it.message ?: "Kunne ikke opprette mappen." }
+        }
+    }
+
+    fun deleteEntry(path: String) {
+        scope.launch {
+            runCatching {
+                bridge.post("/api/fs/delete", JSONObject().apply { put("path", path) })
+                if (fsFile?.path == path) closeFile()
+                fsNotice = "Slettet"
+                loadFs(fsPath)
+            }.onFailure { fsError = it.message ?: "Kunne ikke slette." }
+        }
+    }
+
+    fun renameEntry(path: String, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank()) return
+        val parent = java.io.File(path).parent ?: return
+        val target = java.io.File(parent, trimmed).path
+        scope.launch {
+            runCatching {
+                bridge.post("/api/fs/rename", JSONObject().apply { put("from", path); put("to", target) })
+                fsNotice = "Navn endret"
+                loadFs(fsPath)
+            }.onFailure { fsError = it.message ?: "Kunne ikke endre navnet." }
+        }
+    }
+
+    fun dismissFsError() { fsError = "" }
+
+    fun dismissFsNotice() { fsNotice = "" }
+
+    // ---------------------------------------------------------------- git
+
+    fun loadGit() = loadGit(toolCwd())
+
+    fun loadGit(path: String) {
+        scope.launch {
+            gitBusy = true
+            gitError = ""
+            if (path.isBlank()) {
+                gitStatus = null
+                gitLog = emptyList()
+                gitError = "Ingen prosjektmappe valgt ennå – åpne en samtale først."
+                gitBusy = false
+                return@launch
+            }
+            gitPath = path
+            runCatching {
+                gitStatus = bridge.get("/api/git/status", mapOf("path" to path))
+                val log = bridge.get("/api/git/log", mapOf("path" to path))
+                val commits = log.optJSONArray("commits")
+                gitLog = if (commits == null) emptyList() else (0 until commits.length()).mapNotNull { commits.optJSONObject(it) }
+            }.onFailure {
+                gitStatus = null
+                gitLog = emptyList()
+                gitError = it.message ?: "Kunne ikke lese Git-status."
+            }
+            gitBusy = false
+        }
+    }
+
+    fun stageAll() {
+        val files = gitFiles().map { it.optString("path") }.filter { it.isNotBlank() }
+        if (files.isEmpty() || gitPath.isBlank()) return
+        scope.launch {
+            runCatching {
+                bridge.post("/api/git/stage", JSONObject().apply {
+                    put("cwd", gitPath)
+                    put("files", JSONArray(files))
+                })
+            }.onFailure { gitError = it.message ?: "Kunne ikke stage filene." }
+            loadGit()
+        }
+    }
+
+    fun commit(message: String) {
+        if (gitPath.isBlank() || message.isBlank()) return
+        scope.launch {
+            runCatching {
+                bridge.post("/api/git/commit", JSONObject().apply {
+                    put("cwd", gitPath)
+                    put("message", message.trim())
+                })
+            }.onFailure { gitError = it.message ?: "Commit feilet." }
+            loadGit()
+        }
+    }
+
+    fun gitFiles(): List<JSONObject> {
+        val files = gitStatus?.optJSONArray("files") ?: return emptyList()
+        return (0 until files.length()).mapNotNull { files.optJSONObject(it) }
+    }
+
+    fun openDiff(file: String) {
+        if (gitPath.isBlank()) return
+        scope.launch {
+            runCatching {
+                val data = bridge.get("/api/git/diff", mapOf("path" to gitPath, "file" to file))
+                gitDiffTitle = file
+                val diff = data.optString("diff")
+                gitDiffText = diff.ifBlank { "Ingen endringer i filen." }
+            }.onFailure { gitError = it.message ?: "Kunne ikke hente diff." }
+        }
+    }
+
+    fun closeDiff() {
+        gitDiffText = null
+        gitDiffTitle = ""
+    }
+
+    fun dismissGitError() { gitError = "" }
+
+    // ---------------------------------------------------------------- terminal
+
+    fun terminalStart() {
+        if (terminalSocket != null) return
+        scope.launch {
+            terminalError = ""
+            val dir = toolCwd()
+            if (dir.isBlank()) {
+                terminalError = "Velg en samtale eller et prosjekt først."
+                return@launch
+            }
+            terminalCwd = dir
+            runCatching {
+                val data = bridge.post("/api/terminal/create", JSONObject().apply {
+                    put("cwd", dir)
+                    put("cols", 120)
+                    put("rows", 30)
+                })
+                val id = data.optString("id")
+                require(id.isNotBlank()) { "Fikk ingen terminal fra bridgen." }
+                terminalId = id
+                terminalOutput = ""
+                terminalRunning = true
+                terminalSocket = bridge.terminalSocket(
+                    id = id,
+                    onText = { text -> scope.launch { appendTerminal(text) } },
+                    onOpen = {},
+                    onClosed = { scope.launch { terminalRunning = false } },
+                )
+            }.onFailure {
+                terminalRunning = false
+                terminalError = it.message ?: "Kunne ikke starte terminalen."
+            }
+        }
+    }
+
+    private fun appendTerminal(text: String) {
+        terminalOutput = (terminalOutput + stripAnsi(text)).takeLast(120_000)
+    }
+
+    private fun stripAnsi(text: String): String = text
+        .replace(ANSI_CSI, "")
+        .replace(ANSI_OSC, "")
+        .replace("\r\n", "\n")
+        .replace('\r', '\n')
+
+    fun terminalSend(input: String) {
+        val socket = terminalSocket ?: return
+        socket.send(JSONObject().apply { put("type", "input"); put("data", input) }.toString())
+    }
+
+    fun terminalSendLine(line: String) {
+        if (line.isBlank()) return
+        val socket = terminalSocket ?: return
+        socket.send(JSONObject().apply { put("type", "input"); put("data", line + "\r") }.toString())
+    }
+
+    fun terminalCtrlC() {
+        val socket = terminalSocket ?: return
+        socket.send(JSONObject().apply { put("type", "input"); put("data", "\u0003") }.toString())
+    }
+
+    fun terminalClear() {
+        terminalOutput = ""
+    }
+
+    fun terminalStop() {
+        terminalSocket?.close(1000, "bye")
+        terminalSocket = null
+        terminalRunning = false
+        val id = terminalId
+        terminalId = ""
+        if (id.isNotBlank()) {
+            scope.launch {
+                runCatching { bridge.post("/api/terminal/kill", JSONObject().apply { put("id", id) }) }
+            }
+        }
+    }
+
+    fun dismissTerminalError() { terminalError = "" }
+
+    // ---------------------------------------------------------------- adb
+
+    fun loadAdb() {
+        scope.launch {
+            adbBusy = true
+            adbError = ""
+            runCatching {
+                adbStatus = bridge.get("/api/adb/status")
+            }.onFailure { adbError = it.message ?: "Kunne ikke hente ADB-status." }
+            adbBusy = false
+        }
+    }
+
+    fun installAdb() {
+        scope.launch {
+            adbBusy = true
+            adbError = ""
+            runCatching {
+                bridge.post("/api/adb/install")
+            }.onFailure { adbError = it.message ?: "Kunne ikke installere ADB." }
+            adbBusy = false
+            loadAdb()
+        }
+    }
+
+    fun dismissAdbError() { adbError = "" }
+
+    fun adbDevices(): List<JSONObject> {
+        val devices = adbStatus?.optJSONArray("devices") ?: return emptyList()
+        return (0 until devices.length()).mapNotNull { devices.optJSONObject(it) }
+    }
+
+    // ---------------------------------------------------------------- voice
+
+    fun loadVoice() {
+        scope.launch {
+            runCatching {
+                voiceLocal = bridge.get("/api/voice/local")
+                voiceEngines = bridge.get("/api/voice/engines")
+                voiceNotice = ""
+            }.onFailure { voiceNotice = it.message ?: "Kunne ikke hente tale-status." }
+        }
+    }
+
+    fun speak(text: String) {
+        if (text.isBlank()) return
+        scope.launch {
+            voiceBusy = true
+            runCatching {
+                bridge.post("/api/voice/speak", JSONObject().apply { put("text", text) })
+                voiceNotice = "Sendt til opplesing."
+            }.onFailure { voiceNotice = it.message ?: "Opplesing feilet." }
+            voiceBusy = false
+        }
+    }
+
+    fun voiceStart() {
+        scope.launch {
+            runCatching {
+                bridge.post("/api/voice/start")
+                voiceNotice = "Lytting startet."
+            }.onFailure { voiceNotice = it.message ?: "Kunne ikke starte lytting." }
+            loadVoice()
+        }
+    }
+
+    fun voiceStop() {
+        scope.launch {
+            runCatching {
+                bridge.post("/api/voice/stop")
+                voiceNotice = "Lytting stoppet."
+            }.onFailure { voiceNotice = it.message ?: "Kunne ikke stoppe lytting." }
+            loadVoice()
+        }
+    }
+
+    fun dismissVoiceNotice() { voiceNotice = "" }
+
     // ---------------------------------------------------------------- UI state
 
     fun selectTheme(id: String) {
@@ -764,8 +1227,7 @@ class ChatViewModel {
 
     fun saveWindow(width: Int, height: Int) = prefs.saveWindow(width, height)
 
-    private fun deriveTitle(text: String): String {
-        var value = text.trim().lineSequence().firstOrNull().orEmpty().trim()
+    private fun deriveTitle(text: String): String {        var value = text.trim().lineSequence().firstOrNull().orEmpty().trim()
         val fillers = listOf(
             "hvis du kan ", "hvis du kunne ", "kan du ", "kunne du ", "kan dere ", "kunne dere ",
             "jeg vil at du ", "jeg vil ", "jeg trenger at du ", "jeg trenger ", "vennligst ",
@@ -788,3 +1250,8 @@ class ChatViewModel {
         return value.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() }
     }
 }
+
+// ANSI/OSC escapes from the PTY are decoration we cannot render, so they are
+// stripped before the terminal output reaches the view.
+private val ANSI_CSI = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]")
+private val ANSI_OSC = Regex("\u001B\\][^\u0007]*\u0007")

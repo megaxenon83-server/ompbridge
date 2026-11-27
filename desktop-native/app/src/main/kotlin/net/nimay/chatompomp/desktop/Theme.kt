@@ -1,9 +1,11 @@
 package net.nimay.chatompomp.desktop
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -144,5 +146,10 @@ fun ChatOmpTheme(spec: ThemeSpec, content: @Composable () -> Unit) {
             onPrimaryContainer = spec.ink,
         )
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = colors) {
+        // MaterialTheme does not provide a content colour, and plain Text outside
+        // a Surface would fall back to black. Every screen here is a plain Column,
+        // so the ink colour has to come from the theme itself.
+        CompositionLocalProvider(LocalContentColor provides spec.ink, content = content)
+    }
 }
