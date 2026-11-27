@@ -566,12 +566,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             "agent_end", "session_settled" -> {
+                modelMetrics = null
                 if (activeFile.isNotBlank()) markSeen(activeFile, messages.size)
                 busy = false
                 stream = stream.copy(active = false, phase = "")
                 if (!streamingId.isBlank()) finalizeStreaming()
             }
-            "model_metrics" -> modelMetrics = frame
+            "model_metrics" -> {
+                val live = frame.optJSONObject("live")
+                if (live?.optString("state") == "idle" && !busy) modelMetrics = null else modelMetrics = frame
+            }
             "ui_request", "extension_ui_request" -> approval = frame
             "turn_changes" -> frame.optJSONObject("card")?.let { card ->
                 val id = card.optString("id")
@@ -721,6 +725,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching { bridge.post("/api/abort", JSONObject().apply { put("cwd", activeCwd); put("file", activeFile) }) }
             busy = false
+            modelMetrics = null
             stream = StreamState(active = false)
         }
     }
