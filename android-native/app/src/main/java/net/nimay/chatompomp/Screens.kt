@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalContext
@@ -228,6 +229,9 @@ fun MainApp(vm: AppViewModel) {
                         }
                     },
                     actions = {
+                        IconButton(onClick = { vm.regenerate() }, enabled = !vm.busy && vm.messages.any { it.role == "user" }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Regenerer")
+                        }
                         IconButton(onClick = { vm.loadProjects(); showNewChat = true }) {
                             Icon(Icons.Filled.Add, contentDescription = "Ny samtale")
                         }
@@ -355,7 +359,11 @@ private fun ChatList(vm: AppViewModel, modifier: Modifier = Modifier) {
                 }
             }
         }
+        vm.todoPhases?.let { phases -> item { TodoPanel(phases) } }
         items(vm.messages, key = { it.id + it.role }) { entry -> EntryRow(entry) }
+        vm.turnCards.forEach { card -> item { TurnCard(card) } }
+        vm.projectChecks.forEach { check -> item { ProjectCheckRow(check) } }
+        if (vm.noticeText.isNotBlank()) item { NoticeRow(vm, vm.noticeText) }
         if (vm.error.isNotBlank()) {
             item {
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
@@ -573,6 +581,11 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Light context", modifier = Modifier.weight(1f))
                     Switch(checked = light, onCheckedChange = { light = it })
+                }
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Mørkt tema", modifier = Modifier.weight(1f))
+                    Switch(checked = vm.darkTheme, onCheckedChange = { vm.toggleTheme() })
                 }
                 HorizontalDivider()
                 Text("ARBEIDSMODUS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1004,4 +1017,100 @@ private fun ApprovalDialog(vm: AppViewModel, request: org.json.JSONObject) {
         },
         dismissButton = { TextButton(onClick = { vm.respondApproval(cancelled = true) }) { Text("Avbryt") } },
     )
+}
+
+// ------------------------------------------------------------------ work summary
+
+@Composable
+private fun TodoPanel(phases: org.json.JSONArray) {
+    val tasks = (0 until phases.length()).flatMap { index ->
+        val list = phases.optJSONObject(index)?.optJSONArray("tasks") ?: return@flatMap emptyList()
+        (0 until list.length()).mapNotNull { list.optJSONObject(it) }
+    }
+    if (tasks.isEmpty()) return
+    var expanded by remember { mutableStateOf(false) }
+    val doneStatuses = setOf("done", "done*", "cancelled")
+    val done = tasks.count { it.optString("status") in doneStatuses }
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Oppgaver", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(
+                    "$done av ${tasks.size} ferdig",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (expanded) {
+                for (task in tasks) {
+                    val finished = task.optString("status") in doneStatuses
+                    Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (finished) "✓" else "○",
+                            color = if (finished) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            task.optString("title").ifBlank { task.optString("name") },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TurnCard(card: org.json.JSONObject) {
+    val files = card.optJSONArray("files") ?: return
+    if (files.length() == 0) return
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                if (files.length() == 1) "1 fil endret" else "${files.length()} filer endret",
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            for (index in 0 until files.length()) {
+                val file = files.optJSONObject(index) ?: continue
+                Text(
+                    file.optString("path"),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectCheckRow(check: org.json.JSONObject) {
+    val ok = check.optInt("exitCode", 0) == 0
+    val duration = check.optLong("duration", 0)
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (ok) "✓" else "✗", color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+            Spacer(Modifier.width(8.dp))
+            Text(if (ok) "Test OK" else "Test feilet", style = MaterialTheme.typography.bodySmall)
+            if (duration > 0) {
+                Text(" · ${duration} ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticeRow(vm: AppViewModel, text: String) {
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = { vm.dismissNotice() }) { Text("Lukk") }
+        }
+    }
 }

@@ -1,4 +1,4 @@
-﻿package net.nimay.chatompomp
+package net.nimay.chatompomp
 
 import android.content.Intent
 import android.os.Bundle
@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
         setContent {
-            ChatOmpTheme {
+            ChatOmpTheme(dark = vm.darkTheme) {
                 pendingLink?.let { link ->
                     AlertDialog(
                         onDismissRequest = { pendingLink = null },

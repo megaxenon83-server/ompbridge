@@ -81,6 +81,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var editingContent by mutableStateOf<String?>(null)
         private set
+    var turnCards by mutableStateOf<List<JSONObject>>(emptyList())
+        private set
+    var todoPhases by mutableStateOf<org.json.JSONArray?>(null)
+        private set
+    var projectChecks by mutableStateOf<List<JSONObject>>(emptyList())
+        private set
+    var noticeText by mutableStateOf("")
+        private set
+    var darkTheme by mutableStateOf(true)
+        private set
     var activeModelName by mutableStateOf("")
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
@@ -229,9 +239,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 messages = emptyList()
                 stream = StreamState()
                 error = ""
+                turnCards = emptyList()
+                todoPhases = null
+                projectChecks = emptyList()
+                noticeText = ""
                 refresh()
-                loadModels()
-                startEvents()
+        loadModels()
+        startEvents()
             }.onFailure { error = it.message ?: "Kunne ikke lage ny samtale." }
         }
     }
@@ -316,6 +330,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         activeTitle = info.title
         activeModelName = info.model
         draft = bridge.loadDraft(info.file)
+        turnCards = emptyList()
+        todoPhases = null
+        projectChecks = emptyList()
+        noticeText = ""
         messages = emptyList()
         stream = StreamState()
         error = ""
@@ -338,6 +356,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }.onFailure { error = it.message ?: "Kunne ikke hente samtalen." }
         }
+        loadTurnCards(info.file)
         loadModels()
         startEvents()
     }
@@ -449,7 +468,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             "model_metrics" -> modelMetrics = frame
             "ui_request", "extension_ui_request" -> approval = frame
-            "ui_cancel" -> if (approval?.optString("id") == frame.optString("targetId")) approval = null
+            "turn_changes" -> frame.optJSONObject("card")?.let { card ->
+                val id = card.optString("id")
+                turnCards = turnCards.filter { it.optString("id") != id } + card
+            }
+            "todo_phases" -> todoPhases = frame.optJSONArray("phases")
+            "project_check" -> frame.optJSONObject("check")?.let { check ->
+                val id = check.optString("id")
+                projectChecks = projectChecks.filter { it.optString("id") != id } + check
+            }
+            "notice" -> noticeText = frame.optString("message").ifBlank {
+                frame.optJSONObject("notice")?.optString("message").orEmpty()
+            }
+            "rpc_error" -> noticeText = frame.optString("error")            "ui_cancel" -> if (approval?.optString("id") == frame.optString("targetId")) approval = null
         }
     }
 
@@ -869,6 +900,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         terminalSocket?.close(1000, "bye")
         terminalSocket = null
         terminalRunning = false
+    }
+    fun toggleTheme() { darkTheme = !darkTheme }
+
+    fun dismissNotice() { noticeText = "" }
+
+    fun regenerate() {
+        val entry = messages.lastOrNull { it.role == "user" && !it.id.startsWith("local-") } ?: return
+        if (activeCwd.isBlank() || activeFile.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/regenerate", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("file", activeFile)
+                    put("entryId", entry.id)
+                    put("text", entry.text)
+                })
+            }.onFailure { error = it.message ?: "Kunne ikke regenerere." }
+        }
+    }
+
+    private fun loadTurnCards(file: String) {
+        viewModelScope.launch {
+            runCatching {
+            val data = bridge.get("/api/omp/turns", mapOf("cwd" to activeCwd, "file" to file))
+            val cards = data.optJSONArray("cards")
+            turnCards = if (cards == null) emptyList() else (0 until cards.length()).mapNotNull { cards.optJSONObject(it) }
+            val checks = data.optJSONArray("checks")
+            projectChecks = if (checks == null) emptyList() else (0 until checks.length()).mapNotNull { checks.optJSONObject(it) }
+                val todos = data.optJSONArray("todos")
+                if (todos != null) todoPhases = todos
+            }
+        }
     }
 
     override fun onCleared() {
