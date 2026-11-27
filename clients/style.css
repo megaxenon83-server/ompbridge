@@ -406,11 +406,11 @@ pre, code, kbd { font-family: var(--code-font, Consolas, monospace); }
 .composer-area { margin-bottom: 24px; width: min(calc(100% - 38px), 750px); }
 .composer {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 7px; align-items: end;
-  border: 1px solid color-mix(in srgb, white 8%, transparent); border-radius: 24px; padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, white 8%, transparent); border-radius: 24px; padding: 5px 8px;
   background: color-mix(in srgb, var(--panel) 76%, black); box-shadow: 0 12px 32px #0007;
 }
 .composer > #attach { grid-column: 1; grid-row: 2; }
-.composer textarea { grid-column: 1 / -1; grid-row: 1; min-width: 0; min-height: 53px; max-height: 170px; field-sizing: content; padding: 12px 10px 6px; resize: none; }
+.composer textarea { grid-column: 1 / -1; grid-row: 1; min-width: 0; min-height: 42px; max-height: 140px; field-sizing: content; padding: 9px 10px 3px; resize: none; }
 .composer .toolbar { grid-row: 2; grid-column: 2 / -1; padding: 0; gap: 4px; min-width: 0; min-height: 33px; align-items: center; flex-wrap: wrap; }
 .composer .toolbar label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .composer .toolbar button { background: transparent; border-color: transparent; border-radius: 12px; }
