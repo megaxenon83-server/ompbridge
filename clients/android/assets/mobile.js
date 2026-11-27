@@ -856,6 +856,7 @@ async function send(event) {
   sendFailure = '';
   live.push(item);
   $('prompt').value = '';
+  autosizePrompt();
   status('Klargjør OMP …');
   render();
   try {
@@ -1356,11 +1357,14 @@ async function showSharedWorkspace(plugins) {
             }));
             continue;
           }
-          const label = node('label', null, { class: 'workspace-toggle' });
-          const text = node('span', item.name || item.id);
+          const label = node('label', null, { class: 'skill-switch workspace-switch' });
+          const text = node('span', null, { class: 'skill-switch-label' });
+          const title = node('strong', item.name || item.id);
           const state = node('small');
-          const toggle = node('input', null, { type: 'checkbox', role: 'switch', 'aria-label': item.name || item.id });
+          const toggle = node('input', null, { type: 'checkbox', role: 'switch', 'aria-label': item.name || item.id, class: 'switch-input' });
           toggle.checked = item.enabled ?? item.status === 'enabled';
+          const track = node('span', null, { class: 'switch-track' });
+          track.append(node('span', null, { class: 'switch-thumb' }));
           const testRow = plugins && name === 'Innebygd i OMP Desktop' ? window.ompTurnUI.pluginTest(item.test, toggle.checked,
             () => api(route, null, { cwd: directory, action: 'test', target: item.id })) : null;
           const hint = () => { state.textContent = (toggle.checked ? 'Aktivert' : 'Deaktivert') +
@@ -1384,8 +1388,8 @@ async function showSharedWorkspace(plugins) {
             } catch (error) { toggle.checked = !enabled; feedback.textContent = error.message; }
             finally { toggle.disabled = false; toggle.removeAttribute('aria-busy'); hint(); }
           };
-          text.append(state);
-          label.append(text, toggle);
+          text.append(title, state);
+          label.append(text, toggle, track);
           group.append(label);
           if (testRow) group.append(testRow);
           if (plugins && item.scope === 'global' && item.override !== null) group.append(button('Bruk global innstilling', async () => {
@@ -1690,7 +1694,14 @@ $('files').onclick = () => showFiles();
 $('modelBtn').onclick = showModels;
 $('closeSheet').onclick = () => $('sheet').close();
 $('composer').onsubmit = send;
+function autosizePrompt() {
+  const el = $('prompt');
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 152) + 'px';
+}
 $('prompt').oninput = () => {
+  autosizePrompt();
   if (origin && cwd) saveDraft(draftKey(), $('prompt').value);
   $('send').disabled = !origin || !cwd || submitting || streaming || !$('prompt').value.trim();
 };
