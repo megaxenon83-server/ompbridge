@@ -1,5 +1,25 @@
 # Changelog
 
+## Bridge 2.9.64 / Desktop 0.8.30 / Android 0.2.30
+
+### Phase 0 fix: composer and settings redesign
+
+- Compact ChatGPT-style composer with a near-black background, discreet border, smaller model picker, smaller microphone and a round send/stop button. The text field grows with the message and is capped at two rows when empty.
+- One settings (gear) menu now gathers reasoning level, Light context, chat mode, Plugins and Skills. Light context is a real switch.
+- Work status ("OMP tenker" / "OMP arbeider" / tokens per second) is shown directly above the composer with a short fade animation.
+- Tool calls, reasoning and status update live in chronological order while OMP works.
+- The plug-in/skill toggles are real switches (track + thumb) instead of the raw checkboxes that looked like plain boxes in the Android WebView.
+- Removed the blue-grey radial gradient behind the conversation for a smooth, near-black background; the top bar is flat too.
+- Empty "0 files changed" cards are no longer shown.
+- The task overview collapses to one compact line with progress and only expands on tap.
+- Desktop: flat near-black composer, discreet border, and a gear button for Plugins and Skills.
+
+### Phase 0 baseline
+
+- Android: swipe in from the left edge to open the conversation drawer, with a slide-in animation, instead of tapping the corner button.
+- OMP Desktop Plugins page regrouped into clear sections (Skills, Prosjektutvidelser, Installerte pakker, Kilder) with short descriptions instead of one mixed list.
+- Release automation: every release ships all four installers plus source and checksums.
+
 ## Bridge 2.9.63 / Desktop 0.8.29 / Android 0.2.29
 
 ### Android/Desktop UI polish (phase 0)
