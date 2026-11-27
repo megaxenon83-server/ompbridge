@@ -699,6 +699,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val promptText = if (attached.isEmpty()) text else text + "\n\nVedlegg:\n" + attached.joinToString("\n") { "- $it" }
         stream = StreamState(active = true, phase = "Klargjør OMP")
         viewModelScope.launch {
+            kotlinx.coroutines.delay(45_000)
+            if (busy && stream.active && streamingId.isBlank() && stream.phase == "Klargjør OMP") {
+                error = "OMP svarte ikke. Prøv igjen, eller sjekk at bridgen kjører."
+                busy = false
+                stream = StreamState()
+            }
+        }
+        viewModelScope.launch {
             runCatching {
                 bridge.post("/api/prompt", JSONObject().apply {
                     put("cwd", activeCwd)

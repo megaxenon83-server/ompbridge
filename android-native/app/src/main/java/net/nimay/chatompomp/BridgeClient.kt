@@ -24,6 +24,13 @@ class BridgeClient(private val context: Context) {
         .readTimeout(0, TimeUnit.MILLISECONDS) // SSE: keep the stream open
         .writeTimeout(70, TimeUnit.SECONDS)
         .build()
+    // API calls need a finite timeout; the SSE stream below must stay open forever.
+    private val apiClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(70, TimeUnit.SECONDS)
+        .build()
+
 
     private val prefs = context.getSharedPreferences("pairing", Context.MODE_PRIVATE)
 
@@ -135,7 +142,7 @@ class BridgeClient(private val context: Context) {
             } else {
                 builder.method(method, null)
             }
-            client.newCall(builder.build()).execute().use { response ->
+            apiClient.newCall(builder.build()).execute().use { response ->
                 val text = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
                     val message = runCatching { JSONObject(text).optString("error") }.getOrNull()
