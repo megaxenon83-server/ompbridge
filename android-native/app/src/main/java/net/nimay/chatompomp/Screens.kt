@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -666,12 +667,18 @@ private fun EntryRow(entry: Entry) {
                             )
                         }
                         if (showThinking) {
-                            Text(
-                                entry.thinking,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 6.dp),
-                            )
+                            Box(
+                                Modifier
+                                    .heightIn(max = 240.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(top = 6.dp),
+                            ) {
+                                Text(
+                                    entry.thinking,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -757,6 +764,29 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                     }
                 }
                 TextButton(onClick = { vm.clearAttachments() }) { Text("Fjern") }
+            }
+        }
+        if (vm.contextWindow > 0) {
+            val fraction = (vm.contextTokens.toFloat() / vm.contextWindow).coerceIn(0f, 1f)
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(999.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth(fraction).fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    formatTokens(vm.contextTokens) + " / " + formatTokens(vm.contextWindow) + " tok",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         val metrics = vm.metricsLabel()
@@ -1715,4 +1745,10 @@ private fun ThemeSheet(vm: AppViewModel, onDismiss: () -> Unit) {
             Spacer(Modifier.height(20.dp))
         }
     }
+}
+
+private fun formatTokens(value: Int): String = when {
+    value >= 1_000_000 -> String.format(java.util.Locale.US, "%.1fM", value / 1_000_000.0)
+    value >= 1_000 -> String.format(java.util.Locale.US, "%.0fK", value / 1_000.0)
+    else -> value.toString()
 }

@@ -93,6 +93,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var lang by mutableStateOf(AppLang.NB)
         private set
+    var contextTokens by mutableStateOf(0)
+        private set
+    var contextWindow by mutableStateOf(0)
+        private set
     var thinkingLevels by mutableStateOf<List<String>>(emptyList())
         private set
     var thinkingLevel by mutableStateOf("")
@@ -455,6 +459,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 busy = state.optBoolean("isStreaming")
                 state.optString("thinkingLevel").takeIf { it.isNotBlank() }?.let { stateThinkingLevel = it }
+                state.optJSONObject("contextUsage")?.let { usage ->
+                    contextTokens = usage.optInt("tokens", 0)
+                    val window = usage.optInt("contextWindow", 0)
+                    if (window > 0) contextWindow = window
+                }
                 val model = state.optJSONObject("model")
                 val provider = model?.optString("provider").orEmpty()
                 val modelId = model?.optString("id").orEmpty()
@@ -477,6 +486,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val kind = frame.optString("kind")
                 if (!streamingId.isBlank()) {
                     if (kind == "thinking") streamingThinking.append(delta) else streamingText.append(delta)
+                    val partial = frame.optJSONObject("partial")
+                    val partialText = partial?.optString("text").orEmpty()
+                    val partialThinking = partial?.optString("thinking").orEmpty()
+                    if (partialText.length > streamingText.length) streamingText = StringBuilder(partialText)
+                    if (partialThinking.length > streamingThinking.length) streamingThinking = StringBuilder(partialThinking)
                     updateStreaming()
                 }
             }
