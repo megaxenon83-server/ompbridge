@@ -59,14 +59,21 @@ jobs:
           node-version: '22'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: latest
-          packages: platform-tools
+        shell: pwsh
+        run: |
+          $sdk = "$env:RUNNER_TEMP\android-sdk"
+          New-Item -ItemType Directory -Force -Path "$sdk\cmdline-tools" | Out-Null
+          Invoke-WebRequest 'https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip' -OutFile "$env:RUNNER_TEMP\cmdline.zip"
+          Expand-Archive "$env:RUNNER_TEMP\cmdline.zip" -DestinationPath "$env:RUNNER_TEMP\cmdline" -Force
+          Move-Item "$env:RUNNER_TEMP\cmdline\cmdline-tools" "$sdk\cmdline-tools\latest"
+          "ANDROID_HOME=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ANDROID_SDK_ROOT=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$sdk\cmdline-tools\latest\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Android platform + build-tools
         shell: pwsh
         run: |
+          "y" | sdkmanager --licenses | Out-Host
           sdkmanager "platforms;android-35" "build-tools;35.0.0" | Out-Host
 
       - name: Restore Chat OMP OMP signing keystore
@@ -141,7 +148,17 @@ jobs:
 
       - name: Install desktop dependencies (Electron)
         working-directory: clients
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
+
+      - name: Ensure Electron binary
+        working-directory: clients
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'node_modules\electron\dist\electron.exe')) {
+            node node_modules\electron\install.js
+          }
+          if (-not (Test-Path 'node_modules\electron\dist\electron.exe')) { throw 'Electron binary missing after install' }
+          Write-Host "Electron: $((Get-Item 'node_modules\electron\dist\electron.exe').FullName)"
 
       - name: Build portable Desktop ZIP
         shell: pwsh
