@@ -89,3 +89,9 @@ data class ProjectInfo(
         }
     }
 }
+
+/** One entry in the file browser. */
+data class FsEntry(val name: String, val path: String, val isDir: Boolean, val size: Long)
+
+/** A file opened from the browser. */
+data class FileContent(val path: String, val content: String, val size: Long)

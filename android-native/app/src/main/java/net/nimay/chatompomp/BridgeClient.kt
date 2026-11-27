@@ -46,6 +46,12 @@ class BridgeClient(private val context: Context) {
         prefs.edit().clear().apply()
     }
 
+    fun saveDraft(key: String, value: String) {
+        prefs.edit().putString("draft:" + key, value).apply()
+    }
+
+    fun loadDraft(key: String): String = prefs.getString("draft:" + key, "") ?: ""
+
     private fun originOrThrow(): String = pairing?.origin ?: throw IllegalStateException("Ikke koblet til en PC.")
 
     private fun tokenOrThrow(): String = pairing?.credential ?: throw IllegalStateException("Mangler paringstoken.")

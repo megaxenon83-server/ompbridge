@@ -51,6 +51,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var registry by mutableStateOf<List<ProjectInfo>>(emptyList())
         private set
+    var draft by mutableStateOf("")
+        private set
+    var fsPath by mutableStateOf("")
+        private set
+    var fsEntries by mutableStateOf<List<FsEntry>>(emptyList())
+        private set
+    var fsFile by mutableStateOf<FileContent?>(null)
+        private set
+    var gitStatus by mutableStateOf<JSONObject?>(null)
+        private set
+    var gitLog by mutableStateOf<List<JSONObject>>(emptyList())
+        private set
+    var terminalOutput by mutableStateOf("")
+        private set
+    var terminalRunning by mutableStateOf(false)
+        private set
+    var adbStatus by mutableStateOf<JSONObject?>(null)
+        private set
+    var voiceEngines by mutableStateOf<JSONObject?>(null)
+        private set
+    var voiceLocal by mutableStateOf<JSONObject?>(null)
+        private set
+    var wolInfo by mutableStateOf<JSONObject?>(null)
+        private set
     var activeModelName by mutableStateOf("")
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
@@ -284,6 +308,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         activeCwd = info.cwd
         activeTitle = info.title
         activeModelName = info.model
+        draft = bridge.loadDraft(info.file)
         messages = emptyList()
         stream = StreamState()
         error = ""
@@ -500,6 +525,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         messages = messages + optimistic
         busy = true
         modelMetrics = null
+        draft = ""
+        if (activeFile.isNotBlank()) bridge.saveDraft(activeFile, "")
         stream = StreamState(active = true, phase = "Klargjør OMP")
         viewModelScope.launch {
             runCatching {
@@ -528,6 +555,169 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissError() { error = "" }
 
     fun reportError(message: String) { error = message }
+    fun updateDraft(value: String) {
+        draft = value
+        if (activeFile.isNotBlank()) bridge.saveDraft(activeFile, value)
+    }
+
+    fun loadFs(path: String) {
+        fsPath = path
+        fsFile = null
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/fs/list", mapOf("path" to path))
+                val array = data.optJSONArray("entries")
+                fsEntries = if (array == null) emptyList() else (0 until array.length()).mapNotNull { index ->
+                    val item = array.optJSONObject(index) ?: return@mapNotNull null
+                    FsEntry(item.optString("name"), item.optString("path"), item.optString("type") == "dir", item.optLong("size"))
+                }
+            }.onFailure { error = it.message ?: "Kunne ikke lese mappen." }
+        }
+    }
+
+    fun readFile(path: String) {
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/files/read", mapOf("path" to path))
+                fsFile = FileContent(data.optString("path"), data.optString("content"), data.optLong("size"))
+            }.onFailure { error = it.message ?: "Kunne ikke lese filen." }
+        }
+    }
+    fun loadGit() {
+        viewModelScope.launch {
+            runCatching {
+                val candidates = ArrayList<String>()
+                if (activeCwd.isNotBlank()) candidates.add(activeCwd)
+                val list = runCatching { bridge.get("/api/projects") }.getOrNull()
+                list?.optJSONArray("projects")?.let { array ->
+                    for (index in 0 until array.length()) {
+                        array.optJSONObject(index)?.optString("path")?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
+                    }
+                }
+                var loaded = false
+                for (path in candidates.distinct()) {
+                    val status = runCatching { bridge.get("/api/git/status", mapOf("path" to path)) }.getOrNull() ?: continue
+                    gitStatus = status
+                    val log = runCatching { bridge.get("/api/git/log", mapOf("path" to path)) }.getOrNull()
+                    val commits = log?.optJSONArray("commits")
+                    gitLog = if (commits == null) emptyList() else (0 until commits.length()).mapNotNull { commits.optJSONObject(it) }
+                    loaded = true
+                    break
+                }
+                if (!loaded) {
+                    gitStatus = null
+                    gitLog = emptyList()
+                    error = "Fant ingen Git-repo blant prosjektene."
+                }
+            }.onFailure { gitStatus = null; error = it.message ?: "Git feilet." }
+        }
+    }
+
+    fun stageAll() {
+        if (activeCwd.isBlank()) return
+        val files = ArrayList<String>()
+        gitStatus?.optJSONArray("files")?.let { array ->
+            for (index in 0 until array.length()) array.optJSONObject(index)?.optString("path")?.takeIf { it.isNotBlank() }?.let { files.add(it) }
+        }
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/git/stage", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("files", org.json.JSONArray(files))
+                })
+            }.onFailure { error = it.message ?: "Kunne ikke stage filer." }
+            loadGit()
+        }
+    }
+
+    fun commit(message: String) {
+        if (activeCwd.isBlank() || message.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/git/commit", JSONObject().apply { put("cwd", activeCwd); put("message", message.trim()) }) }
+                .onFailure { error = it.message ?: "Commit feilet." }
+            loadGit()
+        }
+    }
+
+    fun runCommand(command: String) {
+        if (command.isBlank()) return
+        terminalRunning = true
+        viewModelScope.launch {
+            runCatching {
+                val cwd = if (activeCwd.isNotBlank()) activeCwd else {
+                    bridge.get("/api/projects").optJSONArray("projects")?.optJSONObject(0)?.optString("path").orEmpty()
+                }
+                if (cwd.isBlank()) {
+                    terminalOutput = "Ingen prosjektmappe valgt."
+                    terminalRunning = false
+                    return@launch
+                }
+                val data = bridge.post("/api/bash", JSONObject().apply { put("cwd", cwd); put("command", command) })
+                val result = data.opt("result")
+                terminalOutput = when (result) {
+                    is JSONObject -> result.optString("output", result.toString())
+                    null -> ""
+                    else -> result.toString()
+                }
+            }.onFailure { terminalOutput = it.message ?: "Kommandoen feilet." }
+            terminalRunning = false
+        }
+    }
+
+    fun clearTerminal() { terminalOutput = "" }
+
+    fun loadAdb() {
+        viewModelScope.launch {
+            runCatching { adbStatus = bridge.get("/api/adb/status") }
+                .onFailure { error = it.message ?: "Kunne ikke hente ADB-status." }
+        }
+    }
+
+    fun installAdb() {
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/adb/install") }
+                .onFailure { error = it.message ?: "Kunne ikke installere ADB." }
+            loadAdb()
+        }
+    }
+
+    fun loadVoice() {
+        viewModelScope.launch {
+            runCatching {
+                voiceEngines = bridge.get("/api/voice/engines")
+                voiceLocal = bridge.get("/api/voice/local")
+            }.onFailure { error = it.message ?: "Kunne ikke hente tale-motorer." }
+        }
+    }
+
+    fun loadWol() {
+        viewModelScope.launch {
+            runCatching { wolInfo = bridge.get("/api/wol/pairing") }
+                .onFailure { wolInfo = null; error = it.message ?: "Kunne ikke hente Wake-on-LAN-status." }
+        }
+    }
+    fun closeFile() { fsFile = null }
+    fun canGoUp(): Boolean {
+        if (fsPath.isBlank()) return false
+        val trimmed = fsPath.trimEnd('\\', '/')
+        val parent = trimmed.substringBeforeLast('\\', "").substringBeforeLast('/', "")
+        return parent.isNotBlank() && parent != trimmed
+    }
+
+    fun fsUp() {
+        if (fsPath.isBlank()) return
+        val trimmed = fsPath.trimEnd('\\', '/')
+        val parent = trimmed.substringBeforeLast('\\', "").substringBeforeLast('/', "")
+        if (parent.isNotBlank() && parent != trimmed) loadFs(parent)
+    }
+
+    fun speak(text: String) {
+        if (text.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/voice/speak", JSONObject().apply { put("text", text) }) }
+                .onFailure { error = it.message ?: "Kunne ikke lese opp." }
+        }
+    }
 
     override fun onCleared() {
         stopEvents()

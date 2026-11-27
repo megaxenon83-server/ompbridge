@@ -182,20 +182,23 @@ fun MainApp(vm: AppViewModel) {
     var screen by remember { mutableStateOf("chat") }
     LaunchedEffect(Unit) { vm.refresh() }
 
-    if (screen == "plugins") {
-        PluginsScreen(vm, onBack = { screen = "chat" })
-        return
-    }
-    if (screen == "projects") {
-        ProjectsScreen(vm, onBack = { screen = "chat" })
-        return
+    when (screen) {
+        "plugins" -> { PluginsScreen(vm, onBack = { screen = "chat" }); return }
+        "projects" -> { ProjectsScreen(vm, onBack = { screen = "chat" }); return }
+        "tools" -> { ToolsScreen(onBack = { screen = "chat" }, onOpen = { screen = it }); return }
+        "files" -> { FilesScreen(vm, onBack = { screen = "tools" }); return }
+        "git" -> { GitScreen(vm, onBack = { screen = "tools" }); return }
+        "terminal" -> { TerminalScreen(vm, onBack = { screen = "tools" }); return }
+        "devices" -> { DevicesScreen(vm, onBack = { screen = "tools" }); return }
+        "voice" -> { VoiceScreen(vm, onBack = { screen = "tools" }); return }
+        "wol" -> { WolScreen(vm, onBack = { screen = "tools" }); return }
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
-                DrawerContent(vm, drawerState, scope, onOpenProjects = { screen = "projects" })
+                DrawerContent(vm, drawerState, scope, onOpenScreen = { screen = it })
             }
         },
     ) {
@@ -234,15 +237,16 @@ fun MainApp(vm: AppViewModel) {
 }
 
 @Composable
-private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.material3.DrawerState, scope: kotlinx.coroutines.CoroutineScope, onOpenProjects: () -> Unit) {
+private fun DrawerContent(vm: AppViewModel, drawerState: androidx.compose.material3.DrawerState, scope: kotlinx.coroutines.CoroutineScope, onOpenScreen: (String) -> Unit) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Samtaler", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { vm.forget() }) { Text("Koble fra") }
         }
-        TextButton(onClick = { vm.loadRegistry(); onOpenProjects() }, modifier = Modifier.padding(top = 2.dp)) {
-            Text("Prosjekter")
+        Row(Modifier.fillMaxWidth()) {
+            TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text("Prosjekter") }
+            TextButton(onClick = { onOpenScreen("tools") }) { Text("Verktøy") }
         }
         Spacer(Modifier.height(8.dp))
         if (vm.sessions.isEmpty()) {
@@ -400,7 +404,6 @@ private fun ToolRow(entry: Entry) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
-    var text by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
     var light by remember { mutableStateOf(false) }
@@ -436,15 +439,15 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
         ) {
             Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                 BasicTextField(
-                    value = text,
-                    onValueChange = { text = it },
+                    value = vm.draft,
+                    onValueChange = { vm.updateDraft(it) },
                     maxLines = 6,
                     textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                     decorationBox = { inner ->
-                        if (text.isBlank()) Text("Skriv en oppgave …", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
+                        if (vm.draft.isBlank()) Text("Skriv en oppgave …", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
                         inner()
                     },
                 )
@@ -475,8 +478,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                             .background(MaterialTheme.colorScheme.primary)
                             .clickable {
                                 if (vm.busy) vm.stop() else {
-                                    vm.send(text)
-                                    text = ""
+                                    vm.send(vm.draft)
                                     keyboard?.hide()
                                 }
                             },
