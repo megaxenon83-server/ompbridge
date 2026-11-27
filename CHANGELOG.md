@@ -1,5 +1,15 @@
 # Changelog
 
+## OMP Suite 0.3.0 — Fase 1: native Android app
+
+- New native Jetpack Compose app in `android-native/` (package `net.nimay.chatompomp.native`, preview) shipped alongside the stable WebView app.
+- Pairing by QR scan (CameraX + ZXing) or pasted link, with a confirmation dialog and AES-GCM credential exchange.
+- Conversation drawer with edge swipe, grouped by project; per-session changes side files are filtered out.
+- Chat with live SSE streaming, reasoning and tool rows, plus a compact near-black composer that hides the keyboard after sending.
+- New conversation from any project (`/api/sessions/new`) and a model picker backed by `/api/models` + `/api/model`.
+- Release signing uses the same production keystore as the WebView app (`chat-omp-dev`), so the preview installs alongside it.
+- Stable apps unchanged in this release: Bridge 2.9.64, Desktop 0.8.30, WebView Android 0.2.30.
+
 ## Bridge 2.9.64 / Desktop 0.8.30 / Android 0.2.30
 
 ### Phase 0 fix: composer and settings redesign
