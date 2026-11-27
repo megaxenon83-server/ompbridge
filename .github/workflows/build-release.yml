@@ -90,9 +90,11 @@ jobs:
         id: package
         shell: pwsh
         env:
-          KEYSTORE_PASSWORD: ${{ secrets.CHATOMP_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.CHATOMP_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.CHATOMP_KEY_PASSWORD }}
+          # Credentials for the Chat OMP OMP key (public in build-android.cjs);
+          # only the keystore itself is secret.
+          KEYSTORE_PASSWORD: android
+          KEY_ALIAS: chat-omp-dev
+          KEY_PASSWORD: android
         run: |
           $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
           node clients/scripts/build-android.cjs
