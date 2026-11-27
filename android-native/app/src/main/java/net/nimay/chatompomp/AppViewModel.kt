@@ -89,8 +89,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var noticeText by mutableStateOf("")
         private set
-    var darkTheme by mutableStateOf(true)
+    var themeId by mutableStateOf("omp")
         private set
+    var seenCounts by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
+    var pinned by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    val theme: ThemeSpec get() = themeById(themeId)
     var folderPath by mutableStateOf("")
         private set
     var folders by mutableStateOf<List<FsEntry>>(emptyList())
@@ -102,7 +108,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var bridgeVersion by mutableStateOf("")
         private set
     init {
-        darkTheme = bridge.loadTheme()
+        themeId = bridge.loadThemeId()
+        pinned = bridge.pinnedFiles()
         checkUpdate()
     }    var activeModelName by mutableStateOf("")
         private set
@@ -181,6 +188,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 val data = bridge.get("/api/sessions", mapOf("archived" to "1"))
                 sessions = SessionInfo.list(data.optJSONArray("sessions"))
+                seenCounts = sessions.mapNotNull { session ->
+                    val seen = bridge.seenCount(session.file)
+                    if (seen >= 0) session.file to seen else null
+                }.toMap()
+                pinned = pinned.filter { file -> sessions.any { it.file == file } }.toSet()
             }.onFailure { error = it.message ?: "Kunne ikke hente samtaler." }
         }
     }
@@ -343,6 +355,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         activeTitle = info.title
         activeModelName = info.model
         draft = bridge.loadDraft(info.file)
+        markSeen(info.file, info.messageCount)
         turnCards = emptyList()
         todoPhases = null
         projectChecks = emptyList()
@@ -476,6 +489,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             "agent_end", "session_settled" -> {
+                if (activeFile.isNotBlank()) markSeen(activeFile, messages.size)
                 busy = false
                 stream = stream.copy(active = false, phase = "")
                 if (!streamingId.isBlank()) finalizeStreaming()
@@ -917,9 +931,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         terminalSocket = null
         terminalRunning = false
     }
-    fun toggleTheme() { darkTheme = !darkTheme; bridge.saveTheme(darkTheme) }
-
+    fun selectTheme(id: String) { themeId = id; bridge.saveThemeId(id) }
     fun dismissNotice() { noticeText = "" }
+
+    fun togglePin(file: String) {
+        val next = pinned.toMutableSet()
+        if (!next.add(file)) next.remove(file)
+        pinned = next
+        bridge.setPinned(next)
+    }
+
+    fun isUnread(session: SessionInfo): Boolean {
+        val seen = seenCounts[session.file] ?: return false
+        return session.messageCount > seen
+    }
+
+    fun markSeen(file: String, count: Int) {
+        if (file.isBlank()) return
+        seenCounts = seenCounts + (file to count)
+        bridge.markSeen(file, count)
+    }
+
+    fun markAllRead() {
+        sessions.forEach { markSeen(it.file, it.messageCount) }
+    }
 
     fun regenerate() {
         val entry = messages.lastOrNull { it.role == "user" && !it.id.startsWith("local-") } ?: return

@@ -11,8 +11,8 @@ android {
         applicationId = "net.nimay.chatompomp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 45
-        versionName = "1.0.3"
+        versionCode = 46
+        versionName = "1.0.4"
     }
 
     signingConfigs {
@@ -75,6 +75,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")

@@ -29,6 +29,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -36,7 +41,6 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -286,6 +290,110 @@ private fun ChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
+private fun relativeTime(ts: Long): String {
+    if (ts <= 0) return ""
+    val diff = System.currentTimeMillis() - ts
+    return when {
+        diff < 60_000 -> "nå"
+        diff < 3_600_000 -> "${diff / 60_000} min"
+        diff < 86_400_000 -> "${diff / 3_600_000} t"
+        diff < 7 * 86_400_000L -> "${diff / 86_400_000} d"
+        else -> java.text.SimpleDateFormat("dd.MM", java.util.Locale.getDefault()).format(java.util.Date(ts))
+    }
+}
+
+@Composable
+private fun SidebarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, contentDescription = label, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.height(3.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 9.sp,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun SessionRow(
+    vm: AppViewModel,
+    session: SessionInfo,
+    showProject: Boolean,
+    menuFor: String?,
+    onMenu: (String?) -> Unit,
+    onRename: (SessionInfo) -> Unit,
+    onCloseDrawer: () -> Unit,
+) {
+    val unread = vm.isUnread(session)
+    val working = session.activity == "working"
+    val active = session.file == vm.activeFile
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (active) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+            .clickable {
+                vm.openSession(session)
+                onCloseDrawer()
+            }
+            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(18.dp), contentAlignment = Alignment.Center) {
+            when {
+                working -> CircularProgressIndicator(
+                    Modifier.size(13.dp),
+                    strokeWidth = 1.75.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                unread -> Box(Modifier.size(9.dp).border(1.75.dp, MaterialTheme.colorScheme.primary, CircleShape))
+                active -> Box(Modifier.size(7.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                else -> Spacer(Modifier.size(9.dp))
+            }
+        }
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+            Text(
+                session.title,
+                maxLines = 1,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            Text(
+                if (showProject) session.projectName else session.model.ifBlank { "${session.messageCount} meldinger" },
+                maxLines = 1,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            relativeTime(session.updatedAt),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconButton(onClick = { onMenu(session.file) }) {
+            Text("⋯", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        DropdownMenu(expanded = menuFor == session.file, onDismissRequest = { onMenu(null) }) {
+            DropdownMenuItem(
+                text = { Text(if (session.file in vm.pinned) "Løsne" else "Fest") },
+                onClick = { vm.togglePin(session.file); onMenu(null) },
+            )
+            DropdownMenuItem(text = { Text("Døp om") }, onClick = { onRename(session); onMenu(null) })
+            DropdownMenuItem(
+                text = { Text("Merk som lest") },
+                onClick = { vm.markSeen(session.file, session.messageCount); onMenu(null) },
+            )
+            DropdownMenuItem(text = { Text("Arkiver") }, onClick = { vm.archiveSession(session.file, true); onMenu(null) })
+        }
+    }
+}
+
+@Composable
 private fun DrawerContent(
     vm: AppViewModel,
     drawerState: androidx.compose.material3.DrawerState,
@@ -303,9 +411,21 @@ private fun DrawerContent(
         (projectFilter == null || it.projectName == projectFilter) &&
             (query.isBlank() || it.title.contains(query, true))
     }
-    val groups = filtered.groupBy { sessionGroup(it.updatedAt) }
+    val working = filtered.filter { it.activity == "working" }
+    val unread = filtered.filter { it.activity != "working" && vm.isUnread(it) }
+    val pinnedList = filtered.filter { it.activity != "working" && !vm.isUnread(it) && it.file in vm.pinned }
+    val rest = filtered.filter { it.activity != "working" && !vm.isUnread(it) && it.file !in vm.pinned }
+    val grouped = rest.groupBy { sessionGroup(it.updatedAt) }
+    val sections = buildList<Pair<String, List<SessionInfo>>> {
+        if (working.isNotEmpty()) add("AKTIVE" to working)
+        if (unread.isNotEmpty()) add("ULESTE SVAR" to unread)
+        if (pinnedList.isNotEmpty()) add("FESTET" to pinnedList)
+        for (label in listOf("I dag", "I går", "Siste 7 dager", "Eldre")) {
+            grouped[label]?.let { add(label.uppercase() to it) }
+        }
+    }
 
-    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp)) {
+    Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("OMP", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
@@ -330,77 +450,66 @@ private fun DrawerContent(
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         )
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
-        ) {
-            item { ChoiceChip("Alle", projectFilter == null) { projectFilter = null } }
-            items(projects) { name ->
-                ChoiceChip(name, projectFilter == name) {
-                    projectFilter = if (projectFilter == name) null else name
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LazyRow(
+                Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+            ) {
+                item { ChoiceChip("Alle", projectFilter == null) { projectFilter = null } }
+                items(projects) { name ->
+                    ChoiceChip(name, projectFilter == name) {
+                        projectFilter = if (projectFilter == name) null else name
+                    }
                 }
             }
+            TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text("Prosjekter") }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            for (label in listOf("I dag", "I går", "Siste 7 dager", "Eldre")) {
-                val list = groups[label] ?: continue
+            for ((label, list) in sections) {
                 item(key = "h-$label") {
                     Text(
                         label,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                        modifier = Modifier.padding(top = 12.dp, bottom = 2.dp),
                     )
                 }
                 items(list, key = { it.file }) { session ->
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (session.file == vm.activeFile) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
-                            .clickable {
-                                vm.openSession(session)
-                                scope.launch { drawerState.close() }
-                            }
-                            .padding(start = 10.dp, end = 2.dp, top = 8.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(session.title, maxLines = 1, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                if (projectFilter == null) session.projectName else session.model.ifBlank { "${session.messageCount} meldinger" },
-                                maxLines = 1,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (session.activity == "working") {
-                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                        }
-                        IconButton(onClick = { menuFor = session.file }) {
-                            Text("⋯", style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        DropdownMenu(expanded = menuFor == session.file, onDismissRequest = { menuFor = null }) {
-                            DropdownMenuItem(text = { Text("Døp om") }, onClick = { renameTarget = session; menuFor = null })
-                            DropdownMenuItem(text = { Text("Arkiver") }, onClick = { vm.archiveSession(session.file, true); menuFor = null })
-                        }
-                    }
+                    SessionRow(
+                        vm = vm,
+                        session = session,
+                        showProject = projectFilter == null,
+                        menuFor = menuFor,
+                        onMenu = { menuFor = it },
+                        onRename = { renameTarget = it },
+                        onCloseDrawer = { scope.launch { drawerState.close() } },
+                    )
                 }
             }
-            if (filtered.isEmpty()) {
-                item { Text("Ingen samtaler.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (sections.isEmpty()) {
+                item {
+                    Text(
+                        "Ingen samtaler ennå.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+            }
+            if (unread.isNotEmpty()) {
+                item {
+                    TextButton(onClick = { vm.markAllRead() }) { Text("Merk alle som lest") }
+                }
             }
         }
         HorizontalDivider(Modifier.padding(top = 4.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton(onClick = { onOpenScreen("files") }) { Text("Filer") }
-            TextButton(onClick = { onOpenScreen("git") }) { Text("Git") }
-            TextButton(onClick = { onOpenScreen("terminal") }) { Text("Terminal") }
-            TextButton(onClick = { onOpenScreen("devices") }) { Text("Enheter") }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            TextButton(onClick = { vm.loadRegistry(); onOpenScreen("projects") }) { Text("Prosjekter") }
-            TextButton(onClick = { onOpenScreen("tools") }) { Text("Verktøy og innstillinger") }
+            SidebarIcon(Icons.Filled.Folder, "Filer") { onOpenScreen("files") }
+            SidebarIcon(Icons.Filled.AccountTree, "Git") { onOpenScreen("git") }
+            SidebarIcon(Icons.Filled.Terminal, "Terminal") { onOpenScreen("terminal") }
+            SidebarIcon(Icons.Filled.PhoneAndroid, "Enheter") { onOpenScreen("devices") }
+            SidebarIcon(Icons.Filled.Settings, "Verktøy") { onOpenScreen("tools") }
         }
     }
     renameTarget?.let { target ->
@@ -685,10 +794,15 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                     Text("Light context", modifier = Modifier.weight(1f))
                     Switch(checked = light, onCheckedChange = { light = it })
                 }
-                HorizontalDivider()
-                Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Mørkt tema", modifier = Modifier.weight(1f))
-                    Switch(checked = vm.darkTheme, onCheckedChange = { vm.toggleTheme() })
+                Text("TEMA", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
+                for (row in themes.chunked(2)) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (spec in row) {
+                            ThemeCard(spec, spec.id == vm.themeId, Modifier.weight(1f)) { vm.selectTheme(spec.id) }
+                        }
+                        if (row.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
                 HorizontalDivider()
                 Text("ARBEIDSMODUS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1336,5 +1450,25 @@ private fun NoticeRow(vm: AppViewModel, text: String) {
             Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
             TextButton(onClick = { vm.dismissNotice() }) { Text("Lukk") }
         }
+    }
+}
+
+@Composable
+private fun ThemeCard(spec: ThemeSpec, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(spec.background)
+            .border(if (selected) 2.dp else 1.dp, if (selected) spec.brand else spec.border, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(10.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Box(Modifier.size(14.dp).clip(RoundedCornerShape(4.dp)).background(spec.brand))
+            Box(Modifier.size(14.dp).clip(RoundedCornerShape(4.dp)).background(spec.raised))
+            Box(Modifier.size(14.dp).clip(RoundedCornerShape(4.dp)).background(spec.surface))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(spec.name, color = spec.ink, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }

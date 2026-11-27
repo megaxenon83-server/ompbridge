@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         handleIntent(intent)
         setContent {
-            ChatOmpTheme(dark = vm.darkTheme) {
+            ChatOmpTheme(spec = vm.theme) {
                 pendingLink?.let { link ->
                     AlertDialog(
                         onDismissRequest = { pendingLink = null },

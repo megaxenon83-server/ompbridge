@@ -51,12 +51,21 @@ class BridgeClient(private val context: Context) {
     }
 
     fun loadDraft(key: String): String = prefs.getString("draft:" + key, "") ?: ""
-
-
     fun loadTheme(): Boolean = prefs.getBoolean("darkTheme", true)
 
-
     fun saveTheme(dark: Boolean) { prefs.edit().putBoolean("darkTheme", dark).apply() }
+
+    fun loadThemeId(): String = prefs.getString("themeId", "omp") ?: "omp"
+
+    fun saveThemeId(id: String) { prefs.edit().putString("themeId", id).apply() }
+
+    fun seenCount(file: String): Int = prefs.getInt("seen:" + file, -1)
+
+    fun markSeen(file: String, count: Int) { prefs.edit().putInt("seen:" + file, count).apply() }
+
+    fun pinnedFiles(): Set<String> = prefs.getStringSet("pinned", emptySet()) ?: emptySet()
+
+    fun setPinned(files: Set<String>) { prefs.edit().putStringSet("pinned", files).apply() }
 
 
     fun githubLatestRelease(): String? {
