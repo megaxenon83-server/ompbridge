@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, clipboard } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, safeStorage, shell, clipboard, Tray, Menu, nativeImage } = require('electron');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const fs = require('node:fs');
@@ -1553,6 +1553,70 @@ const handlers = {
   })
 };
 
+// --- Tray: bridge-status og start/stopp uten å åpne vinduet -------------------
+let tray = null;
+const bridgeDir = () => path.join(process.env.LOCALAPPDATA || '', 'Nimay', 'OMPBridge');
+function bridgeConfig() {
+  try { return JSON.parse(fs.readFileSync(path.join(bridgeDir(), 'bridge', 'config.json'), 'utf8')); } catch { return null; }
+}
+function bridgeHealth() {
+  return new Promise(resolve => {
+    const cfg = bridgeConfig();
+    if (!cfg) return resolve({ up: false });
+    const http = require('node:http');
+    const req = http.get({
+      hostname: '127.0.0.1', port: cfg.port || 27778, path: '/api/health',
+      headers: { Authorization: 'Bearer ' + cfg.token }, timeout: 1500,
+    }, res => {
+      let raw = '';
+      res.on('data', chunk => { raw += chunk; });
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(raw);
+          resolve({ up: res.statusCode === 200, version: data.version, runtimes: (data.runtimes || []).length });
+        } catch { resolve({ up: res.statusCode === 200 }); }
+      });
+    });
+    req.on('timeout', () => { req.destroy(); resolve({ up: false }); });
+    req.on('error', () => resolve({ up: false }));
+  });
+}
+function startBridge() {
+  spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(bridgeDir(), 'Start-Bridge.ps1')], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+}
+function stopBridge() {
+  spawn('powershell.exe', ['-NoProfile', '-Command', "Get-NetTCPConnection -LocalPort 27778 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }"], { windowsHide: true });
+}
+function autoStartOn() {
+  return exec('schtasks', ['/Query', '/TN', 'OMP Bridge'], { windowsHide: true }).then(() => true).catch(() => false);
+}
+async function refreshTray() {
+  if (!tray) return;
+  const health = await bridgeHealth();
+  const auto = await autoStartOn();
+  const label = health.up ? `Bridge ${health.version || ''} kjører` : 'Bridge er stoppet';
+  tray.setToolTip('OMP Desktop — ' + label);
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'OMP Desktop', enabled: false },
+    { label, enabled: false },
+    { type: 'separator' },
+    { label: 'Start bridge', enabled: !health.up, click: () => { startBridge(); setTimeout(refreshTray, 3500); } },
+    { label: 'Stopp bridge', enabled: health.up, click: () => { stopBridge(); setTimeout(refreshTray, 2500); } },
+    { label: auto ? 'Auto-start: på' : 'Auto-start: av', enabled: false },
+    { type: 'separator' },
+    { label: 'Åpne OMP Desktop', click: () => { if (window) { window.show(); window.focus(); } } },
+    { label: 'Avslutt', click: () => app.quit() },
+  ]));
+}
+function createTray() {
+  try {
+    const icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAA0klEQVR4nO2XwRECIQxFyS/FIrxytxpL2BKsxrtXi7AVd/bgRdmQHwKMo/8IyX8hMOyS0q9LPEmnx/Lcm7seFspTIqAtxaAX3JonPcBMNzACrvlhBFzzRZosjFr9nr944bfj5WMs38/0oYQ5owLXxjUhCu4tAkz7reaWuBcPJkfHyqzxSJOFfwHpW7YgE5cMEw/m58Fqaolz34S5Ys52CmwBGoSFb5LRX8P37YY22RteLGC0UBrs1YWSL5jgaPgmE6TlYNYWggiTljzxGEe+DadrBUFOXzRW7KOqAAAAAElFTkSuQmCC');
+    tray = new Tray(icon);
+    tray.on('click', () => { if (window) { window.show(); window.focus(); } });
+    refreshTray();
+    setInterval(refreshTray, 10000);
+  } catch (error) { console.error('tray:', error.message); }
+}
 app.whenReady().then(async () => {
   const dataDir = process.env.OMP_DESKTOP_DATA_DIR;
   if (dataDir) app.setPath('userData', path.resolve(dataDir));
@@ -1591,6 +1655,7 @@ app.whenReady().then(async () => {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   window.loadFile(path.join(__dirname, 'index.html'));
+  createTray();
   scanModels().catch(() => {});
 });
 

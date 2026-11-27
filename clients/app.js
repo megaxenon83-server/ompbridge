@@ -9,16 +9,19 @@ const messageActions = window.ompTurnUI.messageActions({
 
 const { iconButton, adbPanel } = window.ompTurnUI;
 const themes = [
-  ['fjord', 'Blåtime', '#171c26', '#151922', '#202633', '#8fa9e6', true],
-  ['codex', 'Codex-inspirert', '#181818', '#212121', '#2b2b2b', '#8ba8eb', true, 'OpenAI Sans', 'Cascadia Code'],
-  ['claude', 'Claude Code-inspirert', '#171716', '#141413', '#252422', '#d97757', true, 'Poppins', 'Consolas'],
-  ['omp', 'Oh My Pi-inspirert', '#221337', '#1e1629', '#2c2038', '#d1a6fa', true],
-  ['nord', 'Nordlys', '#222c44', '#202a3e', '#29354c', '#a1d3e7', true],
-  ['skog', 'Skog', '#253c30', '#f1f6ed', '#e1ecdc', '#3b6546'],
-  ['kobber', 'Kobber', '#382b25', '#f9f1e7', '#eee0d2', '#8a4b2c'],
-  ['midnatt', 'Midnatt', '#111923', '#131d2a', '#1c2839', '#a5bdff', true],
-  ['lavendel', 'Lavendel', '#332959', '#faf7ff', '#efe7fb', '#6644a5'],
-  ['grafitt', 'Grafitt', '#191b20', '#24262b', '#303238', '#e4e5ec', true]
+  ['omp', 'OMP', '#17241d', '#0b1410', '#111c17', '#4ade80', true, null, null, '#e8f2ec', '#a5b8ac', '#27382f'],
+  ['claude', 'Claude', '#f1e4d4', '#fbf3e8', '#fffaf3', '#914b35', false, null, null, '#352a26', '#6e574a', '#e3d2c2'],
+  ['claude-dark', 'Claude mørk', '#302e2b', '#1f1e1d', '#262523', '#d97757', true, null, null, '#f5f2ec', '#b7b0a5', '#3d3a35'],
+  ['chatgpt', 'ChatGPT', '#353535', '#212121', '#2b2b2b', '#8ba8eb', true, null, null, '#f5f5f5', '#b9bdc7', '#4a4d54'],
+  ['qwen', 'Qwen', '#2c2c45', '#1a1a2e', '#222238', '#8b5cf6', true, null, null, '#f2f1fa', '#a9a7c4', '#3a3a55'],
+  ['deepseek', 'DeepSeek', '#1a2740', '#0b1220', '#121b2e', '#4d6bfe', true, null, null, '#e8eefa', '#9fb0cc', '#26344f'],
+  ['grafitt', 'Grafitt', '#2a2d33', '#17181c', '#202227', '#c8cde0', true, null, null, '#f1f2f5', '#b3b8c3', '#383c45'],
+  ['midnatt', 'Midnatt', '#232f47', '#101727', '#182236', '#a9bfff', true, null, null, '#ecf1fc', '#abb9d4', '#303f59'],
+  ['skog', 'Dyp skog', '#20362b', '#101b17', '#17251f', '#9be1be', true, null, null, '#eaf5ee', '#a9c0b2', '#345042'],
+  ['lavendel', 'Ametyst', '#392c48', '#1d1726', '#292035', '#e1b9fa', true, null, null, '#f5eefb', '#cab7d8', '#4b395c'],
+  ['blaatime', 'Blåtime', '#292f3d', '#151922', '#202633', '#8fa9e6', true, null, null, '#e9edf4', '#aab4c5', '#384253'],
+  ['papir', 'Papir', '#eeeae2', '#faf9f5', '#fffdfa', '#694637', false, null, null, '#282622', '#615b54', '#ded9d0'],
+  ['frost', 'Frost', '#e3ebf7', '#f0f4fa', '#fbfdff', '#345383', false, null, null, '#202c40', '#4f5f75', '#cfdbea']
 ];
 const tabs = { general: 'Generelt', models: 'Modeller', bridge: 'Tilkobling', wol: 'Wake-on-LAN', theme: 'Utseende', resources: 'OMP-ressurser', machine: 'Maskinressurser', plugins: 'Plugins', device: 'Enheter', omp: 'OMP' };
 const tabKeywords = { general: 'autostart oppstart innlogging pålogging windows', wol: 'strøm vekk pc relé ethernet mobil', models: 'api nøkkel modell ollama strata llama leverandør standard', bridge: 'synkronisering android mobil qr bridge',
@@ -67,7 +70,7 @@ function status(message) {
 const currentTheme = () => themes.find(theme => theme[0] === state.theme) || themes[0];
 
 function applyTheme(custom = state.appearance || {}) {
-  const [, , rail, defaultPaper, defaultPanel, defaultAccent, dark, uiFont, codeFont] = currentTheme();
+  const [, , rail, defaultPaper, defaultPanel, defaultAccent, dark, uiFont, codeFont, themeInk, themeMuted, themeLine] = currentTheme();
   const accent = custom.accent || state.accent || defaultAccent;
   const paper = custom.paper || defaultPaper;
   const panel = custom.panel || defaultPanel;
@@ -78,8 +81,8 @@ function applyTheme(custom = state.appearance || {}) {
   const lightAccent = red * .2126 + green * .7152 + blue * .0722 > .179;
   const root = document.documentElement;
   const colors = {
-    rail, paper, panel, accent, text: custom.text || (state.theme === 'claude' ? '#faf9f5' : dark ? '#e9edf4' : '#222330'),
-    muted: state.theme === 'claude' ? '#b0aea5' : dark ? '#aab4c5' : '#626477', line: dark ? '#384253' : '#dedee7',
+    rail, paper, panel, accent, text: custom.text || themeInk || (dark ? '#e9edf4' : '#222330'),
+    muted: themeMuted || (dark ? '#aab4c5' : '#626477'), line: themeLine || (dark ? '#384253' : '#dedee7'),
     'accent-text': lightAccent ? '#000' : '#fff', added: dark ? '#9bdfb1' : '#287a49',
     removed: dark ? '#f5a7a7' : '#aa363b',
     selection: `color-mix(in srgb, ${accent} 17%, ${paper})`
@@ -1031,12 +1034,12 @@ function renderThemes(body) {
     grid.append(card);
   }
   body.append(grid);
-  const [, , , paper, panel, accent, dark, uiFont, codeFont] = currentTheme();
+  const [, , , paper, panel, accent, dark, uiFont, codeFont, themeInk] = currentTheme();
   const controls = element('div', null, { class: 'appearance-fields' });
   for (const [key, label, type, fallback] of [
     ['paper', 'Bakgrunn', 'color', paper], ['panel', 'Paneler', 'color', panel],
     ['accent', 'Aksentfarge', 'color', state.accent || accent],
-    ['text', 'Tekstfarge', 'color', state.theme === 'claude' ? '#faf9f5' : dark ? '#e9edf4' : '#222330'],
+    ['text', 'Tekstfarge', 'color', themeInk || (dark ? '#e9edf4' : '#222330')],
     ['uiFont', 'Skrift i appen', 'text', uiFont || 'Segoe UI'], ['codeFont', 'Skrift for kode', 'text', codeFont || 'Consolas']
   ]) {
     const [row, input] = field(label, { type, maxlength: '64' });
