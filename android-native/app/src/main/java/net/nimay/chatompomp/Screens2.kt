@@ -99,7 +99,7 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             ToolBar(
-                title = if (file != null) file.path.substringAfterLast('\\').substringAfterLast('/') else "Filer",
+                title = if (file != null) file.path.substringAfterLast('\\').substringAfterLast('/') else t("Filer", "Files"),
                 onBack = {
                     when {
                         editing != null -> vm.stopEditing()
@@ -111,14 +111,14 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
                 actions = {
                     if (file != null) {
                         if (editing == null) {
-                            TextButton(onClick = { vm.startEditing(file.path) }) { Text("Rediger") }
+                            TextButton(onClick = { vm.startEditing(file.path) }) { Text(t("Rediger", "Edit")) }
                         } else {
-                            TextButton(onClick = { vm.saveFile(file.path, editing) }) { Text("Lagre") }
-                            TextButton(onClick = { vm.stopEditing() }) { Text("Avbryt") }
+                            TextButton(onClick = { vm.saveFile(file.path, editing) }) { Text(t("Lagre", "Save")) }
+                            TextButton(onClick = { vm.stopEditing() }) { Text(t("Avbryt", "Cancel")) }
                         }
-                        TextButton(onClick = { vm.deleteEntry(file.path); vm.closeFile() }) { Text("Slett") }
+                        TextButton(onClick = { vm.deleteEntry(file.path); vm.closeFile() }) { Text(t("Slett", "Delete")) }
                     } else {
-                        TextButton(onClick = { showMkdir = true }) { Text("Ny mappe") }
+                        TextButton(onClick = { showMkdir = true }) { Text(t("Ny mappe", "New folder")) }
                         IconButton(onClick = { vm.loadFs(vm.fsPath) }) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
                         }
@@ -152,7 +152,7 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 )
                 LazyColumn(Modifier.fillMaxSize()) {
-                    if (vm.fsEntries.isEmpty()) item { Muted("Tom mappe.") }
+                    if (vm.fsEntries.isEmpty()) item { Muted(t("Tom mappe.", "Empty folder.")) }
                     items(vm.fsEntries) { entry ->
                         Row(
                             Modifier.fillMaxWidth()
@@ -164,7 +164,7 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
                             Column(Modifier.weight(1f)) {
                                 Text(entry.name, style = MaterialTheme.typography.bodyMedium)
                                 Text(
-                                    if (entry.isDir) "mappe" else "${entry.size} bytes",
+                                    if (entry.isDir) t("mappe", "folder") else "${entry.size} bytes",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -179,8 +179,8 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
         var name by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showMkdir = false },
-            title = { Text("Ny mappe") },
-            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
+            title = { Text(t("Ny mappe", "New folder")) },
+            text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text(t("Navn", "Name")) }, singleLine = true) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -190,9 +190,9 @@ fun FilesScreen(vm: AppViewModel, onBack: () -> Unit) {
                         }
                     },
                     enabled = name.isNotBlank(),
-                ) { Text("Opprett") }
+                ) { Text(t("Opprett", "Create")) }
             },
-            dismissButton = { TextButton(onClick = { showMkdir = false }) { Text("Avbryt") } },
+            dismissButton = { TextButton(onClick = { showMkdir = false }) { Text(t("Avbryt", "Cancel")) } },
         )
     }
 }
@@ -207,7 +207,7 @@ fun GitScreen(vm: AppViewModel, onBack: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            ToolBar("Git", onBack, actions = {
+            ToolBar(t("Git", "Git"), onBack, actions = {
                 IconButton(onClick = { vm.loadGit() }) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
                 }
@@ -227,9 +227,9 @@ fun GitScreen(vm: AppViewModel, onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            item { SectionTitle("ENDRINGER") }
-            if (status == null) item { Muted("Ingen Git-data. Åpne en samtale eller velg et prosjekt.") }
-            else if (files.isEmpty()) item { Muted("Ingen endringer.") }
+            item { SectionTitle(t("ENDRINGER", "CHANGES")) }
+            if (status == null) item { Muted(t("Ingen Git-data. Åpne en samtale eller velg et prosjekt.", "No Git data. Open a chat or pick a project.")) }
+            else if (files.isEmpty()) item { Muted(t("Ingen endringer.", "No changes.")) }
             items(files) { file ->
                 Text(
                     (file.optString("status") + "  " + file.optString("path")),
@@ -241,19 +241,19 @@ fun GitScreen(vm: AppViewModel, onBack: () -> Unit) {
                 OutlinedTextField(
                     value = message,
                     onValueChange = { message = it },
-                    label = { Text("Commit-melding") },
+                    label = { Text(t("Commit-melding", "Commit message")) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
                 )
             }
             item {
                 Row {
-                    TextButton(onClick = { vm.stageAll() }, enabled = files.isNotEmpty()) { Text("Stage alle") }
-                    TextButton(onClick = { vm.commit(message); message = "" }, enabled = message.isNotBlank()) { Text("Commit") }
+                    TextButton(onClick = { vm.stageAll() }, enabled = files.isNotEmpty()) { Text(t("Stage alle", "Stage all")) }
+                    TextButton(onClick = { vm.commit(message); message = "" }, enabled = message.isNotBlank()) { Text(t("Commit", "Commit")) }
                 }
             }
-            item { SectionTitle("SISTE COMMITS") }
-            if (vm.gitLog.isEmpty()) item { Muted("Ingen commits.") }
+            item { SectionTitle(t("SISTE COMMITS", "LATEST COMMITS")) }
+            if (vm.gitLog.isEmpty()) item { Muted(t("Ingen commits.", "No commits.")) }
             items(vm.gitLog) { commit ->
                 val hash = commit.optString("hash").take(8)
                 val subject = commit.optString("subject").ifBlank { commit.optString("message") }
@@ -274,8 +274,8 @@ fun TerminalScreen(vm: AppViewModel, onBack: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            ToolBar("Terminal", onBack, actions = {
-                TextButton(onClick = { vm.terminalStop() }) { Text("Stopp") }
+            ToolBar(t("Terminal", "Terminal"), onBack, actions = {
+                TextButton(onClick = { vm.terminalStop() }) { Text(t("Stopp", "Stop")) }
             })
         },
     ) { padding ->
@@ -297,13 +297,13 @@ fun TerminalScreen(vm: AppViewModel, onBack: () -> Unit) {
                 OutlinedTextField(
                     value = command,
                     onValueChange = { command = it },
-                    label = { Text("Kommando") },
+                    label = { Text(t("Kommando", "Command")) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = { vm.terminalSend(command); command = "" }, enabled = command.isNotBlank()) {
-                    Text("Send")
+                    Text(t("Send", "Send"))
                 }
             }
         }
@@ -319,7 +319,7 @@ fun DevicesScreen(vm: AppViewModel, onBack: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            ToolBar("Enheter", onBack, actions = {
+            ToolBar(t("Enheter", "Devices"), onBack, actions = {
                 IconButton(onClick = { vm.loadAdb() }) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
                 }
@@ -342,10 +342,10 @@ fun DevicesScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
             item { Muted(status?.optString("version").orEmpty().ifBlank { "Ingen ADB-versjon." }) }
             if (status?.optBoolean("installed") != true) {
-                item { TextButton(onClick = { vm.installAdb() }) { Text("Installer ADB") } }
+                item { TextButton(onClick = { vm.installAdb() }) { Text(t("Installer ADB", "Install ADB")) } }
             }
             item { SectionTitle("TILKOBLEDE ENHETER") }
-            if (devices.isEmpty()) item { Muted("Ingen tilkoblede enheter.") }
+            if (devices.isEmpty()) item { Muted(t("Ingen tilkoblede enheter.", "No connected devices.")) }
             items(devices) { device ->
                 Column(Modifier.padding(vertical = 6.dp)) {
                     Text(
@@ -373,7 +373,7 @@ fun VoiceScreen(vm: AppViewModel, onBack: () -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            ToolBar("Tale", onBack, actions = {
+            ToolBar(t("Tale", "Voice"), onBack, actions = {
                 IconButton(onClick = { vm.loadVoice() }) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
                 }
@@ -393,9 +393,9 @@ fun VoiceScreen(vm: AppViewModel, onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            item { SectionTitle("MOTORER") }
+            item { SectionTitle(t("MOTORER", "ENGINES")) }
             val keys = engines?.keys()?.asSequence()?.toList() ?: emptyList()
-            if (keys.isEmpty()) item { Muted("Ingen motorer funnet.") }
+            if (keys.isEmpty()) item { Muted(t("Ingen motorer funnet.", "No engines found.")) }
             items(keys) { key ->
                 val engine = engines?.optJSONObject(key) ?: return@items
                 Row(
@@ -413,10 +413,10 @@ fun VoiceScreen(vm: AppViewModel, onBack: () -> Unit) {
                     }
                 }
             }
-            item { SectionTitle("TEST") }
+            item { SectionTitle(t("TEST", "TEST")) }
             item {
                 TextButton(onClick = { vm.speak("Hei fra Chat OMP OMP") }) {
-                    Text("Les opp en testsetning")
+                    Text(t("Les opp en testsetning", "Speak a test sentence"))
                 }
             }
         }
@@ -442,7 +442,7 @@ fun WolScreen(vm: AppViewModel, onBack: () -> Unit) {
         val info = vm.wolInfo
         Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
             if (info == null) {
-                Muted("Ikke konfigurert. Sett opp Wake-on-LAN i OMP Desktop først.")
+                Muted(t("Ikke konfigurert. Sett opp Wake-on-LAN i OMP Desktop først.", "Not configured. Set up Wake-on-LAN in OMP Desktop first."))
             } else {
                 Text("MAC: " + info.optString("mac").ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(4.dp))
@@ -469,7 +469,7 @@ fun WolScreen(vm: AppViewModel, onBack: () -> Unit) {
 fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        topBar = { ToolBar("Verktøy", onBack) },
+        topBar = { ToolBar(t("Verktøy", "Tools"), onBack) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.padding(padding).fillMaxSize(),
@@ -489,7 +489,20 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) 
                     Modifier.fillMaxWidth().clickable { onOpen(tool.second) }.padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(tool.first, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        when (tool.second) {
+                            "files" -> t("Filer", "Files")
+                            "git" -> t("Git", "Git")
+                            "terminal" -> t("Terminal", "Terminal")
+                            "devices" -> t("Enheter", "Devices")
+                            "voice" -> t("Tale", "Voice")
+                            "wol" -> t("Wake-on-LAN", "Wake-on-LAN")
+                            "providers" -> t("Modeller og nøkler", "Models and keys")
+                            else -> tool.first
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
                     Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -522,7 +535,7 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) 
                     )
                 }
             }
-            item { TextButton(onClick = { vm.checkUpdate() }) { Text("Se etter oppdatering") } }
+            item { TextButton(onClick = { vm.checkUpdate() }) { Text(t("Se etter oppdatering", "Check for update")) } }
             item {
                 if (vm.updateStatus.isNotBlank()) {
                     Text(
