@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.81";
+const VERSION = "2.9.82";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -4243,6 +4243,60 @@ async function handle(req, res) {
           return json(res, 200, { ok: true });
         } catch (error) {
           return json(res, 400, { ok: false, error: String(error?.message || error) });
+        }
+      }      case "GET /api/local/models": {
+        try {
+          const managed = await localModels.managedStatus();
+          const discovered = await localModels.discoverLocal().catch(() => []);
+          const seen = new Set(managed.map((m) => m.modelId || m.id));
+          const extra = (discovered || [])
+            .filter((d) => d && d.id && !seen.has(d.id))
+            .map((d) => {
+              let port = null;
+              try { port = d.origin ? Number(new URL(d.origin).port) || null : null; } catch {}
+              return {
+                id: String(d.id),
+                name: String(d.label || d.id),
+                provider: String(d.provider || d.engine || "local"),
+                modelId: String(d.id),
+                port,
+                running: true,
+                resident: false,
+                discovered: true,
+                origin: d.origin || "",
+              };
+            });
+          return json(res, 200, { ok: true, models: [...managed, ...extra] });
+        } catch (error) {
+          return json(res, 500, { ok: false, error: String(error?.message || error) });
+        }
+      }
+      case "POST /api/local/models/start":
+      case "POST /api/local/models/switch": {
+        try {
+          const body = await readBody(req);
+          const servers = localModels.loadManagedServers();
+          const id = String(body.id || "");
+          const server = servers.find((item) => (item.id || (item.provider ? item.provider + "/" + item.modelId : String(item.port))) === id);
+          if (!server) return json(res, 404, { ok: false, error: "Fant ikke modellen." });
+          await localModels.ensureManaged({ provider: server.provider, id: server.modelId, baseUrl: server.healthUrl }, () => {});
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 409, { ok: false, error: String(error?.message || error) });
+        }
+      }
+      case "POST /api/local/models/stop": {
+        try {
+          const body = await readBody(req);
+          const servers = localModels.loadManagedServers();
+          const id = String(body.id || "");
+          const server = servers.find((item) => (item.id || (item.provider ? item.provider + "/" + item.modelId : String(item.port))) === id);
+          if (!server) return json(res, 404, { ok: false, error: "Fant ikke modellen." });
+          await localModels.cancelActive({ provider: server.provider, id: server.modelId }).catch(() => {});
+          await localModels.stopManagedServer(server);
+          return json(res, 200, { ok: true });
+        } catch (error) {
+          return json(res, 409, { ok: false, error: String(error?.message || error) });
         }
       }      case "POST /api/prompt": {
         const started = Date.now();

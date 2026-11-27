@@ -538,7 +538,7 @@ fun ToolsScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProvidersScreen(vm: AppViewModel, onBack: () -> Unit) {
-    LaunchedEffect(Unit) { vm.loadProviders() }
+    LaunchedEffect(Unit) { vm.loadProviders(); vm.loadLocalModels() }
     var showAdd by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -597,7 +597,29 @@ fun ProvidersScreen(vm: AppViewModel, onBack: () -> Unit) {
                     modifier = Modifier.padding(bottom = 4.dp),
                 )
             }
-            item { Muted(t("Lokal modellstyring kommer i neste oppdatering.", "Local model controls arrive in the next update.")) }
+            if (vm.localModels.isEmpty()) {
+                item { Muted(t("Ingen lokale modeller funnet.", "No local models found.")) }
+            }
+            items(vm.localModels) { model ->
+                val running = model.optBoolean("running")
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            model.optString("name").ifBlank { model.optString("id") },
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            (if (running) "● " + t("kjører", "running") else "○ " + t("stoppet", "stopped")) +
+                                (if (model.optInt("port", 0) > 0) " · :" + model.optInt("port") else ""),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = {
+                        if (running) vm.stopLocalModel(model.optString("id")) else vm.startLocalModel(model.optString("id"))
+                    }) { Text(if (running) t("Stopp", "Stop") else t("Start", "Start")) }
+                }
+            }
         }
     }
     if (showAdd) {

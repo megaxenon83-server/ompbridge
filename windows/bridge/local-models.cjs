@@ -440,5 +440,24 @@ async function swapMemory(previous, next, { warmOllama = true, onProgress = () =
   return { previousUnloaded };
 }
 
-module.exports = { discoverLocal, inspect, matchLocal, swapMemory, managedForModel, isManagedModel, switchManaged, ensureManaged,
+async function managedStatus() {
+  const servers = loadManagedServers();
+  const resident = readResident();
+  const out = [];
+  for (const server of servers) {
+    let running = false;
+    try { running = (await portPids(server.port)).length > 0; } catch {}
+    out.push({
+      id: server.id || (server.provider ? server.provider + "/" + server.modelId : String(server.port)),
+      name: server.label || server.name || server.modelId || String(server.port),
+      provider: server.provider || "",
+      modelId: server.modelId || "",
+      port: server.port || null,
+      running,
+      resident: !!(resident && resident.modelId === server.modelId)
+    });
+  }
+  return out;
+}
+module.exports = { discoverLocal, inspect, matchLocal, swapMemory, managedForModel, isManagedModel, switchManaged, ensureManaged, managedStatus, loadManagedServers, stopManagedServer,
   acquireGpu, readResident, saveResident, cancelActive, strataOrigin };

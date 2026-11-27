@@ -99,6 +99,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var providers by mutableStateOf<List<JSONObject>>(emptyList())
         private set
+    var localModels by mutableStateOf<List<JSONObject>>(emptyList())
+        private set
     var thinkingLevels by mutableStateOf<List<String>>(emptyList())
         private set
     var thinkingLevel by mutableStateOf("")
@@ -1088,6 +1090,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val todos = data.optJSONArray("todos")
                 if (todos != null) todoPhases = todos
             }
+        }
+    }
+    fun loadLocalModels() {
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/local/models")
+                val array = data.optJSONArray("models")
+                localModels = if (array == null) emptyList() else (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+            }.onFailure { error = it.message ?: "Kunne ikke hente lokale modeller." }
+        }
+    }
+
+    fun startLocalModel(id: String) {
+        if (id.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/local/models/start", JSONObject().apply { put("id", id) }) }
+                .onFailure { error = it.message ?: "Kunne ikke starte modellen." }
+            loadLocalModels()
+        }
+    }
+
+    fun stopLocalModel(id: String) {
+        if (id.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/local/models/stop", JSONObject().apply { put("id", id) }) }
+                .onFailure { error = it.message ?: "Kunne ikke stoppe modellen." }
+            loadLocalModels()
         }
     }
     fun loadProviders() {

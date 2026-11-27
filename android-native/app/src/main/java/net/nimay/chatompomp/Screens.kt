@@ -773,20 +773,26 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                 Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val meterColor = when {
+                    fraction >= 0.85f -> MaterialTheme.colorScheme.error
+                    fraction >= 0.60f -> Color(0xFFE0A800)
+                    else -> MaterialTheme.colorScheme.primary
+                }
                 Box(
                     Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(999.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Box(
                         Modifier.fillMaxWidth(fraction).fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary),
+                            .background(meterColor),
                     )
                 }
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    formatTokens(vm.contextTokens) + " / " + formatTokens(vm.contextWindow) + " tok",
+                    formatTokens(vm.contextTokens) + " / " + formatTokens(vm.contextWindow) + " tok" +
+                        (if (fraction >= 0.85f) " · " + (fraction * 100).toInt() + " %" else ""),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (fraction >= 0.85f) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
