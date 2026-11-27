@@ -35,7 +35,9 @@ data class SessionInfo(
             if (array == null) return emptyList()
             val out = ArrayList<SessionInfo>(array.length())
             for (i in 0 until array.length()) out.add(from(array.optJSONObject(i) ?: continue))
-            return out.filter { it.file.isNotBlank() }
+            // The bridge also lists per-session changes.jsonl side files; they are not conversations.
+            return out.filter { it.file.isNotBlank() && it.cwd.isNotBlank() && !it.file.endsWith("changes.jsonl") }
+                .distinctBy { it.file }
         }
     }
 }

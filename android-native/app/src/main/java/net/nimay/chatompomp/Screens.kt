@@ -67,6 +67,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
@@ -358,6 +359,7 @@ private fun ComposerBar(vm: AppViewModel) {
     var light by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("build") }
     val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
 
     Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 10.dp, vertical = 4.dp)) {
         if (vm.stream.active) {
@@ -425,6 +427,7 @@ private fun ComposerBar(vm: AppViewModel) {
                                 if (vm.busy) vm.stop() else {
                                     vm.send(text)
                                     text = ""
+                                    keyboard?.hide()
                                 }
                             },
                         contentAlignment = Alignment.Center,

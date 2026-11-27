@@ -208,7 +208,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val role = frame.optJSONObject("message")?.optString("role") ?: frame.optString("role")
                 if (role == "user") {
                     val text = frame.optJSONObject("message")?.optString("text") ?: ""
-                    if (text.isNotBlank()) add(Entry(id = frame.optString("messageId") + "-u", role = "user", text = text, timestamp = System.currentTimeMillis()))
+                    val messageId = frame.optString("messageId")
+                    if (text.isNotBlank()) {
+                        val optimistic = messages.indexOfFirst { it.role == "user" && it.id.startsWith("local-") && it.text == text }
+                        if (optimistic >= 0) {
+                            val existing = messages[optimistic]
+                            messages = messages.toMutableList().also { it[optimistic] = existing.copy(id = messageId.ifBlank { existing.id }) }
+                        } else {
+                            add(Entry(id = messageId + "-u", role = "user", text = text, timestamp = System.currentTimeMillis()))
+                        }
+                    }
                 } else if (role == "assistant") {
                     if (!streamingId.isBlank()) {
                         finalizeStreaming()
