@@ -110,6 +110,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var updateTag by mutableStateOf<String?>(null)
         private set
+    var diffTitle by mutableStateOf("")
+        private set
+    var diffText by mutableStateOf<String?>(null)
+        private set
+    private var freshSessionFile = ""
     var updateStatus by mutableStateOf("")
         private set
     var bridgeVersion by mutableStateOf("")
@@ -269,6 +274,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 activeCwd = cwd
                 activeTitle = "Ny samtale"
                 activeModelName = data.optJSONObject("session")?.optString("model") ?: ""
+                freshSessionFile = file
                 messages = emptyList()
                 stream = StreamState()
                 error = ""
@@ -475,6 +481,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     if (!streamingId.isBlank()) {
                         finalizeStreaming()
                     }
+                    if (streamingThinking.isBlank()) {
+                        val blockThinking = frame.optJSONObject("message")?.optString("thinking").orEmpty()
+                        if (blockThinking.isNotBlank()) {
+                            val index = messages.indexOfLast { it.role == "assistant" }
+                            if (index >= 0) {
+                                messages = messages.toMutableList().also { it[index] = it[index].copy(thinking = blockThinking) }
+                            }
+                        }
+                    }
                     busy = false
                     stream = stream.copy(active = false)
                 }
@@ -613,6 +628,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         modelMetrics = null
         draft = ""
         if (activeFile.isNotBlank()) bridge.saveDraft(activeFile, "")
+        if (activeFile == freshSessionFile) {
+            val computed = deriveTitle(text)
+            if (computed.isNotBlank()) {
+                activeTitle = computed
+                viewModelScope.launch {
+                    runCatching {
+                        bridge.post("/api/sessions/name", JSONObject().apply {
+                            put("file", activeFile)
+                            put("cwd", activeCwd)
+                            put("name", computed)
+                        })
+                    }
+                }
+                refresh()
+            }
+            freshSessionFile = ""
+        }
         val attached = attachments
         attachments = emptyList()
         val promptText = if (attached.isEmpty()) text else text + "\n\nVedlegg:\n" + attached.joinToString("\n") { "- $it" }
@@ -1120,6 +1152,87 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             stateThinkingLevel.isNotBlank() && stateThinkingLevel in thinkingLevels -> stateThinkingLevel
             else -> thinkingLevels.firstOrNull() ?: ""
         }
+    }
+    fun openDiff(path: String, diff: String) {
+        diffTitle = path
+        diffText = diff.ifBlank { "Ingen diff tilgjengelig for denne filen." }
+    }
+
+    fun closeDiff() { diffText = null }
+
+    fun deleteSession(file: String) {
+        if (file.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.delete("/api/session", mapOf("file" to file)) }
+                .onFailure { error = it.message ?: "Kunne ikke slette samtalen." }
+            pinned = pinned - file
+            seenCounts = seenCounts - file
+            if (file == activeFile) {
+                activeFile = ""
+                activeTitle = ""
+                messages = emptyList()
+            }
+            refresh()
+        }
+    }
+
+    fun deleteProject(id: String) {
+        if (id.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.delete("/api/projects", mapOf("id" to id, "physical" to "1")) }
+                .onFailure { error = it.message ?: "Kunne ikke slette prosjektet." }
+            loadRegistry()
+            loadProjects()
+            refresh()
+        }
+    }
+
+    private fun deriveTitle(text: String): String {
+        var value = text.trim().lineSequence().firstOrNull().orEmpty().trim()
+        val fillers = listOf(
+            "hvis du kan ", "hvis du kunne ", "hvis dere kan ", "kan du ", "kunne du ", "kan dere ",
+            "kunne dere ", "jeg vil at du ", "jeg vil ", "jeg trenger at du ", "jeg trenger ",
+            "vennligst ", "vær så snill ", "er det mulig å ", "er det mulig at du ", "please ",
+            "could you ", "can you ", "i want you to ", "i want ", "i need you to ", "i need ",
+        )
+        var changed = true
+        while (changed) {
+            changed = false
+            for (filler in fillers) {
+                if (value.length > filler.length && value.lowercase().startsWith(filler)) {
+                    value = value.substring(filler.length).trim()
+                    changed = true
+                }
+            }
+        }
+        value = value.replace(Regex("^(en|ei|noen) (bra|god|fin) ", RegexOption.IGNORE_CASE), "")
+        val imperative = mapOf(
+            "finne" to "Finn", "sjekke" to "Sjekk", "lage" to "Lag", "skrive" to "Skriv",
+            "sette" to "Sett", "vise" to "Vis", "forklare" to "Forklar", "hjelpe" to "Hjelp",
+            "endre" to "Endre", "rette" to "Rett", "legge" to "Legg", "teste" to "Test",
+            "installere" to "Installer", "oppdatere" to "Oppdater", "søke" to "Søk", "kjøre" to "Kjør",
+            "bygge" to "Bygg", "fjerne" to "Fjern", "slette" to "Slett", "lese" to "Les",
+        )
+        val firstWord = value.substringBefore(' ').lowercase()
+        imperative[firstWord]?.let { value = it + value.substring(firstWord.length) }
+        value = value
+            .replace(Regex("\\bai\\b", RegexOption.IGNORE_CASE), "AI")
+            .replace(Regex("\\bgpu\\b", RegexOption.IGNORE_CASE), "GPU")
+            .replace(Regex("\\bcpu\\b", RegexOption.IGNORE_CASE), "CPU")
+            .replace(Regex("\\bapi\\b", RegexOption.IGNORE_CASE), "API")
+            .replace(Regex("\\bpc\\b", RegexOption.IGNORE_CASE), "PC")
+            .replace(Regex("\\barc\\b", RegexOption.IGNORE_CASE), "Arc")
+            .replace(Regex("\\b(b\\d{3,4})\\b", RegexOption.IGNORE_CASE)) { it.groupValues[1].uppercase() }
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .trimEnd('.', '?', '!', ',', ':', ';')
+        if (value.isBlank()) value = text.trim().take(40)
+        if (value.length > 48) {
+            val cut = value.substring(0, 48)
+            val lastSpace = cut.lastIndexOf(' ')
+            value = (if (lastSpace > 24) cut.substring(0, lastSpace) else cut).trimEnd(',', '.', ':', ';', '-') + "…"
+        }
+        return value.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
     }
 
     override fun onCleared() {

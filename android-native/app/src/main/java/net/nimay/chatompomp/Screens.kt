@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -203,6 +204,10 @@ fun MainApp(vm: AppViewModel) {
     var screen by remember { mutableStateOf("chat") }
     LaunchedEffect(Unit) { vm.refresh() }
     vm.approval?.let { ApprovalDialog(vm, it) }
+    vm.diffText?.let { text ->
+        DiffScreen(vm.diffTitle, text) { vm.closeDiff() }
+        return
+    }
 
 
     when (screen) {
@@ -330,6 +335,7 @@ private fun SessionRow(
     menuFor: String?,
     onMenu: (String?) -> Unit,
     onRename: (SessionInfo) -> Unit,
+    onDelete: (SessionInfo) -> Unit,
     onCloseDrawer: () -> Unit,
 ) {
     val unread = vm.isUnread(session)
@@ -391,6 +397,7 @@ private fun SessionRow(
                 onClick = { vm.markSeen(session.file, session.messageCount); onMenu(null) },
             )
             DropdownMenuItem(text = { Text("Arkiver") }, onClick = { vm.archiveSession(session.file, true); onMenu(null) })
+            DropdownMenuItem(text = { Text("Slett") }, onClick = { onDelete(session); onMenu(null) })
         }
     }
 }
@@ -407,6 +414,7 @@ private fun DrawerContent(
     var projectFilter by remember { mutableStateOf<String?>(null) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<SessionInfo?>(null) }
+    var deleteTarget by remember { mutableStateOf<SessionInfo?>(null) }
 
     val projects = vm.sessions.map { it.projectName }.distinct().sorted()
     val filtered = vm.sessions.filter {
@@ -485,6 +493,7 @@ private fun DrawerContent(
                         menuFor = menuFor,
                         onMenu = { menuFor = it },
                         onRename = { renameTarget = it },
+                        onDelete = { deleteTarget = it },
                         onCloseDrawer = { scope.launch { drawerState.close() } },
                     )
                 }
@@ -528,6 +537,17 @@ private fun DrawerContent(
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Avbryt") } },
         )
     }
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Slette samtalen?") },
+            text = { Text("«${target.title}» flyttes til papirkurven på PC-en.") },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteSession(target.file); deleteTarget = null }) { Text("Slett") }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Avbryt") } },
+        )
+    }
 }
 
 // ------------------------------------------------------------------ chat
@@ -569,7 +589,7 @@ private fun ChatList(vm: AppViewModel, modifier: Modifier = Modifier) {
         }
         vm.todoPhases?.let { phases -> item { TodoPanel(phases) } }
         items(vm.messages, key = { it.id + it.role }) { entry -> EntryRow(entry) }
-        vm.turnCards.forEach { card -> item { TurnCard(card) } }
+        vm.turnCards.forEach { card -> item { TurnCard(vm, card) } }
         vm.projectChecks.forEach { check -> item { ProjectCheckRow(check) } }
         if (vm.noticeText.isNotBlank()) item { NoticeRow(vm, vm.noticeText) }
         if (vm.error.isNotBlank()) {
@@ -675,6 +695,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
     }
     var showSettings by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
+    var showThemes by remember { mutableStateOf(false) }
     var light by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf("build") }
     val scope = rememberCoroutineScope()
@@ -796,15 +817,30 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                     Text("Light context", modifier = Modifier.weight(1f))
                     Switch(checked = light, onCheckedChange = { light = it })
                 }
-                Text("TEMA", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 14.dp, bottom = 4.dp))
-                for (row in themes.chunked(2)) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (spec in row) {
-                            ThemeCard(spec, spec.id == vm.themeId, Modifier.weight(1f)) { vm.selectTheme(spec.id) }
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            showSettings = false
+                            showThemes = true
                         }
-                        if (row.size == 1) Spacer(Modifier.weight(1f))
-                    }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Tema", modifier = Modifier.weight(1f))
+                    Box(Modifier.size(14.dp).clip(RoundedCornerShape(4.dp)).background(vm.theme.brand))
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        vm.theme.name,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "›",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp),
+                    )
                 }
                 HorizontalDivider()
                 Text("ARBEIDSMODUS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -847,8 +883,8 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
             }
         }
     }
-
     if (showModels) ModelSheet(vm, onDismiss = { showModels = false })
+    if (showThemes) ThemeSheet(vm, onDismiss = { showThemes = false })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1119,6 +1155,7 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
         vm.loadRegistry()
     }
     var renameTarget by remember { mutableStateOf<FsEntry?>(null) }
+    var deleteProjectTarget by remember { mutableStateOf<ProjectInfo?>(null) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     var showMkdir by remember { mutableStateOf(false) }
     Scaffold(
@@ -1169,6 +1206,14 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
                     }
                     TextButton(onClick = { vm.setProjectHidden(project.id, !project.hidden) }) {
                         Text(if (project.hidden) "Vis" else "Skjul")
+                    }
+                    IconButton(onClick = { deleteProjectTarget = project }) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = "Slett prosjekt",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
                     }
                 }
             }
@@ -1247,6 +1292,21 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
             dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Avbryt") } },
         )
     }
+    deleteProjectTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteProjectTarget = null },
+            title = { Text("Slette prosjektet?") },
+            text = {
+                Text(
+                    "«${target.name}» fjernes fra listen, og mappen ${target.path} slettes fra PC-en. Dette kan ikke angres."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { vm.deleteProject(target.id); deleteProjectTarget = null }) { Text("Slett") }
+            },
+            dismissButton = { TextButton(onClick = { deleteProjectTarget = null }) { Text("Avbryt") } },
+        )
+    }
 }
 
 @Composable
@@ -1262,9 +1322,6 @@ private fun ProjectRow(vm: AppViewModel, project: ProjectInfo, onRename: () -> U
             )
         }
         TextButton(onClick = onRename) { Text("Døp om") }
-        TextButton(onClick = { vm.setProjectHidden(project.id, !project.hidden) }) {
-            Text(if (project.hidden) "Vis" else "Skjul")
-        }
     }
 }
 
@@ -1430,30 +1487,64 @@ private fun TodoPanel(phases: org.json.JSONArray) {
 }
 
 @Composable
-private fun TurnCard(card: org.json.JSONObject) {
+private fun TurnCard(vm: AppViewModel, card: org.json.JSONObject) {
     val files = card.optJSONArray("files") ?: return
     if (files.length() == 0) return
+    var totalAdded = 0
+    var totalRemoved = 0
+    for (index in 0 until files.length()) {
+        val file = files.optJSONObject(index) ?: continue
+        totalAdded += file.optInt("added", 0)
+        totalRemoved += file.optInt("removed", 0)
+    }
     Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp)) {
-            Text(
-                if (files.length() == 1) "1 fil endret" else "${files.length()} filer endret",
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.bodyMedium,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (files.length() == 1) "1 fil endret" else "${files.length()} filer endret",
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (totalAdded > 0 || totalRemoved > 0) {
+                    Text("+$totalAdded", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.width(6.dp))
+                    Text("−$totalRemoved", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                }
+            }
             for (index in 0 until files.length()) {
                 val file = files.optJSONObject(index) ?: continue
-                Text(
-                    file.optString("path"),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
+                val added = file.optInt("added", 0)
+                val removed = file.optInt("removed", 0)
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { vm.openDiff(file.optString("path"), file.optString("diff")) }
+                        .padding(vertical = 6.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            file.optString("path"),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                        if (added > 0 || removed > 0) {
+                            Row {
+                                Text("+$added", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
+                                Spacer(Modifier.width(6.dp))
+                                Text("−$removed", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    Text("›", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
 }
-
 @Composable
 private fun ProjectCheckRow(check: org.json.JSONObject) {
     val ok = check.optInt("exitCode", 0) == 0
@@ -1500,3 +1591,81 @@ private fun ThemeCard(spec: ThemeSpec, selected: Boolean, modifier: Modifier = M
     }
 }
 
+
+@Composable
+private fun DiffScreen(title: String, text: String, onClose: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Lukk")
+                }
+                Text(
+                    title,
+                    maxLines = 1,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onClose) { Text("Lukk") }
+            }
+            HorizontalDivider()
+            LazyColumn(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 6.dp)) {
+                items(text.lines()) { line ->
+                    val isAdd = line.startsWith("+") && !line.startsWith("+++")
+                    val isDel = line.startsWith("-") && !line.startsWith("---")
+                    val foreground = when {
+                        isAdd -> Color(0xFF66BB6A)
+                        isDel -> Color(0xFFEF5350)
+                        line.startsWith("@@") -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+                    val background = when {
+                        isAdd -> Color(0x2234A853)
+                        isDel -> Color(0x22D64545)
+                        else -> Color.Transparent
+                    }
+                    Text(
+                        line.ifBlank { " " },
+                        color = foreground,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                        modifier = Modifier.fillMaxWidth().background(background).padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeSheet(vm: AppViewModel, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).verticalScroll(rememberScrollState())) {
+            Text("Tema", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Velg et tema for hele appen.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+            for (row in themes.chunked(2)) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (spec in row) {
+                        ThemeCard(spec, spec.id == vm.themeId, Modifier.weight(1f)) {
+                            vm.selectTheme(spec.id)
+                            onDismiss()
+                        }
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}

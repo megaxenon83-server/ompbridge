@@ -114,9 +114,11 @@ class BridgeClient(private val context: Context) {
 
     suspend fun get(path: String, query: Map<String, String> = emptyMap()): JSONObject =
         call("GET", path, query, null)
-
     suspend fun post(path: String, body: JSONObject? = null): JSONObject =
         call("POST", path, emptyMap(), body)
+
+    suspend fun delete(path: String, query: Map<String, String> = emptyMap()): JSONObject =
+        call("DELETE", path, query, null)
 
     private suspend fun call(method: String, path: String, query: Map<String, String>, body: JSONObject?): JSONObject =
         withContext(Dispatchers.IO) {
