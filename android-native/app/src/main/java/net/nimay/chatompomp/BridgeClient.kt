@@ -65,6 +65,16 @@ class BridgeClient(private val context: Context) {
 
     fun pinnedFiles(): Set<String> = prefs.getStringSet("pinned", emptySet()) ?: emptySet()
 
+
+    fun loadThinking(provider: String, id: String): String = prefs.getString("thinking:$provider/$id", "") ?: ""
+
+
+    fun saveThinking(provider: String, id: String, level: String) {
+
+        prefs.edit().putString("thinking:$provider/$id", level).apply()
+
+    }
+
     fun setPinned(files: Set<String>) { prefs.edit().putStringSet("pinned", files).apply() }
 
 

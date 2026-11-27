@@ -1,6 +1,9 @@
 package net.nimay.chatompomp
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +25,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -746,7 +748,7 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
                         modifier = Modifier.clickable { vm.loadModels(); showModels = true },
                     ) {
                         Text(
-                            vm.activeModelName.ifBlank { "Velg modell" },
+                            vm.activeModelName.ifBlank { "Velg modell" } + (if (vm.thinkingLevel.isNotBlank()) " · " + vm.thinkingLabel(vm.thinkingLevel) else ""),
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1,
@@ -854,13 +856,13 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
 private fun ModelSheet(vm: AppViewModel, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).verticalScroll(rememberScrollState())) {
             Text("Velg modell", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             if (vm.models.isEmpty()) {
                 Text("Henter modeller …", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
-            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+            LazyColumn(Modifier.heightIn(max = 300.dp)) {
                 items(vm.models) { model ->
                     val provider = model.optString("provider")
                     val id = model.optString("id")
@@ -880,6 +882,31 @@ private fun ModelSheet(vm: AppViewModel, onDismiss: () -> Unit) {
                         }
                     }
                 }
+            }
+                        if (vm.thinkingLevels.isNotEmpty()) {
+                Text(
+                    "RESONNERING",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
+                )
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    for (level in vm.thinkingLevels) {
+                        ChoiceChip(vm.thinkingLabel(level), vm.thinkingLevel == level) {
+                            vm.selectThinkingLevel(level)
+                        }
+                    }
+                }
+            } else if (vm.models.isNotEmpty()) {
+                Text(
+                    "Denne modellen har ikke resonneringsnivå.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -1472,3 +1499,4 @@ private fun ThemeCard(spec: ThemeSpec, selected: Boolean, modifier: Modifier = M
         Text(spec.name, color = spec.ink, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
+

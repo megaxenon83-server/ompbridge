@@ -91,6 +91,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var themeId by mutableStateOf("omp")
         private set
+    var thinkingLevels by mutableStateOf<List<String>>(emptyList())
+        private set
+    var thinkingLevel by mutableStateOf("")
+        private set
+    private var activeProvider = ""
+    private var activeModelId = ""
+    private var stateThinkingLevel = ""
     var seenCounts by mutableStateOf<Map<String, Int>>(emptyMap())
         private set
     var pinned by mutableStateOf<Set<String>>(emptySet())
@@ -186,6 +193,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val p = pairing ?: return
         viewModelScope.launch {
             runCatching {
+                bridgeVersion = runCatching { bridge.get("/api/health").optString("version") }.getOrDefault("").ifBlank { bridgeVersion }
                 val data = bridge.get("/api/sessions", mapOf("archived" to "1"))
                 sessions = SessionInfo.list(data.optJSONArray("sessions"))
                 seenCounts = sessions.mapNotNull { session ->
@@ -282,6 +290,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val data = bridge.get("/api/models", mapOf("cwd" to activeCwd))
                 val array = data.optJSONArray("models")
                 models = if (array == null) emptyList() else (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                if (activeProvider.isNotBlank() && activeModelId.isNotBlank()) syncThinking(activeProvider, activeModelId)
             }.onFailure { error = it.message ?: "Kunne ikke hente modeller." }
         }
     }
@@ -297,6 +306,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     if (activeFile.isNotBlank()) put("file", activeFile)
                 })
                 activeModelName = name.ifBlank { modelId }
+                syncThinking(provider, modelId)
             }.onFailure { error = it.message ?: "Kunne ikke bytte modell." }
         }
     }
@@ -421,7 +431,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     tokensPerSecond = state.optDouble("tokensPerSecond", 0.0),
                 )
                 if (state.optBoolean("isStreaming")) busy = true
-            }
+                state.optString("thinkingLevel").takeIf { it.isNotBlank() }?.let { stateThinkingLevel = it }
+                val model = state.optJSONObject("model")
+                val provider = model?.optString("provider").orEmpty()
+                val modelId = model?.optString("id").orEmpty()
+                if (provider.isNotBlank() && modelId.isNotBlank()) {
+                    model?.optString("name")?.takeIf { it.isNotBlank() }?.let { activeModelName = it }
+                    syncThinking(provider, modelId)
+                }            }
             "message_start" -> {
                 if (frame.optString("role") == "assistant" || frame.optJSONObject("message")?.optString("role") == "assistant") {
                     streamingId = frame.optString("messageId")
@@ -606,6 +623,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     put("cwd", activeCwd)
                     put("file", activeFile)
                     put("text", promptText)
+                    if (thinkingLevel.isNotBlank() && activeProvider.isNotBlank() && activeModelId.isNotBlank()) {
+                        put("thinking", JSONObject().apply {
+                            put("provider", activeProvider)
+                            put("id", activeModelId)
+                            put("level", thinkingLevel)
+                        })
+                    }
                 })
             }.onFailure {
                 error = it.message ?: "Kunne ikke sende."
@@ -1055,6 +1079,48 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissUpdate() { updateTag = null }
+    fun thinkingLabel(level: String): String = when (level) {
+        "off" -> "Av"
+        "minimal" -> "Minimalt"
+        "low" -> "Lavt"
+        "medium" -> "Middels"
+        "high" -> "Høyt"
+        "xhigh" -> "Ekstra høyt"
+        "max" -> "Maks"
+        "on" -> "På"
+        else -> level
+    }
+
+    fun selectThinkingLevel(level: String) {
+        thinkingLevel = level
+        if (activeProvider.isNotBlank() && activeModelId.isNotBlank()) {
+            bridge.saveThinking(activeProvider, activeModelId, level)
+        }
+    }
+
+    private fun syncThinking(provider: String, modelId: String) {
+        activeProvider = provider
+        activeModelId = modelId
+        val model = models.firstOrNull {
+            it.optString("provider") == provider && it.optString("id") == modelId
+        }
+        val metadata = model?.optJSONObject("thinking")
+        val efforts = mutableListOf<String>()
+        val array = metadata?.optJSONArray("efforts")
+        if (array != null) {
+            for (index in 0 until array.length()) {
+                array.optString(index).takeIf { it.isNotBlank() }?.let { efforts.add(it) }
+            }
+        }
+        if (efforts.isEmpty() && metadata?.optString("mode") == "toggle") efforts.add("on")
+        thinkingLevels = efforts.distinct()
+        val stored = bridge.loadThinking(provider, modelId)
+        thinkingLevel = when {
+            stored.isNotBlank() && stored in thinkingLevels -> stored
+            stateThinkingLevel.isNotBlank() && stateThinkingLevel in thinkingLevels -> stateThinkingLevel
+            else -> thinkingLevels.firstOrNull() ?: ""
+        }
+    }
 
     override fun onCleared() {
         stopEvents()
