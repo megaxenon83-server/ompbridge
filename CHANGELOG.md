@@ -1,5 +1,37 @@
 # Changelog
 
+## Bridge 2.9.63 / Desktop 0.8.29 / Android 0.2.29
+
+### Android/Desktop UI polish (phase 0)
+
+- Skills/plugin toggles are real switches (track + thumb) instead of a CSS pseudo-element that rendered as a plain box in the Android WebView.
+- Android: swipe in from the left edge to open the conversation drawer, with a slide-in animation, instead of tapping the corner button.
+- OMP Desktop Plugins page regrouped into clear sections (Skills, Prosjektutvidelser, Installerte pakker, Kilder) with short descriptions instead of one mixed list.
+- Release automation: the GitHub Actions workflow builds all four installers (Bridge, Desktop installer, portable Desktop ZIP, Android APK), the Android build can sign with the existing release keystore, and every phase ships all apps plus source and checksums.
+
+### Performance and correctness
+
+- Large conversations stay responsive. Both clients rebuilt the whole transcript on every animation frame while OMP streamed, so each frame cost grew with the conversation (~1300 DOM nodes and ~380k characters per frame at a 100k-token context). The list is now reconciled: unchanged rows are kept and only the streaming row is rebuilt.
+- The bridge no longer sends a full copy of the streaming message with every token. Snapshots are rate limited and get sparser as the answer grows (a 60k-character answer went from ~450 MB to ~23 MB of streamed JSON).
+- Android delivers live frames from Bridge in batches instead of one `evaluateJavascript` call per token on the UI thread.
+- Reading a transcript parses only the appended tail instead of the whole JSONL file, and the app-message mapping is memoised.
+- The streamed-token newline scanners in Bridge and the desktop SSE client are linear again instead of quadratic.
+- Token totals, timeline de-duplication keys and scroll anchors are cached instead of recomputed for every message on every frame.
+- Turn-change tracking reuses file hashes by modification stamp and no longer snapshots the whole workspace after every tool call, which used to block the bridge and stall the live stream.
+- Security: the terminal WebSocket upgrade now requires the pairing token, the protected-path guard actually matches Windows system folders, and the upload endpoint no longer crashes the bridge on its first chunk.
+- Fixed duplicate `POST /api/projects/hide` / `move-session` handlers, which made hiding an auto-discovered project impossible.
+- Fixed `git status --porcelain=v2` rename paths, a BOM in a transcript dropping the session record, and a notification de-duplication set that never shrank.
+- Fixed an OMP child that outlived a timed-out start and then tore down the replacement runtime.
+- A cancelled copy/move now stops instead of continuing and deleting the source.
+- Android: Stop works during the first turn of a new conversation.
+- Session routes are confined to the sessions folder instead of accepting any absolute path, so a crafted rename/move can no longer rewrite unrelated files.
+- "Always allow" records a scoped approval entry instead of flipping the whole bridge into yolo mode.
+- Terminal shells are reaped when they exit and killed on bridge shutdown; the WebSocket frame buffer is capped.
+- The bridge drops streamed progress while a slow client is congested instead of buffering every token in memory.
+- `git` output is capped at 8 MB; the transcript cache and model-catalogue/signature lookups are bounded and memoised.
+- Desktop no longer opens two live streams per shared thread, compares session paths case-insensitively, refreshes shared history in linear time, and the Nettleser window blocks downloads.
+- Android stops polling while backgrounded, backs off when the live stream drops, prompts for a new QR code on 401, and debounces draft writes (surfacing when they are too large to store).
+
 ## Bridge 2.9.62 / Desktop 0.8.28 / Android 0.2.28
 
 - Stop now cancels the local PolyStrata turn, so the model lock is released instead of blocking the next switch.

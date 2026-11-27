@@ -43,13 +43,23 @@ run('java.exe', ['-cp', path.join(tools, 'lib', 'd8.jar'), 'com.android.tools.r8
   '--lib', platform, '--min-api', '26', '--output', dex, classesJar, library]);
 run('jar.exe', ['uf', apk, '-C', dex, 'classes.dex']);
 run(path.join(tools, 'zipalign.exe'), ['-f', '4', apk, aligned]);
-const signing = path.join(cache, 'development.jks');
-if (!fs.existsSync(signing)) {
+const signer = path.join(tools, 'lib', 'apksigner.jar');
+const release = path.join(output, 'Chat-OMP-OMP-Android-' + androidVersion + '.apk');
+// Sign with a provided release keystore when available (CI passes the same key
+// the installed app was signed with, so users can upgrade in place). Otherwise
+// fall back to the pinned development key used by local builds.
+const releaseKeystore = process.env.KEYSTORE_FILE;
+const useRelease = !!releaseKeystore && fs.existsSync(releaseKeystore);
+const signing = useRelease ? releaseKeystore : path.join(cache, 'development.jks');
+const storePass = useRelease ? (process.env.KEYSTORE_PASSWORD || '') : 'android';
+const keyPass = useRelease ? (process.env.KEY_PASSWORD || '') : 'android';
+const alias = useRelease ? (process.env.KEY_ALIAS || '') : 'chat-omp-dev';
+if (!useRelease && !fs.existsSync(signing)) {
   run('keytool.exe', ['-genkeypair', '-keystore', signing, '-storepass', 'android', '-keypass', 'android',
     '-alias', 'chat-omp-dev', '-keyalg', 'RSA', '-keysize', '2048', '-validity', '3650', '-dname', 'CN=Chat OMP OMP Development']);
 }
-const signer = path.join(tools, 'lib', 'apksigner.jar');
-const release = path.join(output, 'Chat-OMP-OMP-Android-' + androidVersion + '.apk');
-run('java.exe', ['-jar', signer, 'sign', '--ks', signing, '--ks-pass', 'pass:android', '--v4-signing-enabled', 'false', '--out', release, aligned]);
+run('java.exe', ['-jar', signer, 'sign', '--ks', signing, '--ks-pass', 'pass:' + storePass,
+  '--ks-key-alias', alias, '--key-pass', 'pass:' + keyPass,
+  '--v4-signing-enabled', 'false', '--out', release, aligned]);
 run('java.exe', ['-jar', signer, 'verify', release]);
 console.log(release);

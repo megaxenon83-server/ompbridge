@@ -53,6 +53,7 @@ class Bridge {
   }
 
   async subscribe(cwd, handle, signal, file) {
+    let attempts = 0;
     while (!signal.aborted) {
       try {
         const response = await this.response('/api/events', { cwd, ...(file && { file }) }, undefined, signal);
@@ -60,22 +61,36 @@ class Bridge {
         let buffer = '';
         for await (const chunk of response.body) {
           buffer += decoder.decode(chunk, { stream: true });
+          // Scan forward and slice the consumed prefix once per chunk: rescanning
+          // and copying the whole buffer per line is quadratic, and a streamed
+          // message arrives as one large line per event.
+          let start = 0;
           let index;
-          while ((index = buffer.indexOf('\n')) !== -1) {
-            const line = buffer.slice(0, index);
-            buffer = buffer.slice(index + 1);
+          while ((index = buffer.indexOf('\n', start)) !== -1) {
+            const line = buffer.slice(start, index);
+            start = index + 1;
             if (line.startsWith('data: ')) {
               let frame;
               try { frame = JSON.parse(line.slice(6)); } catch { continue; }
-              handle(frame);
+              try { handle(frame); } catch { /* a throwing handler must not drop the stream */ }
             }
           }
+          if (start) buffer = buffer.slice(start);
           if (buffer.length > 4 * 1024 * 1024) throw new Error('For stor bridge-hendelse.');
         }
-      } catch {
-        if (!signal.aborted) handle({ type: 'bridge_reconnecting' });
+        attempts = 0;
+      } catch (error) {
+        if (signal.aborted) break;
+        // A revoked pairing must not be retried forever as if it were a blip.
+        if (error.status === 401 || error.status === 403) {
+          try { handle({ type: 'bridge_unauthorized' }); } catch {}
+          break;
+        }
+        attempts++;
+        try { handle({ type: 'bridge_reconnecting' }); } catch {}
       }
-      await delay(1500, undefined, { signal }).catch(() => {});
+      const backoff = Math.min(30000, 1500 * 2 ** Math.min(attempts, 5));
+      await delay(backoff, undefined, { signal }).catch(() => {});
     }
   }
 }

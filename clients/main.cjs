@@ -350,7 +350,7 @@ function sessionFor(thread, approvalMode = store.localApprovalMode || 'write') {
 
 async function captureSession(thread, session) {
   const state = await session.request('get_state');
-  if (state?.sessionFile && fs.existsSync(state.sessionFile) && state.sessionFile !== thread.sessionFile) {
+  if (state?.sessionFile && fs.existsSync(state.sessionFile) && !isSamePath(state.sessionFile, thread.sessionFile)) {
     thread.sessionFile = state.sessionFile;
     save();
   }
@@ -511,10 +511,8 @@ function streamShared(thread, client) {
   const ready = new Promise(resolve => { resolveReady = resolve; });
   void client.subscribe(thread.cwd, frame => {
     if (frame.type === 'hello') { resolveReady(); return; }
-    if (frame.type === 'turn_changes') {
-      if (isSamePath(frame.sessionFile, thread.sessionFile)) broadcast(thread.id, frame);
-      return;
-    }
+    // turn_changes/todo_phases are already forwarded by watchTurnData for this
+    // thread; forwarding here used to deliver every card and agent event twice.
     if (!busy.has(thread.id)) return;
     if (frame.sessionFile && thread.sessionFile && !isSamePath(frame.sessionFile, thread.sessionFile)) return;
     if (frame.type === 'state' && frame.state?.sessionFile && thread.sessionFile

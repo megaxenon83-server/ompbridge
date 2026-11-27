@@ -36,10 +36,19 @@ function createWorkspace(directory, executable, entry) {
   const library = createSkillLibrary(root, settings);
   const choices = session => ({ ...scopeSettings('').choices, ...(session ? scopeSettings(session).choices : {}) });
   const layout = (cwd, selected = {}) => library.list(cwd).filter(skill => selected[skill.name] ?? skill.enabled);
+  const signatureCache = new Map();
   const signature = (cwd, session) => {
+    // Re-reading skill scope/settings/skill-library on every request (and once
+    // per skill in the settings screen) is expensive; reuse the value briefly.
+    const cacheKey = key(cwd) + '|' + (session ? key(session) : '');
+    const now = Date.now();
+    const cached = signatureCache.get(cacheKey);
+    if (cached && now - cached.at < 2000) return cached.value;
     const selected = choices(session);
-    return JSON.stringify([layout(cwd, selected).map(({ name, sha, scope }) => [name, sha, scope]),
+    const value = JSON.stringify([layout(cwd, selected).map(({ name, sha, scope }) => [name, sha, scope]),
       Object.entries(selected).sort(([a], [b]) => a.localeCompare(b))]);
+    signatureCache.set(cacheKey, { at: now, value });
+    return value;
   };
   const managed = cwd => library.list(cwd).map(({ folder, ...skill }) => skill);
   function write(target, value) {

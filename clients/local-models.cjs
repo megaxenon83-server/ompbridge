@@ -1,4 +1,4 @@
-﻿const { execFile, spawn } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const { setTimeout: delay } = require('node:timers/promises');
 const fs = require('node:fs');
@@ -38,12 +38,21 @@ function saveResident(model) {
   finally { fs.rmSync(temp, { force: true }); }
 }
 
+let serversCache;
+let serversStamp = "";
 function loadManagedServers() {
   try {
     const portable = path.join(os.homedir(), '.omp', 'agent', 'managed-servers.json');
     const file = process.env.OMP_DESKTOP_MANAGED_SERVERS || (fs.existsSync(portable) ? portable : MANAGED_CONFIG);
+    // This file is parsed once per model in the model list and on every state
+    // broadcast; cache it and only re-read when it actually changed.
+    const stat = fs.statSync(file, { throwIfNoEntry: false });
+    const stamp = stat ? `${stat.mtimeMs}:${stat.size}` : "";
+    if (serversCache && stamp && stamp === serversStamp) return serversCache;
     const raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
-    return Array.isArray(raw.servers) ? raw.servers : [];
+    serversCache = Array.isArray(raw.servers) ? raw.servers : [];
+    serversStamp = stamp;
+    return serversCache;
   } catch { return []; }
 }
 

@@ -1,403 +1,255 @@
-﻿name: Build & Release
+name: Build & Release
 
 on:
   push:
     tags:
+      - 'omp-*'
       - 'v*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version tag to build (e.g. v2.9.28)'
+      tag:
+        description: 'Tag to publish (e.g. omp-bridge-2.9.63)'
         required: true
         type: string
 
 env:
-  ANDROID_VERSION: 4.2.7
   REPO: megaxenon83-server/ompbridge
-  ANDROID_PROJECT: android-source/nimayomp-chatgpt-ui-4.2.3
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  # ------------------------------------------------------------------ ANDROID
-  android-build:
-    name: Android APK (release)
-    runs-on: ubuntu-latest
+  # ------------------------------------------------------------------- ANDROID
+  android:
+    name: Android APK (Chat OMP OMP, WebView)
+    runs-on: windows-latest
     timeout-minutes: 45
     outputs:
+      apk: ${{ steps.package.outputs.apk }}
       version: ${{ steps.version.outputs.android_version }}
-      apk_path: ${{ steps.package.outputs.apk_path }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set versions
+      - name: Resolve versions
         id: version
+        shell: pwsh
         run: |
-          # Extract version from tag (e.g. refs/tags/v2.9.29 -> 2.9.29)
-          # or use the workflow_dispatch input if provided
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            BRIDGE_VER="${{ github.event.inputs.version }}"
-          else
-            BRIDGE_VER="${GITHUB_REF_NAME#v}"
-          fi
-          echo "bridge_version=${BRIDGE_VER}" >> "$GITHUB_OUTPUT"
-          echo "android_version=${ANDROID_VERSION}" >> "$GITHUB_OUTPUT"
+          $bridge = (Select-String -Path 'windows\Setup.iss' -Pattern '#define BridgeVersion "([^"]+)"').Matches.Groups[1].Value
+          $desktop = (Get-Content 'clients\package.json' -Raw | ConvertFrom-Json).version
+          $android = (Select-String -Path 'clients\android\AndroidManifest.xml' -Pattern 'android:versionName="([^"]+)"').Matches.Groups[1].Value
+          echo "bridge_version=$bridge" >> $env:GITHUB_OUTPUT
+          echo "desktop_version=$desktop" >> $env:GITHUB_OUTPUT
+          echo "android_version=$android" >> $env:GITHUB_OUTPUT
+          Write-Host "bridge=$bridge desktop=$desktop android=$android"
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: latest
           packages: platform-tools
-          accept-android-sdk-licenses: true
 
-      - name: Install Android SDK packages
+      - name: Install Android platform + build-tools
+        shell: pwsh
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" | Out-Host
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('android-source/**/*.gradle*', 'android-source/**/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
-
-      - name: Restore release signing key
+      - name: Restore Chat OMP OMP signing keystore
+        id: keystore
+        shell: pwsh
         env:
-          KEYSTORE_BASE64: ${{ secrets.NIMAYOMP_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.NIMAYOMP_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.NIMAYOMP_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.NIMAYOMP_KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.CHATOMP_KEYSTORE_BASE64 }}
         run: |
-          set -euo pipefail
-          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "::error::Android signing secrets are not configured in the repository"
-            exit 1
-          fi
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/Nimay OMP Chat-release.jks"
-          cat > "${ANDROID_PROJECT}/keystore.properties" << EOF
-          storeFile=$RUNNER_TEMP/Nimay OMP Chat-release.jks
-          storePassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          EOF
-          echo "Keystore restored (passwords are never printed)."
+          if ($env:KEYSTORE_BASE64) {
+            $path = "$env:RUNNER_TEMP\chatomp-release.jks"
+            [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:KEYSTORE_BASE64))
+            "KEYSTORE_FILE=$path" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            echo "restored=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Keystore restored (passwords never printed)."
+          } else {
+            echo "restored=false" >> $env:GITHUB_OUTPUT
+            Write-Warning "CHATOMP_KEYSTORE_BASE64 is not set; the APK will be signed with a fresh development key and will NOT upgrade over an existing install."
+          }
 
-      - name: Build release APK
-        working-directory: ${{ env.ANDROID_PROJECT }}
-        run: |
-          chmod +x gradlew
-          # A clean build avoids stale BuildConfig constants when only the
-          # version numbers changed (incremental Kotlin compilation can keep an
-          # inlined VERSION_NAME/VERSION_CODE from a previous build).
-          ./gradlew clean :app:assembleChstgptRelease --no-daemon --stacktrace
-
-      - name: Package APK
+      - name: Build APK
         id: package
+        shell: pwsh
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.CHATOMP_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.CHATOMP_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.CHATOMP_KEY_PASSWORD }}
         run: |
-          set -euo pipefail
-          APK_PATH="$(find "${ANDROID_PROJECT}/app/build/outputs/apk" -name '*.apk' -path '*release*' | head -1)"
-          if [ -z "$APK_PATH" ]; then
-            echo "::error::Release APK not found"
-            exit 1
-          fi
-          mkdir -p dist
-          cp "$APK_PATH" "dist/nimay-omp-chat-android-${ANDROID_VERSION}.apk"
-          (cd dist && sha256sum "nimay-omp-chat-android-${ANDROID_VERSION}.apk" > "nimay-omp-chat-android-${ANDROID_VERSION}.apk.sha256")
-          echo "apk_path=dist/nimay-omp-chat-android-${ANDROID_VERSION}.apk" >> "$GITHUB_OUTPUT"
-          echo "Packaged $APK_PATH"
+          $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
+          node clients/scripts/build-android.cjs
+          $apk = (Get-ChildItem 'clients\dist' -Recurse -Filter 'Chat-OMP-OMP-Android-*.apk' | Select-Object -First 1).FullName
+          if (-not $apk) { throw 'APK not found' }
+          echo "apk=$apk" >> $env:GITHUB_OUTPUT
+          Write-Host "Built $apk"
 
-      - name: Upload Android artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: |
-            dist/nimay-omp-chat-android-*.apk
-            dist/nimay-omp-chat-android-*.sha256
+          path: clients/dist/**/Chat-OMP-OMP-Android-*.apk
           if-no-files-found: error
 
-  # ------------------------------------------------------------------- LINUX
-  linux-build:
-    name: Linux (.deb, .rpm, Flatpak)
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+  # ------------------------------------------------------------------ DESKTOP
+  desktop:
+    name: OMP Desktop + Bridge (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 40
     outputs:
+      bridge: ${{ steps.package.outputs.bridge_exe }}
+      desktop_zip: ${{ steps.package.outputs.desktop_zip }}
+      desktop_exe: ${{ steps.package.outputs.desktop_exe }}
       version: ${{ steps.version.outputs.bridge_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set versions
+      - name: Resolve versions
         id: version
+        shell: pwsh
         run: |
-          # Extract version from tag (e.g. refs/tags/v2.9.29 -> 2.9.29)
-          # or use the workflow_dispatch input if provided
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            BRIDGE_VER="${{ github.event.inputs.version }}"
-          else
-            BRIDGE_VER="${GITHUB_REF_NAME#v}"
-          fi
-          echo "bridge_version=${BRIDGE_VER}" >> "$GITHUB_OUTPUT"
+          $bridge = (Select-String -Path 'windows\Setup.iss' -Pattern '#define BridgeVersion "([^"]+)"').Matches.Groups[1].Value
+          $desktop = (Get-Content 'clients\package.json' -Raw | ConvertFrom-Json).version
+          echo "bridge_version=$bridge" >> $env:GITHUB_OUTPUT
+          echo "desktop_version=$desktop" >> $env:GITHUB_OUTPUT
+          Write-Host "bridge=$bridge desktop=$desktop"
 
-      - name: Install build dependencies
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install desktop dependencies (Electron)
+        working-directory: clients
+        run: npm install --no-audit --no-fund
+
+      - name: Build portable Desktop ZIP
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            flatpak-builder \
-            rpm \
-            dpkg-dev \
-            nodejs \
-            npm \
-            python3 \
-            curl \
-            wget \
-            file \
-            xz-utils
+          node clients/scripts/build.cjs
+          $zip = (Get-ChildItem 'clients\dist' -Recurse -Filter 'OMP-Desktop-*-win-x64.zip' | Select-Object -First 1).FullName
+          Write-Host "Built $zip"
 
-      - name: Install Flatpak runtime and SDK
+      - name: Ensure Inno Setup
+        shell: pwsh
         run: |
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install --noninteractive flathub org.freedesktop.Platform//24.08
-          sudo flatpak install --noninteractive flathub org.freedesktop.Sdk//24.08
-          sudo flatpak install --noninteractive flathub org.freedesktop.Sdk.Extension.node20//24.08
-          flatpak list
+          if (-not (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe') -and -not (Test-Path 'C:\Program Files\Inno Setup 6\ISCC.exe')) {
+            choco install innosetup -y --no-progress
+          }
 
-      - name: Build tarball, .deb and .rpm
+      - name: Build installers
+        id: package
+        shell: pwsh
         run: |
-          bash 2.9.26-bridge/packaging/build-linux-packages.sh "${{ steps.version.outputs.bridge_version }}" dist
+          $iscc = if (Test-Path 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe') { 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' } else { 'C:\Program Files\Inno Setup 6\ISCC.exe' }
+          $bridge = (Select-String -Path 'windows\Setup.iss' -Pattern '#define BridgeVersion "([^"]+)"').Matches.Groups[1].Value
+          $desktop = (Get-Content 'clients\package.json' -Raw | ConvertFrom-Json).version
+          & $iscc "windows\Setup.iss" "/DBridgeVersion=$bridge" | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Bridge installer failed' }
+          & $iscc "windows\DesktopSetup.iss" "/DDesktopVersion=$desktop" | Out-Host
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop installer failed' }
+          $bridge_exe = (Get-ChildItem 'windows\dist' -Filter 'OMP-Bridge-Setup-*.exe' | Select-Object -First 1).FullName
+          $desktop_exe = (Get-ChildItem 'windows\dist' -Filter 'OMP-Desktop-Setup-*-win-x64.exe' | Select-Object -First 1).FullName
+          $desktop_zip = (Get-ChildItem 'clients\dist' -Recurse -Filter 'OMP-Desktop-*-win-x64.zip' | Select-Object -First 1).FullName
+          echo "bridge_exe=$bridge_exe" >> $env:GITHUB_OUTPUT
+          echo "desktop_exe=$desktop_exe" >> $env:GITHUB_OUTPUT
+          echo "desktop_zip=$desktop_zip" >> $env:GITHUB_OUTPUT
+          Write-Host "bridge=$bridge_exe"
+          Write-Host "desktop_exe=$desktop_exe"
+          Write-Host "desktop_zip=$desktop_zip"
 
-      - name: Build Flatpak bundle
-        run: |
-          bash 2.9.26-bridge/packaging/build-flatpak.sh "${{ steps.version.outputs.bridge_version }}" dist
-
-      - name: Upload Linux artifacts
+      - name: Upload installers + zip
         uses: actions/upload-artifact@v4
         with:
-          name: linux-packages
+          name: windows-artifacts
           path: |
-            dist/*.deb
-            dist/*.rpm
-            dist/*.flatpak
-            dist/*.tar.gz
-            dist/*.sha256
+            windows/dist/OMP-Bridge-Setup-*.exe
+            windows/dist/OMP-Desktop-Setup-*-win-x64.exe
+            clients/dist/**/OMP-Desktop-*-win-x64.zip
           if-no-files-found: error
 
-  # ----------------------------------------------------------------- WINDOWS
-  windows-build:
-    name: Windows Installer (.exe)
-    runs-on: windows-latest
-    timeout-minutes: 30
-    needs: linux-build
-    outputs:
-      version: ${{ needs.linux-build.outputs.version }}
+  # ------------------------------------------------------------------ RELEASE
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [android, desktop]
+    if: success()
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Ensure Inno Setup is available
-        shell: pwsh
+      - name: Resolve versions
+        id: version
         run: |
-          if (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
-            Write-Host "Inno Setup 6 is already installed"
-          } elseif (Test-Path "C:\Program Files\Inno Setup 6\ISCC.exe") {
-            Write-Host "Inno Setup 6 is already installed"
-          } else {
-            choco install innosetup -y --no-progress
-          }
+          BRIDGE=$(grep -oP '#define BridgeVersion "\K[^"]+' windows/Setup.iss)
+          DESKTOP=$(node -p "require('./clients/package.json').version")
+          ANDROID=$(grep -oP 'android:versionName="\K[^"]+' clients/android/AndroidManifest.xml)
+          echo "bridge=$BRIDGE" >> "$GITHUB_OUTPUT"
+          echo "desktop=$DESKTOP" >> "$GITHUB_OUTPUT"
+          echo "android=$ANDROID" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Build installer
-        shell: pwsh
-        env:
-          BRIDGE_VERSION: ${{ needs.linux-build.outputs.version }}
-        run: |
-          & "2.9.26-bridge\build-installer\Build-Installer.ps1" -Version "$env:BRIDGE_VERSION" -OutputDir "dist"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: dist/*.exe
-          if-no-files-found: error
-
-  # ----------------------------------------------------------------- RELEASE
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [android-build, linux-build, windows-build]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
-    steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-          merge-multiple: false
+          path: dist
 
-      - name: Generate checksums
+      - name: Stage assets + build source zip
         run: |
           set -euo pipefail
-          cd artifacts
-          out="$PWD/SHA256SUMS"
-          : > "$out"
-          find . -type f \
-            \( -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' \
-               -o -name '*.tar.gz' -o -name '*.apk' \) -print0 |
-          while IFS= read -r -d '' f; do
-            ( cd "$(dirname "$f")" && sha256sum -- "$(basename "$f")" ) >> "$out"
-          done
-          sort -o "$out" "$out"
-          cat "$out"
+          mkdir -p stage
+          find dist -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.apk' \) -exec cp {} stage/ \;
+          git archive --format=zip -o "stage/OMP-Suite-${{ steps.version.outputs.bridge }}-source.zip" HEAD
+          (cd stage && sha256sum *.exe *.zip *.apk | sort -k2 > SHA256SUMS.txt)
+          cat stage/SHA256SUMS.txt
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Nimay OMP Chat Bridge ${{ needs.linux-build.outputs.version }} + Nimay OMP Chat Android ${{ needs.android-build.outputs.version }}
-          body: |
-            ## Nimay OMP Chat Bridge ${{ needs.linux-build.outputs.version }}
-
-            Bridge ${{ needs.linux-build.outputs.version }} with two-way provider synchronisation, and the
-            Nimay OMP Chat Android app ${{ needs.android-build.outputs.version }}.
-
-            ### Downloads
-            - **Windows:** `Nimay-OMP-Chat-Bridge-Setup-${{ needs.linux-build.outputs.version }}.exe`
-            - **Debian/Ubuntu:** `nimay-omp-chat-bridge_${{ needs.linux-build.outputs.version }}_amd64.deb`
-            - **Fedora/RHEL:** `nimay-omp-chat-bridge-${{ needs.linux-build.outputs.version }}-1.x86_64.rpm`
-            - **Flatpak:** `com.nimay.OMPChat-${{ needs.linux-build.outputs.version }}.flatpak`
-            - **Universal tarball:** `nimay-omp-chat-bridge-linux-x86_64.tar.gz`
-            - **Android:** `nimay-omp-chat-android-${{ needs.android-build.outputs.version }}.apk`
-            - **Update manifest:** `https://omp.nimay.net/updates/latest.json` (primary, GitHub fallback)
-
-            ### Installation
-            **Windows:** run the `.exe` installer (per-user, no admin rights needed).
-            **Linux (.deb):** `sudo dpkg -i nimay-omp-chat-bridge_*.deb` then run `nimay-omp-chat-bridge-install --local`.
-            **Linux (.rpm):** `sudo rpm -i nimay-omp-chat-bridge-*.rpm` then run `nimay-omp-chat-bridge-install --local`.
-            **Flatpak:** `flatpak install com.nimay.OMPChat-*.flatpak`.
-            **Universal:** `tar -xzf nimay-omp-chat-bridge-linux-x86_64.tar.gz && ./install.sh`.
-            **Android:** install the APK (`adb install nimay-omp-chat-android-*.apk`).
-
-            ### Provider sync
-            The bridge is the source of truth for providers and API keys
-            (`~/.omp/agent/models.yml`). The Android app pulls on connect and can
-            push added, edited and deleted providers with **Sync**.
-
-            ### Checksums
-            `SHA256SUMS` covers every artifact in this release. The universal
-            tarball and the Android APK also ship individual `.sha256` files.
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: "OMP Bridge ${{ steps.version.outputs.bridge }} / Desktop ${{ steps.version.outputs.desktop }} / Android ${{ steps.version.outputs.android }}"
           draft: false
           prerelease: false
           files: |
-            artifacts/**/*.exe
-            artifacts/**/*.deb
-            artifacts/**/*.rpm
-            artifacts/**/*.flatpak
-            artifacts/**/*.tar.gz
-            artifacts/**/*.sha256
-            artifacts/**/*.apk
-            artifacts/**/SHA256SUMS
+            stage/*.exe
+            stage/*.zip
+            stage/*.apk
+            stage/SHA256SUMS.txt
+          body: |
+            ## OMP Suite ${{ steps.version.outputs.bridge }}
+
+            - Bridge ${{ steps.version.outputs.bridge }}
+            - OMP Desktop ${{ steps.version.outputs.desktop }}
+            - Chat OMP OMP Android ${{ steps.version.outputs.android }}
+
+            ### Downloads
+            - **OMP Bridge (Windows):** `OMP-Bridge-Setup-${{ steps.version.outputs.bridge }}.exe`
+            - **OMP Desktop (Windows installer):** `OMP-Desktop-Setup-${{ steps.version.outputs.desktop }}-win-x64.exe`
+            - **OMP Desktop (portable):** `OMP-Desktop-${{ steps.version.outputs.desktop }}-win-x64.zip`
+            - **Chat OMP OMP (Android):** `Chat-OMP-OMP-Android-${{ steps.version.outputs.android }}.apk`
+            - **Source:** `OMP-Suite-${{ steps.version.outputs.bridge }}-source.zip` (plus GitHub's automatic source archives)
+            - **Checksums:** `SHA256SUMS.txt`
+
+            See `CHANGELOG.md` for what changed this phase.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ------------------------------------------------------------ OMP SITE DEPLOY
-  deploy-omp-site:
-    name: Deploy site, downloads and update manifest
-    runs-on: ubuntu-latest
-    needs: [create-release, android-build, linux-build, windows-build]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: false
-
-      - name: Prepare release payload and update manifest
-        id: prep
-        env:
-          TAG: ${{ github.ref_name }}
-          ANDROID_VERSION: ${{ needs.android-build.outputs.version }}
-        run: |
-          set -euo pipefail
-          mkdir -p deploy/downloads/"$TAG" deploy/downloads/latest deploy/updates deploy/site
-
-          # Collect release artifacts
-          find artifacts -type f \
-            \( -name '*.exe' -o -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' \
-               -o -name '*.tar.gz' -o -name '*.apk' -o -name '*SHA256SUMS*' \) -print0 |
-          while IFS= read -r -d '' f; do
-            base="$(basename "$f")"
-            case "$base" in
-              *.sha256) ;; # skip individual sha files from site downloads
-              *) cp "$f" "deploy/downloads/$TAG/$base" ;;
-            esac
-          done
-
-          # Ensure SHA256SUMS present in versioned/latest downloads
-          if [ ! -f "deploy/downloads/$TAG/SHA256SUMS" ]; then
-            find artifacts -name 'SHA256SUMS' -type f -exec cp {} "deploy/downloads/$TAG/SHA256SUMS" \; -quit || true
-          fi
-          cp -f deploy/downloads/"$TAG"/* deploy/downloads/latest/ || true
-
-          # Android versionCode (best effort)
-          ANDROID_CODE="$(grep -m1 'versionCode' "${ANDROID_PROJECT}/app/build.gradle" | grep -oE '[0-9]+' | head -1 || echo 0)"
-
-          node scripts/generate-omp-update-manifest.mjs \
-            --artifacts artifacts \
-            --tag "$TAG" \
-            --android-version "$ANDROID_VERSION" \
-            --android-version-code "$ANDROID_CODE" \
-            --base-url "https://omp.nimay.net" \
-            --out deploy/updates/latest.json
-
-          # Site content from repo
-          if [ -d site ]; then cp -a site/. deploy/site/; fi
-
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy to omp.nimay.net host (if configured)
-        env:
-          SSH_HOST: ${{ secrets.OMP_SITE_SSH_HOST }}
-          SSH_USER: ${{ secrets.OMP_SITE_SSH_USER }}
-          SSH_KEY: ${{ secrets.OMP_SITE_SSH_KEY }}
-          TARGET_DIR: ${{ secrets.OMP_SITE_TARGET_DIR }}
-          SSH_PORT: ${{ secrets.OMP_SITE_SSH_PORT }}
-        run: |
-          set -euo pipefail
-          if [ -z "${SSH_HOST:-}" ] || [ -z "${SSH_USER:-}" ] || [ -z "${SSH_KEY:-}" ] || [ -z "${TARGET_DIR:-}" ]; then
-            echo "OMP site deploy skipped: configure OMP_SITE_SSH_HOST, OMP_SITE_SSH_USER, OMP_SITE_SSH_KEY, OMP_SITE_TARGET_DIR (and optional OMP_SITE_SSH_PORT) secrets to enable automatic publishing to omp.nimay.net."
-            exit 0
-          fi
-          PORT="${SSH_PORT:-22}"
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/omp_site_key
-          chmod 600 ~/.ssh/omp_site_key
-          ssh-keyscan -p "$PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-          ssh -i ~/.ssh/omp_site_key -p "$PORT" -o StrictHostKeyChecking=no "$SSH_USER@$SSH_HOST" "mkdir -p '$TARGET_DIR/downloads' '$TARGET_DIR/updates' '$TARGET_DIR/site'"
-
-          rsync -az --delete -e "ssh -i ~/.ssh/omp_site_key -p $PORT -o StrictHostKeyChecking=no" deploy/site/ "$SSH_USER@$SSH_HOST:$TARGET_DIR/site/"
-          rsync -az -e "ssh -i ~/.ssh/omp_site_key -p $PORT -o StrictHostKeyChecking=no" deploy/downloads/ "$SSH_USER@$SSH_HOST:$TARGET_DIR/downloads/"
-          rsync -az -e "ssh -i ~/.ssh/omp_site_key -p $PORT -o StrictHostKeyChecking=no" deploy/updates/ "$SSH_USER@$SSH_HOST:$TARGET_DIR/updates/"
-
-          echo "Deployed ${{ github.ref_name }} to $SSH_HOST:$TARGET_DIR"
-

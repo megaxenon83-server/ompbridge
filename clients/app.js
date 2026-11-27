@@ -285,41 +285,44 @@ function renderConversation() {
   const timeline = $('timeline');
   chatScroll ||= turnUI.conversationScroll(timeline, timeline, $('jumpLatest'));
   const scroll = chatScroll.capture(activeId);
-  timeline.replaceChildren();
   const entries = turnUI.timeline(current.messages, current.cards || [], current.checks || []);
-  for (const [index, entry] of entries.entries()) {
-    if (entry.role === 'turn_changes') {
-      const id = activeId;
-      timeline.append(turnUI.card(entry.card, (card, file) => showTurnDiff(id, card, file),
-        card => confirmTurnUndo(id, card), !current.busy));
-    } else if (entry.role === 'project_check') {
-      timeline.append(button(testSummary(entry.check), () => {
-        current.selectedCheck = entry.check.id;
-        return openReview('tests');
-      }, { class: 'git-summary' }));
-    } else if (entry.role === 'tool') {
-      const item = element('details', null, { class: 'tool' });
-      item.open = current.openTools?.has(entry.id) || false;
-      item.ontoggle = () => {
-        current.openTools ||= new Set();
-        if (item.open) current.openTools.add(entry.id);
-        else current.openTools.delete(entry.id);
-      };
-      item.append(element('summary', entry.label), element('pre', entry.output));
-      timeline.append(item);
-    } else if (entry.text || entry.segments?.some(block => block.text)) {
+  turnUI.syncRows(timeline, entries, {
+    skip: entry => !(entry.role === 'turn_changes' || entry.role === 'project_check' || entry.role === 'tool' ||
+      entry.text || entry.segments?.some(block => block.text)),
+    build: (entry, index) => {
+      if (entry.role === 'turn_changes') {
+        const id = activeId;
+        return turnUI.card(entry.card, (card, file) => showTurnDiff(id, card, file),
+          card => confirmTurnUndo(id, card), !current.busy);
+      }
+      if (entry.role === 'project_check') {
+        return button(testSummary(entry.check), () => {
+          current.selectedCheck = entry.check.id;
+          return openReview('tests');
+        }, { class: 'git-summary' });
+      }
+      if (entry.role === 'tool') {
+        const item = element('details', null, { class: 'tool' });
+        item.open = current.openTools?.has(entry.id) || false;
+        item.ontoggle = () => {
+          current.openTools ||= new Set();
+          if (item.open) current.openTools.add(entry.id);
+          else current.openTools.delete(entry.id);
+        };
+        item.append(element('summary', entry.label), element('pre', entry.output));
+        return item;
+      }
       const card = element('article', null, { class: 'message ' + entry.role });
       card.append(element('small', entry.role === 'user' ? 'Du' : 'Oh My Pi'));
       turnUI.appendSegments(card, entry, activeId + ':' + (entry.id || index), text => card.append(element('p', text)));
-      const group = element('div', null, { class: 'chat-turn ' + entry.role });
-      const actions = messageActions.row(entry.text, activeId + ':' + index);
+      const group = element('div', null, 'chat-turn ' + entry.role);
+      const actions = messageActions.row(entry.text, activeId + ':' + (entry.id || entry.clientMessageId || entry.toolCallId || index));
       const time = window.ompLocale.messageTime(entry.timestamp);
       if (time) actions.append(time);
       group.append(card, actions);
-      timeline.append(group);
-    } else continue;
-    timeline.lastElementChild.dataset.scrollKey = turnUI.scrollEntryKey(entry, index);
-  }
+      return group;
+    }
+  });
   if (current.gitFiles && entries.length && !current.cards?.length) timeline.append(button(
     current.gitFiles === 1 ? '1 fil endret' : current.gitFiles + ' filer endret',
     () => openReview('changes'), { class: 'git-summary' }
@@ -1322,14 +1325,23 @@ async function refreshBridgeHistory() {
   const current = view(id);
   const saved = historyEntries(data.messages).filter(item =>
     !current.busy || item.role !== 'tool' || !item.label.endsWith(' · uten resultat'));
-  const keys = new Set(saved.filter(item => item.id).map(item => item.role + ':' + item.id));
+  const messageKey = item => item.role + '|' + (item.id ? 'id:' + item.id
+    : item.clientMessageId ? 'client:' + item.clientMessageId
+    : 'ts:' + (item.timestamp || '') + ':' + (item.text || '').length);
+  const savedKeys = new Set(saved.map(messageKey));
+  // The previous version compared every history entry against every saved entry
+  // (O(n^2)) on every 6-second poll; a Set lookup keeps it linear.
   const messages = current.busy
-    ? [...saved, ...current.messages.filter(item => !keys.has(item.role + ':' + item.id) && !saved.some(entry => window.ompTurnUI.sameMessage(entry, item)))]
+    ? [...saved, ...current.messages.filter(item => !savedKeys.has(messageKey(item)))]
     : saved;
   if (current.streaming && !messages.includes(current.streaming)) current.streaming = null;
   const profileChanged = data.chatProfile && JSON.stringify(data.chatProfile) !== JSON.stringify(current.chatProfile);
   if (profileChanged) current.chatProfile = data.chatProfile;
-  if (!profileChanged && JSON.stringify(messages) === JSON.stringify(current.messages)) return;
+  // Cheap change signature instead of JSON.stringify over the whole transcript.
+  const signature = list => (list.length || 0) + ':' + (list[0]?.id || list[0]?.clientMessageId || '') + ':' +
+    (list[list.length - 1]?.id || list[list.length - 1]?.clientMessageId || '') + ':' +
+    (list[list.length - 1]?.text?.length || 0);
+  if (!profileChanged && signature(messages) === signature(current.messages)) return;
   current.messages = messages;
   renderConversation();
   refreshGit().catch(report);
@@ -1523,8 +1535,8 @@ async function renderPlugins(body, generation) {
   skillsPanel.append(element('h3', 'Skills'), element('p', 'Forhåndsvis, installer og organiser prosjektets skills i nettleseren.'),
     explore);
   const advanced = element('details', null, { class: 'plugin-advanced' });
-  advanced.append(element('summary', 'OMP-markedsplasser og pakkereferanser'));
-  advanced.append(element('p', 'Installer en OMP-pakke fra en markedsplass, npm eller en lokal mappe.'));
+  advanced.append(element('summary', 'Kilder: markedsplasser og pakker'));
+  advanced.append(element('p', 'Legg til markedsplasser, eller installer en OMP-pakke fra markedsplass, npm eller lokal mappe.'));
   const form = element('form');
   const [label, target] = field('Pakkereferanse', { required: '', placeholder: 'navn@markedsplass' });
   const scopeLabel = element('label', 'Installer for', { class: 'field' });
@@ -1569,10 +1581,20 @@ async function renderPlugins(body, generation) {
   const installed = element('div');
   const skills = element('div');
   const catalog = element('div');
-  const inventory = element('details', null, { class: 'plugin-advanced' });
-  inventory.append(element('summary', 'Skills funnet av OMP'), skills);
+  const inventory = element('section', null, { class: 'plugin-section' });
+  inventory.append(element('h3', 'Skills funnet av OMP'),
+    element('p', 'Aktiver eller deaktiver skills OMP har registrert i denne samtalen eller globalt.'), skills);
   advanced.append(element('h3', 'Tilgjengelig i markedsplassene'), catalog);
-  body.append(skillsPanel, element('h3', 'Prosjektutvidelser'), bundled, element('h3', 'Installert i OMP'), installed, inventory, advanced);
+  // Group by what the user is actually doing, instead of one long mixed list:
+  // skills first, then bundled extensions, installed packages, and sources last.
+  body.append(skillsPanel, inventory,
+    element('h3', 'Prosjektutvidelser'),
+    element('p', 'Medfølgende utvidelser du kan slå på for prosjektet, som enhetsstyring og Git-oversikt.'),
+    bundled,
+    element('h3', 'Installerte pakker i OMP'),
+    element('p', 'Eksterne OMP-pakker som allerede er installert.'),
+    installed,
+    advanced);
   const [list, discovery] = await Promise.allSettled([
     run('plugins', { action: 'list', id: activeId }), run('plugins', { action: 'discover', id: activeId })
   ]);

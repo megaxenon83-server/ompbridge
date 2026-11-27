@@ -30,12 +30,21 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.62";
+const VERSION = "2.9.63";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
 function finishTurn(runtime, anchorToolId) {
   if (!turnChanges.isActive(runtime)) return;
+  // A snapshot walks the whole workspace and diffs every changed file, so it is
+  // not free. Live cards are still updated during a turn, just not after every
+  // single tool call: that used to block the event loop and stall the live
+  // stream while OMP was busy.
+  if (anchorToolId) {
+    const now = Date.now();
+    if (runtime.lastTurnCardAt && now - runtime.lastTurnCardAt < 2500) return;
+    runtime.lastTurnCardAt = now;
+  }
   const finish = () => {
     try {
       const card = turnChanges.finish(runtime, runtime.sessionFile, anchorToolId);
@@ -264,6 +273,7 @@ function readConfig() {
     host: process.env.OMPCHAT_BRIDGE_HOST || cfg.host || "0.0.0.0",
     token: process.env.OMPCHAT_BRIDGE_TOKEN || cfg.token || "",
     approvalMode: cfg.approvalMode || "always-ask",
+    approved: Array.isArray(cfg.approved) ? cfg.approved : [],
     allowBash: cfg.allowBash !== false,
     projectRoots: Array.isArray(cfg.projectRoots) && cfg.projectRoots.length
       ? cfg.projectRoots
@@ -399,8 +409,13 @@ async function sendGotify(title, message, priority, dedupKey) {
     if (gotifyDedup.has(dedupKey)) return false;
     gotifyDedup.add(dedupKey);
     if (gotifyDedup.size > 1000) {
-      const it = gotifyDedup.values();
-      for (let i = 0; i < 500; i++) it.next();
+      // Drop the oldest half instead of just walking an iterator: the previous
+      // "trim" removed nothing and the set grew forever.
+      let drop = 500;
+      for (const key of gotifyDedup) {
+        gotifyDedup.delete(key);
+        if (--drop <= 0) break;
+      }
     }
   }
   try {
@@ -502,20 +517,50 @@ function metaFor(file) {
 // ---------------------------------------------------------------------------
 
 const sessionCache = new Map();
+const SESSION_BOUNDARY_BYTES = 64;
+
+/** Parse complete JSONL lines into `entries` and return the bytes consumed. */
+function parseJsonlText(text, entries) {
+  let consumed = 0;
+  let index;
+  while ((index = text.indexOf("\n", consumed)) >= 0) {
+    // A BOM (Notepad / `Set-Content -Encoding UTF8`) breaks JSON.parse and used
+    // to cost the transcript its session record.
+    const line = text.slice(consumed, index).replace(/^\uFEFF/, "").trim();
+    consumed = index + 1;
+    if (!line) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch {
+      // A partially written line while OMP appends; ignore.
+    }
+  }
+  return consumed;
+}
 
 function readJsonl(file) {
   const raw = fs.readFileSync(file, "utf8");
   const entries = [];
-  for (const line of raw.split("\n")) {
-    const text = line.trim();
-    if (!text) continue;
-    try {
-      entries.push(JSON.parse(text));
-    } catch {
-      // A partially written trailing line while OMP appends; ignore.
+  parseJsonlText(raw, entries);
+  return entries;
+}
+
+/** Read `length` bytes at `position`, or null when the range is unreadable. */
+function readBytesAt(file, position, length) {
+  if (!Number.isFinite(position) || !Number.isFinite(length) || position < 0 || length <= 0) return null;
+  let handle;
+  try {
+    handle = fs.openSync(file, "r");
+    const buffer = Buffer.allocUnsafe(length);
+    const read = fs.readSync(handle, buffer, 0, length, position);
+    return buffer.subarray(0, read);
+  } catch {
+    return null;
+  } finally {
+    if (handle !== undefined) {
+      try { fs.closeSync(handle); } catch {}
     }
   }
-  return entries;
 }
 
 function textOfContent(content) {
@@ -632,17 +677,23 @@ function loadSession(file) {
   const resolved = path.resolve(file);
   const stat = fs.statSync(resolved, { throwIfNoEntry: false });
   if (!stat) return null;
+  const entries = entriesFor(resolved);
   const cached = sessionCache.get(resolved);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.session;
-  let entries;
-  try {
-    entries = readJsonl(resolved);
-  } catch (error) {
-    log("warn", `cannot read session ${resolved}: ${error.message}`);
-    return null;
+  if (cached?.session && cached.sessionCount === entries.length) {
+    // Titles and archive flags live in the sidecar metadata, not the transcript.
+    const custom = metaFor(resolved);
+    if (custom.title && cached.session.title !== custom.title) cached.session.title = custom.title;
+    cached.session.archived = !!custom.archived;
+    cached.session.projectId = custom.projectId || "";
+    cached.session.updatedAt = stat.mtimeMs;
+    cached.session.size = stat.size;
+    return cached.session;
   }
   const session = describeSession(resolved, entries, stat);
-  sessionCache.set(resolved, { mtimeMs: stat.mtimeMs, size: stat.size, session, entries });
+  if (cached) {
+    cached.session = session;
+    cached.sessionCount = entries.length;
+  }
   return session;
 }
 
@@ -709,14 +760,72 @@ async function writeSessionTitle(file, name) {
   sessionCache.delete(resolved);
 }
 
+/**
+ * Transcript entries for a session file, parsing only what is new.
+ *
+ * OMP appends to its session file, but the bridge used to re-read and re-parse
+ * the whole JSONL whenever it changed — once per message and per state request.
+ * With a 100k-token conversation that is megabytes of JSON per turn, and it grows
+ * with the conversation. The cache keeps the parsed prefix and only parses the
+ * appended tail; a changed prefix (for example the title rewrite) falls back to a
+ * full parse.
+ */
 function entriesFor(file) {
   const resolved = path.resolve(file);
   const stat = fs.statSync(resolved, { throwIfNoEntry: false });
   if (!stat) return [];
-  const cached = sessionCache.get(resolved);
-  if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.entries;
-  loadSession(resolved);
-  return sessionCache.get(resolved)?.entries || [];
+  let cached = sessionCache.get(resolved);
+  if (!cached) {
+    // Bound the cache: it holds the whole parsed transcript per conversation and
+    // used to grow forever. Evict the least recently used entry.
+    if (sessionCache.size >= 250) {
+      let oldestKey;
+      let oldestAt = Infinity;
+      for (const [key, entry] of sessionCache) {
+        if (entry.lastAccess < oldestAt) { oldestAt = entry.lastAccess; oldestKey = key; }
+      }
+      if (oldestKey) sessionCache.delete(oldestKey);
+    }
+    cached = { entries: [], parsedBytes: 0, boundary: "", size: -1, mtimeMs: -1, session: null, sessionCount: -1, lastAccess: Date.now() };
+    sessionCache.set(resolved, cached);
+  }
+  cached.lastAccess = Date.now();
+  if (cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached.entries;
+  cached.size = stat.size;
+  cached.mtimeMs = stat.mtimeMs;
+  cached.session = null;
+  const boundaryAt = cached.parsedBytes - cached.boundary.length;
+  const verified = cached.parsedBytes > 0 && cached.boundary &&
+    stat.size > cached.parsedBytes &&
+    readBytesAt(resolved, boundaryAt, cached.boundary.length)?.toString("latin1") === cached.boundary;
+  if (verified) {
+    const tail = readBytesAt(resolved, cached.parsedBytes, stat.size - cached.parsedBytes);
+    const newline = tail ? tail.lastIndexOf(0x0a) : -1;
+    if (newline >= 0) {
+      const chunk = tail.subarray(0, newline + 1);
+      parseJsonlText(chunk.toString("utf8"), cached.entries);
+      cached.parsedBytes += chunk.length;
+      const joined = Buffer.concat([Buffer.from(cached.boundary, "latin1"), chunk]);
+      cached.boundary = joined.subarray(Math.max(0, joined.length - SESSION_BOUNDARY_BYTES)).toString("latin1");
+    }
+    return cached.entries;
+  }
+  let buffer;
+  try {
+    buffer = fs.readFileSync(resolved);
+  } catch (error) {
+    log("warn", `cannot read session ${resolved}: ${error.message}`);
+    return cached.entries;
+  }
+  const newline = buffer.lastIndexOf(0x0a);
+  const consumed = newline + 1;
+  cached.entries = [];
+  if (consumed > 0) parseJsonlText(buffer.subarray(0, consumed).toString("utf8"), cached.entries);
+  cached.parsedBytes = consumed;
+  cached.boundary = consumed > 0
+    ? buffer.subarray(Math.max(0, consumed - SESSION_BOUNDARY_BYTES), consumed).toString("latin1")
+    : "";
+  return cached.entries;
 }
 
 function listSessions({ cwd, includeArchived = false } = {}) {
@@ -739,7 +848,16 @@ function listSessions({ cwd, includeArchived = false } = {}) {
 }
 
 /** Map a stored OMP transcript (jsonl entries) into app-friendly messages. */
+const appMessageCache = new WeakMap();
 function toAppMessages(entries) {
+  const cached = appMessageCache.get(entries);
+  if (cached && cached.length === entries.length) return cached.messages;
+  const messages = buildAppMessages(entries);
+  appMessageCache.set(entries, { length: entries.length, messages });
+  return messages;
+}
+
+function buildAppMessages(entries) {
   const messages = [];
   const commands = new Map();
   const results = new Set(entries.filter(entry => entry.type === "message" && entry.message?.role === "toolResult")
@@ -973,6 +1091,10 @@ class OmpRuntime {
     });
     child.on("exit", (code, signal) => {
       log("warn", `omp rpc exited for ${this.cwd} (code=${code} signal=${signal})`);
+      // Only tear down this runtime if the exiting process is still the current
+      // one: a timed-out start used to leave its child behind, and that orphan's
+      // exit then rejected the pending RPCs of the replacement process.
+      if (this.child !== child) return;
       this.ready = false;
       this.child = null;
       this.readyPromise = null;
@@ -994,6 +1116,7 @@ class OmpRuntime {
     });
     child.on("error", (error) => {
       log("error", `omp spawn failed: ${error.message}`);
+      if (this.child !== child) return;
       this.ready = false;
       this.child = null;
       this.readyPromise = null;
@@ -1008,6 +1131,10 @@ class OmpRuntime {
         new Promise((_, reject) => setTimeout(() => reject(new Error("OMP svarte ikke innen 60 sekunder")), 60000)),
       ]);
     } catch (error) {
+      // Do not leak the process we gave up on: it would keep running unsupervised
+      // and block the next start.
+      if (this.child === child) this.child = null;
+      try { child.kill("SIGKILL"); } catch {}
       this.readyPromise = null;
       throw error;
     }
@@ -1016,10 +1143,11 @@ class OmpRuntime {
 
   onStdout(chunk) {
     this.buffer += chunk;
-    let idx;
-    while ((idx = this.buffer.indexOf("\n")) >= 0) {
-      const line = this.buffer.slice(0, idx).trim();
-      this.buffer = this.buffer.slice(idx + 1);
+    let start = 0;
+    let index;
+    while ((index = this.buffer.indexOf("\n", start)) >= 0) {
+      const line = this.buffer.slice(start, index).trim();
+      start = index + 1;
       if (!line) continue;
       let frame;
       try {
@@ -1038,6 +1166,9 @@ class OmpRuntime {
         this.ompEventAt = undefined;
       }
     }
+    // Drop the consumed prefix once, instead of copying the remaining buffer for
+    // every line (which made big frames quadratic).
+    if (start) this.buffer = this.buffer.slice(start);
   }
 
   onFrame(frame) {
@@ -1174,6 +1305,9 @@ class OmpRuntime {
         const previous = this.assistantBlocks[index];
         this.assistantBlocks[index] = { type: kind, [field]: (previous?.[field] || "") + event.delta };
       }
+      const snapshot = this.snapshotDue(type, event)
+        ? summariseAssistant(event.partial || { content: this.assistantBlocks })
+        : undefined;
       this.broadcast({
         type,
         cwd: this.cwd,
@@ -1182,13 +1316,20 @@ class OmpRuntime {
         delta: event.delta,
         contentIndex: event.contentIndex,
         toolCall: event.toolCall,
-        partial: summariseAssistant(event.partial || { content: this.assistantBlocks }),
+        partial: snapshot,
       });
       return;
     }
 
     if (frame.type === "message_start" || frame.type === "message_end") {
-      if (frame.message?.role === "assistant") this.assistantBlocks = [];
+      if (frame.message?.role === "assistant") {
+        this.assistantBlocks = [];
+        if (frame.type === "message_start") {
+          this.partialAt = 0;
+          this.partialChars = 0;
+          this.streamedChars = 0;
+        }
+      }
       this.broadcast({
         type: frame.type,
         cwd: this.cwd,
@@ -1315,6 +1456,19 @@ class OmpRuntime {
       this.write({ type: "extension_ui_response", id: frame.id, value: approval });
       return;
     }
+    // "Alltid tillat" records a scoped entry instead of flipping the whole
+    // bridge into yolo, so one approval cannot auto-approve every future tool.
+    const scoped = (CONFIG.approved || []).find(item => item.method === method && item.title === frame.title);
+    if (scoped) {
+      if (method === "confirm") {
+        this.write({ type: "extension_ui_response", id: frame.id, confirmed: true });
+        return;
+      }
+      if (method === "select" && (scoped.value || allowOption)) {
+        this.write({ type: "extension_ui_response", id: frame.id, value: scoped.value || allowOption });
+        return;
+      }
+    }
     const request = {
       type: "ui_request",
       cwd: this.cwd,
@@ -1377,6 +1531,28 @@ class OmpRuntime {
     if (state.sessionName) this.sessionTitle = state.sessionName;
     this.broadcast({ type: "state", cwd: this.cwd, state: publicState(state) });
     return state;
+  }
+
+  /**
+   * Decide whether to attach a full snapshot of the streaming message.
+   *
+   * The clients rebuild the live bubble from the snapshot, but sending one with
+   * every token is quadratic: a 20k-character answer pushed tens of megabytes
+   * through the bridge and forced a client re-render per copy. Deltas are enough
+   * between snapshots, so snapshots are rate limited and get sparser as the
+   * answer grows. Tool-call boundaries always include one, because the clients
+   * read the tool call from it.
+   */
+  snapshotDue(type, event) {
+    const chars = typeof event.delta === "string" ? event.delta.length : 0;
+    this.partialChars = (this.partialChars || 0) + chars;
+    this.streamedChars = (this.streamedChars || 0) + chars;
+    if (type !== "message_delta") return true;
+    const interval = this.streamedChars < 16384 ? 150 : this.streamedChars < 65536 ? 500 : 2000;
+    if (this.partialAt && Date.now() - this.partialAt < interval && this.partialChars < 4096) return false;
+    this.partialAt = Date.now();
+    this.partialChars = 0;
+    return true;
   }
 
   broadcast(event) {
@@ -1792,11 +1968,19 @@ async function evictIdle(keep) {
 const fsJobs = new Map();
 
 function byteTask(from, to, onProgress, cancelled) {
+  const isCancelled = typeof cancelled === "function" ? cancelled : () => false;
   return new Promise((resolve, reject) => {
     let bytes = onProgress(0, 0);
     const read = fs.createReadStream(from, { highWaterMark: 1024 * 1024 });
     const write = fs.createWriteStream(to);
     read.on("data", (chunk) => {
+      // A cancel request must stop the copy, not just announce it.
+      if (isCancelled()) {
+        read.destroy();
+        write.destroy();
+        reject(new Error("Avbrutt"));
+        return;
+      }
       write.write(chunk);
       bytes += chunk.length;
       onProgress(bytes, from);
@@ -1804,12 +1988,6 @@ function byteTask(from, to, onProgress, cancelled) {
     read.on("error", reject);
     write.on("error", reject);
     write.on("finish", resolve);
-    if (cancelled) {
-      cancelled(() => {
-        try { read.destroy(); } catch {}
-        try { write.destroy(); } catch {}
-      });
-    }
   });
 }
 
@@ -1840,6 +2018,7 @@ async function copyRecursiveFs(from, to, progress, cancelled) {
     }
   }
   for (const [s, d, sz] of sizes) {
+    if (typeof cancelled === "function" && cancelled()) throw new Error("Avbrutt");
     fs.mkdirSync(path.dirname(d), { recursive: true });
     await byteTask(s, d, (bytes) => progress(total, done + bytes), cancelled).then(() => {
       done += sz;
@@ -1852,30 +2031,30 @@ async function copyRecursiveFs(from, to, progress, cancelled) {
 function runFsJob(id) {
   const job = fsJobs.get(id);
   if (!job) return;
+  const cancelled = () => job.cancelled === true;
   setImmediate(() => {
     broadcastFsJob(job, "running");
-    const cancelled = () => {
-      job.cancelled = false;
-      return false;
-    };
     copyRecursiveFs(job.from, job.to, (total, done) => {
       job.total = total; job.done = done;
       broadcastFsJob(job, "running");
-    }, () => {
-      if (job.cancelled) {
-        broadcastFsJob(job, "cancelled");
-      }
-    })
+    }, cancelled)
       .then(() => {
+        if (cancelled()) {
+          job.finished = true;
+          broadcastFsJob(job, "cancelled");
+          return;
+        }
         job.finished = true; job.done = job.total || job.done;
         broadcastFsJob(job, "done");
-        if (fs.existsSync(path.join(job.to, path.basename(job.from))) && job.op === "move") {
+        // A cancelled move must never delete the source.
+        if (job.op === "move" && fs.existsSync(path.join(job.to, path.basename(job.from)))) {
           fs.rmSync(job.from, { recursive: true, force: true });
         }
       })
       .catch((error) => {
+        job.finished = true;
         job.error = error.message;
-        broadcastFsJob(job, "error");
+        broadcastFsJob(job, cancelled() ? "cancelled" : "error");
       });
   });
 }
@@ -1911,27 +2090,21 @@ function fsMime(p) {
 
 /** Systemstier som (nesten) aldri skal kunne slettes fra telefonen. */
 function protectedFsPath(p) {
-  const n = p.toLowerCase().replace(/\//g, "\\");
-  const guards = process.platform === "win32"
-    ? ["\\windows", "\\program files", "\\program files (x86)", "\\programdata", "\\appdata", "\\boot", "\\$recycle.bin", "\\users\\default"]
-    : ["/etc", "/bin", "/sbin", "/usr", "/lib", "/boot", "/sys", "/proc", "/dev", "/var/log"];
-  for (const guard of guards) {
-    if (guard === "\\appdata") {
-      // beskytt ikke brukerens AppData (brukes ofte), kun ikke-brukersystem-stier
-      continue;
-    }
-    const hits_guard = [guard, guard + "\\"];
-    if (hits_guard.some((hit) => n.startsWith(hit) && (n.length === hit.length || n[hit.length] === "\\"))) {
-      if (guard === "\\windows" || guard === "\\program files" || guard === "\\program files (x86)" ||
-          guard === "\\programdata" || guard === "\\boot" || guard === "\\$recycle.bin" || guard === "\\users\\default" ||
-          guard === "/etc" || guard === "/bin" || guard === "/sbin" || guard === "/usr" ||
-          guard === "/lib" || guard === "/boot" || guard === "/sys" || guard === "/proc" || guard === "/dev" ||
-          guard === "/var/log") {
-        return true;
-      }
-    }
+  // Compare inside the volume root: `path.resolve` always yields
+  // "c:\windows\system32", so guards written as "\windows" never matched and the
+  // delete endpoint's protection was dead on Windows.
+  const full = path.resolve(String(p));
+  if (IS_WINDOWS) {
+    const relative = path.relative(path.parse(full).root, full).toLowerCase();
+    const guards = ["windows", "program files", "program files (x86)", "programdata", "boot",
+      "$recycle.bin", "system volume information", "users\\default", "users\\public"];
+    if (!relative || relative === ".." || relative.startsWith(".." + path.sep)) return true;
+    if (guards.some(guard => relative === guard || relative.startsWith(guard + path.sep) ||
+        relative.startsWith(guard + "/"))) return true;
+    return samePath(full, HERE) || samePath(full, SESSIONS_ROOT);
   }
-  return false;
+  const guards = ["/etc", "/bin", "/sbin", "/usr", "/lib", "/boot", "/sys", "/proc", "/dev", "/var/log"];
+  return guards.some(guard => full === guard || full.startsWith(guard + "/"));
 }
 
 function normalizedFs(p) {
@@ -2150,10 +2323,18 @@ function serveEvents(req, res) {
   res.flushHeaders();
   res.write(`: connected ${new Date().toISOString()}\n\n`);
 
+  const STREAMABLE = new Set(["message_delta", "tool_call_delta", "tool_update", "tool_stream"]);
+  let slow = false;
+  res.on("drain", () => { slow = false; });
   const write = (event) => {
     try {
+      // A slow client (weak Wi-Fi, backgrounded phone) must not make the bridge
+      // buffer every token in memory. Progress frames are dropped while the
+      // socket is congested; the throttled partial snapshot and the terminal
+      // message_end/state resync the client, so nothing essential is lost.
+      if (slow && STREAMABLE.has(event.type)) return;
       const trace = event.trace && { ...event.trace, bridgeSentAt: Date.now() };
-      res.write(`data: ${JSON.stringify(trace ? { ...event, trace } : event)}\n\n`);
+      if (!res.write(`data: ${JSON.stringify(trace ? { ...event, trace } : event)}\n\n`)) slow = true;
       if (trace && process.env.OMP_BRIDGE_TRACE_EVENTS === "1" && !["state", "message_delta"].includes(event.type)) {
         log("info", `live ${event.type} ${JSON.stringify(trace)}`);
       }
@@ -2987,15 +3168,30 @@ async function handle(req, res) {
 
       case "POST /api/projects/hide": {
         const body = await readBody(req);
-        if (typeof body.path !== "string" || !path.isAbsolute(body.path)) {
-          return json(res, 400, { error: "Ugyldig prosjektmappe." });
-        }
+        const id = String(body.id || "");
         const list = loadProjects();
-        const project = list.find(item => samePath(item.path, body.path));
+        // Accept either form: the desktop hides by path, Android hides by id.
+        let project = id
+          ? list.find(item => item.id === id)
+          : typeof body.path === "string" && path.isAbsolute(body.path)
+            ? list.find(item => samePath(item.path, body.path))
+            : undefined;
+        if (!project && id) {
+          // Projects discovered from the session folders only exist in memory,
+          // so hiding one has to store the folder for the next listing.
+          const discovered = registeredProjects().find(item => item.id === id);
+          if (discovered) {
+            project = { id: "proj-" + crypto.randomUUID(), name: discovered.name, path: discovered.path,
+              hidden: true, auto: false, createdAt: Date.now() };
+            list.push(project);
+            saveProjects(list);
+            return json(res, 200, { ok: true, project });
+          }
+        }
         if (!project) return json(res, 404, { error: "Fant ikke prosjektet." });
         project.hidden = true;
         saveProjects(list);
-        return json(res, 200, { ok: true });
+        return json(res, 200, { ok: true, project });
       }
 
       case "POST /api/projects/register": {
@@ -3153,15 +3349,6 @@ async function handle(req, res) {
         return json(res, 200, { ok: true, project: proj });
       }
 
-      case "POST /api/projects/hide": {
-        const body = await readBody(req);
-        const id = String(body.id || "");
-        if (!id) return json(res, 400, { error: "Mangler id" });
-        const list = loadProjects();
-        const proj = list.find((p) => p.id === id);
-        if (proj) { proj.hidden = true; saveProjects(list); }
-        return json(res, 200, { ok: true });
-      }
 
       case "POST /api/projects/unhide": {
         const body = await readBody(req);
@@ -3200,10 +3387,9 @@ async function handle(req, res) {
 
       case "POST /api/projects/move-session": {
         const body = await readBody(req);
-        const sessionFile = body.file ? path.resolve(body.file) : "";
+        const sessionFile = managedChatFile(body.file, SESSIONS_ROOT);
         const projectId = String(body.projectId || "");
-        if (!sessionFile || !projectId) return json(res, 400, { error: "Mangler file eller projectId" });
-        if (!fs.existsSync(sessionFile)) return json(res, 404, { error: "Fant ikke samtalen" });
+        if (!sessionFile || !projectId) return json(res, 404, { error: "Fant ikke samtalen" });
         const list = loadProjects();
         const proj = list.find((p) => p.id === projectId);
         if (!proj) return json(res, 404, { error: "Fant ikke prosjektet" });
@@ -3230,37 +3416,6 @@ async function handle(req, res) {
         }
       }
 
-      case "POST /api/projects/move-session": {
-        const body = await readBody(req);
-        const sessionFile = body.file ? path.resolve(body.file) : "";
-        const projectId = String(body.projectId || "");
-        if (!sessionFile || !projectId) return json(res, 400, { error: "Mangler file eller projectId" });
-        if (!fs.existsSync(sessionFile)) return json(res, 404, { error: "Fant ikke samtalen" });
-        const list = loadProjects();
-        const proj = list.find((p) => p.id === projectId);
-        if (!proj) return json(res, 404, { error: "Fant ikke prosjektet" });
-        try {
-          const raw = fs.readFileSync(sessionFile, "utf8");
-          const lines = raw.split(/\r?\n/);
-          const updated = lines.map((line) => {
-            try {
-              const obj = JSON.parse(line);
-              if (obj.type === "session" && obj.cwd) {
-                obj.cwd = proj.path;
-                return JSON.stringify(obj);
-              }
-            } catch {}
-            return line;
-          });
-          fs.writeFileSync(sessionFile, updated.join("\n"));
-          const metaObj = metaFor(sessionFile);
-          metaObj.projectId = projectId;
-          saveMeta();
-          return json(res, 200, { ok: true, projectId, path: proj.path });
-        } catch (e) {
-          return json(res, 500, { error: "Kunne ikke flytte samtale: " + e.message });
-        }
-      }
 
       case "GET /api/folders/validate": {
         const raw = url.searchParams.get("path") || "";
@@ -3500,10 +3655,9 @@ async function handle(req, res) {
       }
 
       case "GET /api/session/messages": {
-        const file = url.searchParams.get("file");
-        if (!file) return json(res, 400, { error: "Mangler file" });
-        const resolved = path.resolve(file);
-        if (!fs.existsSync(resolved)) return json(res, 404, { error: "Fant ikke samtalen" });
+        const file = managedChatFile(url.searchParams.get("file"), SESSIONS_ROOT);
+        if (!file) return json(res, 404, { error: "Fant ikke samtalen" });
+        const resolved = file;
         const entries = entriesFor(resolved);
         const session = loadSession(resolved);
         const runtime = session?.cwd ? runtimeForSession(session.cwd, resolved) : undefined;
@@ -3518,10 +3672,9 @@ async function handle(req, res) {
 
       case "POST /api/sessions/open": {
         const body = await readBody(req);
-        if (!body.file) return json(res, 400, { error: "Mangler file" });
-        const file = path.resolve(body.file);
+        const file = managedChatFile(body.file, SESSIONS_ROOT);
+        if (!file) return json(res, 404, { error: "Fant ikke samtalen" });
         const session = loadSession(file);
-        if (!session) return json(res, 404, { error: "Fant ikke samtalen" });
         const messages = toAppMessages(entriesFor(file));
         // An explicit cwd from the app is only used when the stored one is
         // unusable. The agent never runs in a folder that is missing, and a
@@ -3641,9 +3794,9 @@ async function handle(req, res) {
 
       case "POST /api/sessions/name": {
         const body = await readBody(req);
-        const file = body.file ? path.resolve(body.file) : "";
+        const file = managedChatFile(body.file, SESSIONS_ROOT);
         const name = String(body.name || "").trim();
-        if (!file || !name) return json(res, 400, { error: "Mangler file eller name" });
+        if (!file || !name) return json(res, 404, { error: "Fant ikke samtalen." });
         metaFor(file).title = name;
         saveMeta();
         const runtime = runtimes.get(runtimeKey(body.cwd || loadSession(file)?.cwd || ""));
@@ -4155,7 +4308,11 @@ async function handle(req, res) {
         if (!pending) return json(res, 409, { error: "Forespørselen er allerede besvart." });
         if (body.allowAlways === true) {
           if (!pending.allowAlways || !["confirm", "select"].includes(pending.method)) return json(res, 400, { error: "Denne handlingen krever egen godkjenning." });
-          CONFIG.approvalMode = "yolo";
+          // Scoped: remember only this exact prompt, not "everything".
+          CONFIG.approved ||= [];
+          if (!CONFIG.approved.some(item => item.method === pending.method && item.title === pending.title)) {
+            CONFIG.approved.push({ method: pending.method, title: pending.title, value: pending.allowOption });
+          }
           writeConfig();
           if (pending.method === "confirm") body.confirmed = true;
           else body.value = pending.allowOption;
@@ -4951,48 +5108,28 @@ async function handle(req, res) {
         }
         const hash = crypto.createHash("sha256");
         let written = 0;
-        let missing = null;
-        // Append at offset: les eksisterende del fÃ¸rst for Ã¥ beregne sha.
-        if (offset > 0 && fs.existsSync(tmp)) {
-          const existing = fs.statSync(tmp);
-          if (existing.size > offset) {
-            fs.truncateSync(tmp, offset);
-          }
-          if (existing.size === offset) {
-            await new Promise((resolve) => {
-              const stream = fs.createReadStream(tmp, { highWaterMark: 1024 * 1024 });
-              stream.on("data", (chunk) => hash.update(chunk));
-              stream.on("end", resolve);
-              stream.on("error", () => { missing = true; resolve(); });
-            });
-            if (missing) { hash.reset && hash.reset(); }
-          } else if (existing.size !== offset) {
-            written = 0;
-          }
-        } else if (offset === 0) {
-          // ny fil
-        } else if (!fs.existsSync(tmp)) {
+        // Append at offset: hash the retained prefix so the digest covers the
+        // whole file, and only resume when the temporary file really is at
+        // `offset` bytes.
+        const resume = offset > 0 && (fs.statSync(tmp, { throwIfNoEntry: false })?.size ?? -1) === offset;
+        if (offset > 0 && !resume) {
           return json(res, 409, { error: "Midlertidig fil mangler for gjenopptak; start pÃ¥ ny" });
         }
-        await new Promise((resolve) => {
-          const ws = fs.createWriteStream(tmp, { start: Math.min(offset, offset), flags: "r+" });
-          let broken = false;
-          try { fs.statSync(tmp); } catch { broken = true; }
-          if (broken || offset === 0) {
-            const fresh = fs.createWriteStream(tmp, { flags: "w+" });
-            let seen = 0;
-            req.on("data", (chunk) => { written += chunk.length; hash.update(chunk); fresh.write(chunk); });
-            req.on("end", () => fresh.end(resolve));
-            req.on("error", () => { try { fresh.end(); } catch {} resolve(); });
-            return;
-          }
-          req.on("data", (chunk) => {
-            written += chunk.length;
-            hash.update(chunk);
-            ws.write(chunk);
-          });
-          req.on("end", () => ws.end(resolve));
-          req.on("error", () => { try { ws.end(); } catch {} resolve(); });
+        if (resume) hash.update(fs.readFileSync(tmp));
+        // One stream, with an error handler: the previous version opened an
+        // "r+" stream on a file it had just deleted, and the unhandled ENOENT
+        // killed the whole bridge process.
+        await new Promise((resolve, reject) => {
+          const out = fs.createWriteStream(tmp, resume ? { flags: "r+", start: offset } : { flags: "w" });
+          const fail = (error) => {
+            try { out.destroy(); } catch {}
+            reject(error);
+          };
+          out.on("error", fail);
+          req.on("data", (chunk) => { written += chunk.length; hash.update(chunk); out.write(chunk); });
+          req.on("end", () => out.end(resolve));
+          req.on("error", fail);
+          req.on("aborted", () => fail(new Error("Opplastingen ble avbrutt.")));
         });
         const size = fs.statSync(tmp).size;
         if (finalize) {
@@ -5101,6 +5238,7 @@ function createTerminalSession(cwd, cols, rows) {
         for (const ws of session.sockets) {
           try { wsSendText(ws, msg); wsClose(ws, 1000); } catch {}
         }
+        terminalSessions.delete(id);
       });
       terminalSessions.set(id, session);
       return session;
@@ -5125,6 +5263,7 @@ function createTerminalSession(cwd, cols, rows) {
     for (const ws of session.sockets) {
       try { wsSendText(ws, msg); wsClose(ws, 1000); } catch {}
     }
+    terminalSessions.delete(id);
   });
   child.on("error", (err) => {
     session.alive = false;
@@ -5133,6 +5272,7 @@ function createTerminalSession(cwd, cols, rows) {
     for (const ws of session.sockets) {
       try { wsSendText(ws, msg); wsClose(ws, 1011); } catch {}
     }
+    terminalSessions.delete(id);
   });
   terminalSessions.set(id, session);
   return session;
@@ -5215,6 +5355,13 @@ function wsClose(socket, code) {
 }
 
 function handleWebSocket(req, socket) {
+  // The terminal upgrade runs outside handle(), so it has to authorise itself:
+  // without this check anyone who learns a terminal id gets an interactive shell.
+  if (!authorised(req)) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+    socket.destroy();
+    return;
+  }
   const url = new URL(req.url, "http://localhost");
   if (url.pathname !== "/ws/terminal") {
     socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
@@ -5253,6 +5400,13 @@ function handleWebSocket(req, socket) {
   let inputBuffer = Buffer.alloc(0);
   socket.on("data", (chunk) => {
     inputBuffer = Buffer.concat([inputBuffer, chunk]);
+    // A declared frame length can never be satisfied; cap the buffer so an
+    // authenticated-but-hostile client cannot exhaust the bridge.
+    if (inputBuffer.length > 2 * 1024 * 1024) {
+      try { wsClose(socket, 1009); } catch {}
+      session.sockets.delete(socket);
+      return;
+    }
     while (true) {
       const frame = wsParseFrame(inputBuffer);
       if (!frame) break;
@@ -5310,11 +5464,19 @@ function runGit(cwd, args, timeoutMs) {
   return new Promise((resolve) => {
     const child = spawn("git", args, { cwd, env: { ...process.env }, windowsHide: true });
     let stdout = "", stderr = "";
+    let overflow = false;
+    const cap = 8 * 1024 * 1024;
     const timer = setTimeout(() => { try { child.kill(); } catch {} }, timeoutMs || 60000);
-    child.stdout.on("data", (d) => { stdout += d; });
-    child.stderr.on("data", (d) => { stderr += d; });
+    child.stdout.on("data", (d) => {
+      if (stdout.length >= cap) { overflow = true; try { child.kill(); } catch {} return; }
+      stdout += d;
+    });
+    child.stderr.on("data", (d) => { if (stderr.length < cap) stderr += d; });
     child.on("error", (e) => { clearTimeout(timer); resolve({ code: -1, stdout, stderr: e.message }); });
-    child.on("close", (code) => { clearTimeout(timer); resolve({ code: code == null ? -1 : code, stdout, stderr }); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code == null ? -1 : code, stdout, stderr: overflow ? stderr + "\n(utdata for stort)" : stderr });
+    });
   });
 }
 
@@ -5331,11 +5493,12 @@ function parseGitStatus(stdout) {
       const m = line.match(/# branch\.ab \+(\d+) -(\d+)/);
       if (m) { result.ahead = Number(m[1]); result.behind = Number(m[2]); }
     } else if (line.startsWith("1 ") || line.startsWith("2 ")) {
-      // ordinary/renamed: "1 XY origPath" or "2 XY origPath newPath"
+      // porcelain v2: "1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>"
+      //               "2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>"
+      // A rename has one more field, so its path starts at index 9.
       const parts = line.split(" ");
-      // parts: type, XY, sub, mH, mI, mW, hH, hI, path (and newPath for rename)
       const xy = parts[1] || "";
-      const path = parts.slice(8).join(" ").trim();
+      const path = (line.startsWith("2 ") ? parts.slice(9).join(" ") : parts.slice(8).join(" ")).split("\t")[0].trim();
       const status = xy.trim();
       result.files.push({ path, status, staged: status[0] !== "." && status[0] !== " ", unstaged: status[1] !== "." && status[1] !== " " });
     } else if (line.startsWith("? ")) {
@@ -5405,6 +5568,10 @@ async function shutdown(signal) {
     fs.rmSync(path.join(HERE, "bridge.pid"), { force: true });
   } catch {}
   server.close();
+  for (const session of terminalSessions.values()) {
+    try { if (session.pty) session.pty.kill(); else if (session.child) session.child.kill(); } catch {}
+  }
+  terminalSessions.clear();
   await Promise.all([...runtimes.values()].map((runtime) => runtime.stop()));
   process.exit(0);
 }

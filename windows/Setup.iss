@@ -1,5 +1,5 @@
-﻿#ifndef BridgeVersion
-  #define BridgeVersion "2.9.62"
+#ifndef BridgeVersion
+  #define BridgeVersion "2.9.63"
 #endif
 #ifndef BridgeAppId
   #define BridgeAppId "ChatOmpOmpBridge"

@@ -2,7 +2,27 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 
+// Recomputing the catalogue revision re-reads config files and queries SQLite,
+// and getRuntime() used to do it on every request (including each /api/state
+// poll). Cache it and only re-hash when one of the inputs changed.
+const cachedRevisions = new Map();
+
 function catalogueRevision(directory) {
+  let stamp = '';
+  for (const name of ['models.yml', 'config.yml', 'auth.json', 'agent.db', 'agent.db-wal']) {
+    try {
+      const stat = fs.statSync(path.join(directory, name), { throwIfNoEntry: false });
+      if (stat) stamp += name + ':' + stat.mtimeMs + ':' + stat.size + ';';
+    } catch {}
+  }
+  const cached = cachedRevisions.get(directory);
+  if (cached && cached.stamp === stamp) return cached.revision;
+  const revision = computeRevision(directory);
+  cachedRevisions.set(directory, { stamp, revision });
+  return revision;
+}
+
+function computeRevision(directory) {
   const hash = createHash('sha256');
   for (const name of ['models.yml', 'config.yml', 'auth.json']) {
     try { hash.update(fs.readFileSync(path.join(directory, name))); }
@@ -26,4 +46,5 @@ function catalogueRevision(directory) {
   }
   return hash.digest('hex');
 }
+
 module.exports = { catalogueRevision };

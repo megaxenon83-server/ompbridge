@@ -119,8 +119,8 @@
   function skillControls(item, hasSession, { change, test, report }) {
     const card = element('article', null, 'skill-control');
     const status = element('small');
-    const active = element('input');
-    const scope = element('input');
+    const active = element('input', null, 'switch-input');
+    const scope = element('input', null, 'switch-input');
     for (const toggle of [active, scope]) {
       toggle.type = 'checkbox';
       toggle.setAttribute('role', 'switch');
@@ -128,9 +128,14 @@
     active.setAttribute('aria-label', 'Aktiver ' + item.name);
     scope.setAttribute('aria-label', 'Kun denne samtalen · ' + item.name);
     const testing = pluginTest(item.test, true, test, 'Test skill');
+    // A real track + thumb instead of a CSS pseudo-element: ::before on a
+    // checkbox does not render consistently in the Android WebView, which made
+    // these look like plain boxes rather than switches.
     const label = (title, input) => {
-      const row = element('label', title, 'skill-switch');
-      row.append(input);
+      const row = element('label', null, 'skill-switch');
+      const track = element('span', null, 'switch-track');
+      track.append(element('span', null, 'switch-thumb'));
+      row.append(element('span', title, 'skill-switch-label'), input, track);
       return row;
     };
     function draw() {
@@ -205,7 +210,24 @@
       { level: control.value, provider: model.provider, id: model.id };
   }
 
+  // Totals over the whole history are shown in the token meter, which is
+  // repainted on every streamed delta. Recompute only when the history actually
+  // changed: same array, same length, same tail object and usage.
+  const usageCache = new WeakMap();
   function usageTotals(messages) {
+    const list = Array.isArray(messages) ? messages : [];
+    const tail = list.length ? list[list.length - 1] : null;
+    const cached = usageCache.get(list);
+    if (cached && cached.length === list.length && cached.tail === tail &&
+        cached.usage === tail?.usage && cached.text === tail?.text) return cached.total;
+    const total = usageSum(list);
+    if (list && typeof list === 'object') {
+      usageCache.set(list, { length: list.length, tail, usage: tail?.usage, text: tail?.text, total });
+    }
+    return total;
+  }
+
+  function usageSum(messages) {
     const total = { input: 0, output: 0, reasoning: null, cacheRead: 0, cacheWrite: 0, tokens: 0, calls: 0, last: 0, lastInput: 0 };
     const seen = new Set();
     const valid = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -516,6 +538,59 @@
       entry.check?.id || entry.id || entry.timestamp || index]);
   }
 
+  // What the row actually shows. The scroll key must stay stable (it anchors the
+  // scroll position), so the changing parts get their own render key: when it
+  // changes, that one row is rebuilt instead of the whole transcript.
+  function renderKey(entry, index) {
+    const text = typeof entry.text === 'string' ? entry.text.length : 0;
+    const segments = Array.isArray(entry.segments)
+      ? entry.segments.reduce((total, block) => total + (typeof block?.text === 'string' ? block.text.length : 0), 0)
+      : 0;
+    const state = entry.role === 'turn_changes'
+      ? [entry.card?.id, entry.card?.undone ? 1 : 0, entry.card?.undoable ? 1 : 0,
+        entry.card?.files?.length || 0, entry.card?.incomplete ? 1 : 0].join(':')
+      : entry.role === 'project_check'
+        ? [entry.check?.id, entry.check?.exitCode, entry.check?.duration].join(':')
+        : [entry.done ? 1 : 0, entry.running ? 1 : 0, entry.isError ? 1 : 0, entry.status || ''].join(':');
+    return scrollEntryKey(entry, index) + '|' + state + '|' + text + '|' + segments;
+  }
+
+  /**
+   * Reconcile the conversation list instead of rebuilding it.
+   *
+   * Both clients used to call `container.replaceChildren()` and re-create every
+   * message on each animation frame while OMP streamed, so the cost of a frame
+   * grew with the conversation. At a 100k-token context that is thousands of
+   * nodes and hundreds of kilobytes of text per frame, and the app crawls.
+   * Here unchanged rows are kept, and only the changed tail (normally the one
+   * message that is streaming) is rebuilt.
+   */
+  function syncRows(container, entries, { skip, build }) {
+    const plan = [];
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index];
+      if (skip && skip(entry, index)) continue;
+      plan.push({ entry, index, key: renderKey(entry, index) });
+    }
+    const rows = container.children;
+    const limit = Math.min(rows.length, plan.length);
+    let keep = 0;
+    while (keep < limit && rows[keep].dataset.renderKey === plan[keep].key) keep++;
+    // The last row is the one that grows while streaming, so always refresh it.
+    if (plan.length) keep = Math.min(keep, plan.length - 1);
+    while (container.children.length > keep) container.lastElementChild.remove();
+    let kept = keep;
+    for (let index = keep; index < plan.length; index++) {
+      const row = build(plan[index].entry, plan[index].index);
+      if (!row) continue;
+      row.dataset.renderKey = plan[index].key;
+      row.dataset.scrollKey = scrollEntryKey(plan[index].entry, plan[index].index);
+      container.append(row);
+      kept++;
+    }
+    return kept;
+  }
+
   function conversationScroll(scroller, content, jump) {
     let conversation;
     let following = true;
@@ -568,7 +643,9 @@
         if (!row.dataset.scrollKey) continue;
         const parts = blocks(row);
         const part = parts.findIndex(block => block.getBoundingClientRect().bottom > top + 1);
-        anchors.push({ key: row.dataset.scrollKey, part, offset: (parts[part] || row).getBoundingClientRect().top - top });
+        // Keep the element: rows are reused between renders, so restoring the
+        // anchor does not need a scan of the whole conversation any more.
+        anchors.push({ key: row.dataset.scrollKey, row, part, offset: (parts[part] || row).getBoundingClientRect().top - top });
       }
       return { anchors, top: scroller.scrollTop };
     }
@@ -577,7 +654,8 @@
       else if (snapshot) {
         let offset = snapshot.top;
         for (const anchor of snapshot.anchors) {
-          const row = content.querySelector(':scope > [data-scroll-key="' + CSS.escape(anchor.key) + '"]');
+          const row = anchor.row?.isConnected ? anchor.row
+            : content.querySelector(':scope > [data-scroll-key="' + CSS.escape(anchor.key) + '"]');
           if (!row) continue;
           const target = blocks(row)[anchor.part] || row;
           offset = scroller.scrollTop + target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - anchor.offset;
@@ -594,8 +672,30 @@
     return { capture, restore };
   }
 
-  function timeline(entries, cards, checks = []) {
-    const result = [];
+  // Dedupe keys used to fold local echoes into the history. Building them means
+  // stringifying the whole message text, which used to happen for every message
+  // on every render; cache them per message object and only redo the one that
+  // is still streaming.
+  const dedupeKeyCache = new WeakMap();
+  function dedupeKeys(item) {
+    const text = typeof item.text === 'string' ? item.text : undefined;
+    const cached = dedupeKeyCache.get(item);
+    if (cached && cached.text === text && cached.role === item.role && cached.id === item.id &&
+        cached.clientMessageId === item.clientMessageId && cached.timestamp === item.timestamp) {
+      return cached.keys;
+    }
+    const keys = [];
+    if (item.id) keys.push('id:' + item.role + ':' + item.id);
+    if (item.clientMessageId) keys.push('client:' + item.clientMessageId);
+    if (item.timestamp && (item.role === 'user' || item.role === 'assistant')) {
+      keys.push(JSON.stringify([item.role, item.timestamp, text]));
+    }
+    dedupeKeyCache.set(item, { text, role: item.role, id: item.id, clientMessageId: item.clientMessageId,
+      timestamp: item.timestamp, keys });
+    return keys;
+  }
+
+  function timeline(entries, cards, checks = []) {    const result = [];
     let index = -1;
     const placed = new Set();
     const append = () => {
@@ -605,12 +705,7 @@
     };
     const seen = new Set();
     for (const item of entries) {
-      const keys = [];
-      if (item.id) keys.push('id:' + item.role + ':' + item.id);
-      if (item.clientMessageId) keys.push('client:' + item.clientMessageId);
-      if (item.timestamp && ['user', 'assistant'].includes(item.role)) {
-        keys.push(JSON.stringify([item.role, item.timestamp, item.text]));
-      }
+      const keys = dedupeKeys(item);
       if (keys.some(key => seen.has(key))) continue;
       keys.forEach(key => seen.add(key));
       if (item.role === 'user') { append(); index++; }
@@ -735,5 +830,5 @@
     return (labels[frame.phase] || (frame.queued ? 'Venter på ledig GPU-minne' : 'Klargjør lokal modell')) + name;
   }
 
-  window.ompTurnUI = { conversationScroll, scrollEntryKey, recoveryStatus, thinkingChoice, thinkingRequest, todo, timeline, card, diff, messageActions, iconButton, adbPanel, pluginTest, skillControls, tokenUsage, usageTotals, machinePanel, modelProgress, sameMessage, userEcho, messageId, segmentsOf, appendSegments, generation, speedButton, generationDetails };
+  window.ompTurnUI = { conversationScroll, scrollEntryKey, syncRows, renderKey, recoveryStatus, thinkingChoice, thinkingRequest, todo, timeline, card, diff, messageActions, iconButton, adbPanel, pluginTest, skillControls, tokenUsage, usageTotals, machinePanel, modelProgress, sameMessage, userEcho, messageId, segmentsOf, appendSegments, generation, speedButton, generationDetails };
 })();

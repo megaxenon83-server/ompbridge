@@ -124,11 +124,22 @@ const reconnectStatus = 'Kobler til Bridge igjen …';
 const route = () => cwd ? '/api/events?' + new URLSearchParams({ cwd, ...(runtimeFile || activeFile ? { file: runtimeFile || activeFile } : {}) }) : '';
 const draftKey = () => origin + '\n' + (activeFile || cwd);
 
+let draftTimer;
 function saveDraft(key, text) {
   drafts.delete(key);
   if (text) drafts.set(key, text.slice(0, 50000));
   while (drafts.size > 20) drafts.delete(drafts.keys().next().value);
-  bridge.writeDrafts(JSON.stringify([...drafts]));
+  // Debounce the disk write: typing used to re-serialise and fsync every draft
+  // on each keystroke, on the JS bridge thread.
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(flushDrafts, 400);
+}
+
+function flushDrafts() {
+  draftTimer = undefined;
+  if (!bridge.writeDrafts(JSON.stringify([...drafts]))) {
+    status('Utkastene er for store til å lagres på enheten.');
+  }
 }
 
 const themes = [
@@ -182,11 +193,24 @@ function watch() {
   bridge.stream(streamRoute, origin);
 }
 
+let streamRetries = 0;
 window.onStreamEnded = () => {
   clearTimeout(reconnectTimer);
-  if (streamRoute && origin) reconnectTimer = setTimeout(() => { watch(); recoverRuntime().catch(() => {}); }, 1600);
+  if (streamRoute && origin) {
+    // Exponential backoff: a revoked pairing retried every 1.6 s would keep the
+    // radio busy forever. Once we pass a few attempts, wait before retrying.
+    streamRetries = Math.min(streamRetries + 1, 6);
+    reconnectTimer = setTimeout(() => { watch(); recoverRuntime().catch(() => {}); }, 1600 * 2 ** streamRetries);
+  }
   refresh(false).catch(() => {});
   if (origin && !sendFailure) status(reconnectStatus);
+};
+
+window.onPairingRequired = () => {
+  clearTimeout(reconnectTimer);
+  streamRoute = '';
+  status('Bridge avviste koblingen. Skann en ny QR-kode fra OMP Desktop.');
+  showSettings();
 };
 
 function showDrawer(show) {
@@ -231,6 +255,7 @@ function renderWorkIndicator() {
 }
 
 let chatScroll;
+const openTools = new Set();
 function render() {
   $('chatTitle').textContent = activeTitle || 'Chat OMP OMP';
   $('projectLabel').textContent = [computerName(), pathName(cwd) || 'Arbeidsområde'].filter(Boolean).join(' · ');
@@ -258,43 +283,11 @@ function render() {
   window.ompTurnUI.todo($('todoPanel'), activeFile || submitting ? todos : [], selection);
   window.ompTurnUI.tokenUsage($('tokenUsage'), history, nextModel || model, nextModel ? null : contextUsage, window.ompTurnUI.generationDetails(window.ompTurnUI.generation(generationKey())));
   const entries = window.ompTurnUI.timeline([...history, ...live], turnCards, projectChecks);
-  const openTools = new Set([...$('messages').querySelectorAll('details[open]')].map(item => item.dataset.id));
-  $('messages').replaceChildren();
-  for (const [messageIndex, item] of entries.entries()) {
-    if (item.role === 'turn_changes') {
-      $('messages').append(window.ompTurnUI.card(item.card, showTurnDiff, confirmTurnUndo, !streaming && !submitting));
-    } else if (item.role === 'project_check') {
-      const { id, exitCode, duration } = item.check;
-      const title = exitCode === 0 ? 'Tester bestod' : exitCode === null ? 'Testkjøring avbrutt' : 'Tester feilet (' + exitCode + ')';
-      $('messages').append(node('article', title + ' · ' + (duration / 1000).toFixed(1) + ' s',
-        { class: 'turn-card', 'data-check': id, tabindex: '-1' }));
-    } else if (item.role === 'tool') {
-      const tool = node('details', null, { class: 'tool', 'data-id': item.toolCallId || item.id || item.toolName });
-      tool.open = openTools.has(tool.dataset.id);
-      const command = item.toolName === 'bash' && typeof item.command === 'string' ? ' · ' + item.command.split('\n')[0] : '';
-      tool.append(node('summary', (item.toolName || 'OMP-verktøy') + command + (item.running ? ' · kjører' : item.isError ? ' · feilet' : item.status === 'no-result' ? ' · uten resultat' : item.done || item.status === 'done' ? ' · ferdig' : '')),
-        node('pre', item.text || ''));
-      $('messages').append(tool);
-    } else if (item.text || item.segments?.some(block => block.text)) {
-      const entry = node('article', null, { class: 'entry ' + item.role });
-      if (item.role === 'assistant') entry.append(node('small', 'Oh My Pi'));
-      window.ompTurnUI.appendSegments(entry, item, selection + ':' + (item.id || messageIndex), value => {
-        for (const [index, text] of value.split('\x60\x60\x60').entries()) {
-          if (text) entry.append(node(index % 2 ? 'pre' : 'p', index % 2 ? text.replace(/^[a-z]+\n/i, '') : text));
-        }
-      });
-      const group = node('div', null, { class: 'chat-turn ' + item.role });
-      group.append(entry);
-      if (item.role === 'user' || item.role === 'assistant') {
-        const actions = messageActions.row(item.text, selection + ':' + messageIndex);
-        const time = window.ompLocale.messageTime(item.timestamp);
-        if (time) actions.append(time);
-        group.append(actions);
-      }
-      messages.append(group);
-    } else continue;
-    messages.lastElementChild.dataset.scrollKey = window.ompTurnUI.scrollEntryKey(item, messageIndex);
-  }
+  window.ompTurnUI.syncRows(messages, entries, {
+    skip: item => !(item.role === 'turn_changes' || item.role === 'project_check' || item.role === 'tool' ||
+      item.text || item.segments?.some(block => block.text)),
+    build: (item, messageIndex) => buildRow(item, messageIndex)
+  });
   const welcome = $('welcome');
   welcome.hidden = entries.length > 0;
   if (!welcome.hidden) {
@@ -316,6 +309,44 @@ function render() {
       requestAnimationFrame(() => { if (target.isConnected) target.scrollIntoView({ block: 'center' }); });
     }
   }
+}
+
+function buildRow(item, messageIndex) {
+  if (item.role === 'turn_changes') {
+    return window.ompTurnUI.card(item.card, showTurnDiff, confirmTurnUndo, !streaming && !submitting);
+  }
+  if (item.role === 'project_check') {
+    const { id, exitCode, duration } = item.check;
+    const title = exitCode === 0 ? 'Tester bestod' : exitCode === null ? 'Testkjøring avbrutt' : 'Tester feilet (' + exitCode + ')';
+    return node('article', title + ' · ' + (duration / 1000).toFixed(1) + ' s',
+      { class: 'turn-card', 'data-check': id, tabindex: '-1' });
+  }
+  if (item.role === 'tool') {
+    const tool = node('details', null, { class: 'tool', 'data-id': item.toolCallId || item.id || item.toolName });
+    const key = tool.dataset.id;
+    tool.open = openTools.has(key);
+    tool.ontoggle = () => { if (tool.open) openTools.add(key); else openTools.delete(key); };
+    const command = item.toolName === 'bash' && typeof item.command === 'string' ? ' · ' + item.command.split('\n')[0] : '';
+    tool.append(node('summary', (item.toolName || 'OMP-verktøy') + command + (item.running ? ' · kjører' : item.isError ? ' · feilet' : item.status === 'no-result' ? ' · uten resultat' : item.done || item.status === 'done' ? ' · ferdig' : '')),
+      node('pre', item.text || ''));
+    return tool;
+  }
+  const entry = node('article', null, { class: 'entry ' + item.role });
+  if (item.role === 'assistant') entry.append(node('small', 'Oh My Pi'));
+  window.ompTurnUI.appendSegments(entry, item, selection + ':' + (item.id || messageIndex), value => {
+    for (const [index, text] of value.split('\x60\x60\x60').entries()) {
+      if (text) entry.append(node(index % 2 ? 'pre' : 'p', index % 2 ? text.replace(/^[a-z]+\n/i, '') : text));
+    }
+  });
+  const group = node('div', null, { class: 'chat-turn ' + item.role });
+  group.append(entry);
+  if (item.role === 'user' || item.role === 'assistant') {
+    const actions = messageActions.row(item.text, selection + ':' + (item.id || item.clientMessageId || item.toolCallId || messageIndex));
+    const time = window.ompLocale.messageTime(item.timestamp);
+    if (time) actions.append(time);
+    group.append(actions);
+  }
+  return group;
 }
 
 function updateTurnCard(card) {
@@ -931,13 +962,17 @@ function recordLiveTiming(frame, uiReceivedAt) {
 window.onBridgeEvent = (raw, address) => {
   const uiReceivedAt = Date.now();
   if (address !== origin) return;
-  const frame = JSON.parse(raw);
+  const frame = typeof raw === 'string' ? JSON.parse(raw) : raw;
   // Bridge already filters the subscription by the canonical project path.
   // Match the event itself to the selected conversation, including after reconnect.
   if (!cwd) return;
   if (frame.type === 'hello' || frame.type === 'state') {
     const file = frame.sessionFile || frame.state?.sessionFile;
-    if (file) runtimeFile = file;
+    // The subscription is per project, so frames for another conversation in the
+    // same folder do arrive. Only adopt the file when it is the conversation we
+    // are showing (or one we are creating): adopting a foreign file used to
+    // silently re-point the live stream at the wrong conversation.
+    if (file && (!activeFile || submitting || same(activeFile, file))) runtimeFile = file;
     if (same(runtimeFile, activeFile)) {
       if (frame.state?.model) model = frame.state.model;
       window.ompTurnUI.generation(generationKey(), frame);
@@ -1041,6 +1076,13 @@ window.onBridgeEvent = (raw, address) => {
   }
   render();
   recordLiveTiming(frame, uiReceivedAt);
+};
+
+// Batched delivery from MainActivity: one evaluateJavascript call for a burst of
+// live frames instead of one JNI crossing per streamed token.
+window.onBridgeBatch = (frames, address) => {
+  if (!Array.isArray(frames)) return;
+  for (const frame of frames) window.onBridgeEvent(frame, address);
 };
 
 function closeApproval() {
@@ -1652,11 +1694,35 @@ $('prompt').oninput = () => {
   if (origin && cwd) saveDraft(draftKey(), $('prompt').value);
   $('send').disabled = !origin || !cwd || submitting || streaming || !$('prompt').value.trim();
 };
+
+// Kant-sveip: dra fra venstre kant for å åpne menyen, i stedet for å måtte
+// treffe knappen øverst i hjørnet.
+let edgeTouch = null;
+window.addEventListener('touchstart', event => {
+  if (event.touches.length !== 1 || !$('drawer').hidden) return;
+  if (event.touches[0].clientX <= 22) edgeTouch = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+}, { passive: true });
+window.addEventListener('touchmove', event => {
+  if (!edgeTouch || event.touches.length !== 1) return;
+  const dx = event.touches[0].clientX - edgeTouch.x;
+  const dy = event.touches[0].clientY - edgeTouch.y;
+  if (dx > 60 && Math.abs(dy) < dx * 0.6) { edgeTouch = null; showDrawer(true); }
+}, { passive: true });
+const clearEdgeTouch = () => { edgeTouch = null; };
+window.addEventListener('touchend', clearEdgeTouch, { passive: true });
+window.addEventListener('touchcancel', clearEdgeTouch, { passive: true });
+
 $('stop').onclick = async () => {
   try {
-    const state = await api('/api/state', { cwd, ...(activeFile || runtimeFile ? { file: activeFile || runtimeFile } : {}) });
-    if (!same(state.sessionFile, activeFile)) throw new Error('En annen samtale er aktiv på PC-en.');
-    await api('/api/abort', null, { cwd, file: activeFile || runtimeFile });
+    // A brand-new conversation has no activeFile until /api/prompt returns, but
+    // the runtime file is known; comparing against activeFile alone made Stop
+    // impossible for the whole first turn.
+    const target = activeFile || runtimeFile;
+    if (!target) throw new Error('Ingen aktiv samtale å stoppe.');
+    const state = await api('/api/state', { cwd, file: target });
+    const sessionFile = state.sessionFile || state.state?.sessionFile;
+    if (sessionFile && !same(sessionFile, target)) throw new Error('En annen samtale er aktiv på PC-en.');
+    await api('/api/abort', null, { cwd, file: target });
     streaming = false;
     render();
     laterHistory();
@@ -1684,6 +1750,10 @@ if (origin) {
 }
 setInterval(() => {
   if (!origin) return;
+  if (document.hidden) return; // do not poll while backgrounded
   if (streaming) recoverRuntime().catch(() => {});
   refresh(false).catch(() => {});
 }, 5500);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && origin) { watch(); refresh(false).catch(() => {}); }
+});

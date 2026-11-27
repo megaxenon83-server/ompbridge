@@ -41,10 +41,16 @@ import org.json.JSONObject;
 @SuppressWarnings("deprecation")
 public final class MainActivity extends Activity {
     private static final String PAGE = "file:///android_asset/index.html";
+    private static final int MAX_PENDING_EVENTS = 512;
     private final ExecutorService workers = Executors.newFixedThreadPool(5);
     private final ExecutorService eventWorkers = Executors.newCachedThreadPool();
     private final AtomicBoolean pairing = new AtomicBoolean();
     private final AtomicBoolean decoding = new AtomicBoolean();
+    private final AtomicBoolean eventFlushQueued = new AtomicBoolean();
+    private final java.util.ArrayDeque<String> pendingEvents = new java.util.ArrayDeque<>();
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private volatile String pendingEventsOrigin = "";
+    private volatile int pendingEventsGeneration = -1;
     private FrameLayout root;
     private WebView web;
     private BridgeClient bridge;
@@ -183,6 +189,8 @@ public final class MainActivity extends Activity {
         eventGeneration++;
         HttpURLConnection active = events;
         events = null;
+        synchronized (pendingEvents) { pendingEvents.clear(); }
+        eventFlushQueued.set(false);
         if (active != null) eventWorkers.execute(active::disconnect);
     }
 
@@ -198,17 +206,22 @@ public final class MainActivity extends Activity {
                 conn.setRequestProperty("Accept-Encoding", "identity");
                 if (generation != eventGeneration) return;
                 events = conn;
-                if (conn.getResponseCode() != 200) throw new IllegalStateException("Kunne ikke åpne live-strømmen.");
+                int code;
+                try { code = conn.getResponseCode(); } catch (java.io.IOException readError) { code = 500; }
+                if (code == 401 || code == 403) {
+                    runOnUiThread(() -> {
+                        if (generation == eventGeneration && !isDestroyed()) web.evaluateJavascript("window.onPairingRequired()", null);
+                    });
+                    return;
+                }
+                if (code != 200) throw new IllegalStateException("Kunne ikke åpne live-strømmen.");
                 try (BufferedReader input = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
                     for (String line; generation == eventGeneration && (line = input.readLine()) != null;) {
                         if (line.startsWith("data: ")) {
                             JSONObject frame = new JSONObject(line.substring(6));
                             JSONObject trace = frame.optJSONObject("trace");
                             if (trace != null) trace.put("androidReceivedAt", System.currentTimeMillis());
-                            String event = "window.onBridgeEvent(" + JSONObject.quote(frame.toString()) + "," + JSONObject.quote(origin) + ")";
-                            runOnUiThread(() -> {
-                                if (generation == eventGeneration && !isDestroyed()) web.evaluateJavascript(event, null);
-                            });
+                            queueEvent(frame, origin, generation);
                         }
                     }
                 }
@@ -221,6 +234,52 @@ public final class MainActivity extends Activity {
                 });
             }
         });
+    }
+
+    /**
+     * Hand live frames to the web app in batches.
+     *
+     * OMP streams a frame per token, and every frame used to become its own
+     * evaluateJavascript call on the UI thread: a JNI crossing plus a fresh script
+     * compilation per token, carrying a full snapshot of the growing answer. Batching
+     * on a short timer collapses a burst into one call and keeps the UI thread free
+     * to draw.
+     */
+    private void queueEvent(JSONObject frame, String origin, int generation) {
+        if (generation != eventGeneration) return;
+        synchronized (pendingEvents) {
+            if (pendingEvents.isEmpty()) {
+                pendingEventsOrigin = origin;
+                pendingEventsGeneration = generation;
+            }
+            if (pendingEvents.size() >= MAX_PENDING_EVENTS) pendingEvents.removeFirst();
+            pendingEvents.addLast(frame.toString());
+        }
+        if (eventFlushQueued.compareAndSet(false, true)) mainHandler.postDelayed(this::flushEvents, 32);
+    }
+
+    private void flushEvents() {
+        eventFlushQueued.set(false);
+        java.util.ArrayList<String> batch;
+        String origin;
+        int generation;
+        synchronized (pendingEvents) {
+            if (pendingEvents.isEmpty()) return;
+            batch = new java.util.ArrayList<>(pendingEvents);
+            origin = pendingEventsOrigin;
+            generation = pendingEventsGeneration;
+            pendingEvents.clear();
+        }
+        // Frames queued for a stream that has since been replaced must not reach
+        // the page: the app already switched conversation or PC.
+        if (isDestroyed() || generation != eventGeneration) return;
+        StringBuilder script = new StringBuilder("window.onBridgeBatch([");
+        for (int index = 0; index < batch.size(); index++) {
+            if (index > 0) script.append(',');
+            script.append(batch.get(index));
+        }
+        script.append("],").append(JSONObject.quote(origin)).append(')');
+        web.evaluateJavascript(script.toString(), null);
     }
 
     public final class AppApi {
@@ -301,9 +360,10 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public String readDrafts() {
             return getSharedPreferences("drafts", MODE_PRIVATE).getString("entries", "[]");
         }
-        @JavascriptInterface public void writeDrafts(String entries) {
-            if (entries == null || entries.length() > 1048576) return;
-            getSharedPreferences("drafts", MODE_PRIVATE).edit().putString("entries", entries).commit();
+        @JavascriptInterface public boolean writeDrafts(String entries) {
+            if (entries == null || entries.length() > 1048576) return false;
+            getSharedPreferences("drafts", MODE_PRIVATE).edit().putString("entries", entries).apply();
+            return true;
         }
         @JavascriptInterface public void photo() { runOnUiThread(() -> {
             Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -435,6 +495,7 @@ public final class MainActivity extends Activity {
         speech.close();
         stopScanner();
         stopEvents();
+        mainHandler.removeCallbacksAndMessages(null);
         workers.shutdownNow();
         eventWorkers.shutdownNow();
         web.removeJavascriptInterface("Native");

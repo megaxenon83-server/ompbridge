@@ -28,6 +28,9 @@ async function openBrowser(address, parent) {
   };
   preview.webContents.on('will-navigate', guard);
   preview.webContents.on('will-redirect', guard);
+  // A dev server can otherwise trigger a silent download of arbitrary content,
+  // which the project preview window is hardened against.
+  preview.webContents.on('will-download', event => event.preventDefault());
   try { await preview.loadURL(url.href); }
   catch (error) {
     if (!preview.isDestroyed()) preview.close();

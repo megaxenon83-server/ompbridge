@@ -35,14 +35,31 @@ function safePath(root, relative) {
   return target;
 }
 
+// Reading and hashing every file in the workspace is the expensive part of a
+// turn snapshot, and it used to run for every tool call. Unchanged files are
+// reused by stat stamp, so a capture over a large project becomes a stat pass.
+const contentCache = new Map();
+let contentCacheBytes = 0;
+
 function snapshotFile(root, relative) {
   const file = safePath(root, relative);
   const info = stat(file);
   if (!info) return null;
   if (!info.isFile() || info.size > maxFileBytes) return undefined;
+  const stamp = info.mtimeMs + ':' + info.size;
+  const cached = contentCache.get(file);
+  if (cached && cached.stamp === stamp) return cached.value;
   const content = fs.readFileSync(file);
   if (content.length > maxFileBytes) return undefined;
-  return { bytes: content.toString('base64'), hash: hash(content), mode: info.mode & 0o777 };
+  const value = { bytes: content.toString('base64'), hash: hash(content), mode: info.mode & 0o777 };
+  contentCache.set(file, { stamp, value });
+  contentCacheBytes += content.length;
+  if (contentCacheBytes > 64 * 1024 * 1024) {
+    contentCache.clear();
+    contentCache.set(file, { stamp, value });
+    contentCacheBytes = content.length;
+  }
+  return value;
 }
 
 function sameFile(before, after) {

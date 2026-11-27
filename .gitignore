@@ -35,3 +35,10 @@ desktop.ini
 /clients/node_modules/
 /clients/.android-build/
 /windows/dist/
+/clients/.desktop-test-turns-*
+
+# Runtime state the bridge writes next to itself (contains the pairing token)
+/windows/bridge/config.json
+/windows/bridge/gotify.json
+/windows/bridge/bridge.pid
+/windows/bridge/omp-bin.txt
