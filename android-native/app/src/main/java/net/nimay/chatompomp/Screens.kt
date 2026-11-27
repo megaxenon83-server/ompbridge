@@ -30,9 +30,11 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.CircularProgressIndicator
@@ -175,7 +177,13 @@ fun MainApp(vm: AppViewModel) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showNewChat by remember { mutableStateOf(false) }
+    var screen by remember { mutableStateOf("chat") }
     LaunchedEffect(Unit) { vm.refresh() }
+
+    if (screen == "plugins") {
+        PluginsScreen(vm, onBack = { screen = "chat" })
+        return
+    }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -210,7 +218,7 @@ fun MainApp(vm: AppViewModel) {
                     },
                 )
             },
-            bottomBar = { ComposerBar(vm) },
+            bottomBar = { ComposerBar(vm, onOpenPlugins = { screen = "plugins" }) },
         ) { padding ->
             ChatList(vm, Modifier.padding(padding))
         }
@@ -382,7 +390,7 @@ private fun ToolRow(entry: Entry) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ComposerBar(vm: AppViewModel) {
+private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
     var text by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
@@ -509,8 +517,16 @@ private fun ComposerBar(vm: AppViewModel) {
                 HorizontalDivider()
                 Text("UTVIDELSER", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 12.dp))
-                Text("Plugins og skills flyttes hit i fase 2.", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 10.dp))
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showSettings = false; onOpenPlugins() }
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Plugins og skills", modifier = Modifier.weight(1f))
+                    Text("›", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Spacer(Modifier.height(20.dp))
             }
         }
@@ -588,6 +604,166 @@ private fun NewChatSheet(vm: AppViewModel, onDismiss: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+// ------------------------------------------------------------------ plugins
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PluginsScreen(vm: AppViewModel, onBack: () -> Unit) {
+    LaunchedEffect(Unit) { vm.loadPlugins() }
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Tilbake")
+                    }
+                },
+                title = { Text("Plugins og skills", fontWeight = FontWeight.SemiBold) },
+                actions = {
+                    IconButton(onClick = { vm.loadPlugins() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Oppdater")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        val data = vm.plugins
+        when {
+            vm.activeCwd.isBlank() -> Box(
+                Modifier.padding(padding).fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Åpne en samtale først for å se plugins og skills.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+            data == null -> Box(
+                Modifier.padding(padding).fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (vm.pluginsBusy) CircularProgressIndicator()
+                else Text("Ingen data.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            else -> {
+                val skills = jsonObjects(data.optJSONArray("skills"))
+                val builtIn = jsonObjects(data.optJSONArray("builtIn"))
+                val packages = jsonObjects(data.optJSONArray("npm")) + jsonObjects(data.optJSONArray("marketplace"))
+                LazyColumn(
+                    modifier = Modifier.padding(padding).fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    item { SectionHeader("SKILLS") }
+                    if (skills.isEmpty()) item { Hint("OMP fant ingen skills.") }
+                    items(skills) { SkillRow(vm, it) }
+                    item { SectionHeader("PROSJEKTUTVIDELSER") }
+                    if (builtIn.isEmpty()) item { Hint("Ingen medfølgende plugins.") }
+                    items(builtIn) { PluginRow(vm, it) }
+                    item { SectionHeader("INSTALLERTE PAKKER") }
+                    if (packages.isEmpty()) item { Hint("Ingen eksterne pakker installert.") }
+                    items(packages) { PackageRow(it) }
+                }
+            }
+        }
+    }
+}
+
+private fun jsonObjects(array: org.json.JSONArray?): List<org.json.JSONObject> {
+    if (array == null) return emptyList()
+    return (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+}
+
+@Composable
+private fun SectionHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+    )
+}
+
+@Composable
+private fun Hint(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(vertical = 6.dp),
+    )
+}
+
+@Composable
+private fun SkillRow(vm: AppViewModel, skill: org.json.JSONObject) {
+    val name = skill.optString("name")
+    val detail = skill.optString("detail")
+    val enabled = skill.optBoolean("enabled")
+    val scope = skill.optString("scope").ifBlank { "project" }
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(name, style = MaterialTheme.typography.bodyMedium)
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+        }
+        Switch(checked = enabled, onCheckedChange = { vm.toggleSkill(name, scope, it) })
+    }
+}
+
+@Composable
+private fun PluginRow(vm: AppViewModel, plugin: org.json.JSONObject) {
+    val id = plugin.optString("id").ifBlank { plugin.optString("name") }
+    val name = plugin.optString("name").ifBlank { id }
+    val description = plugin.optString("description")
+    val enabled = plugin.optBoolean("enabled")
+    val scope = plugin.optString("scope")
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(name, style = MaterialTheme.typography.bodyMedium)
+            if (description.isNotBlank()) {
+                Text(
+                    description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+        }
+        Switch(checked = enabled, onCheckedChange = { vm.togglePlugin(id, it, scope) })
+    }
+}
+
+@Composable
+private fun PackageRow(pkg: org.json.JSONObject) {
+    val name = pkg.optString("name").ifBlank { pkg.optString("packageName") }
+    val version = pkg.optString("version")
+    val status = pkg.optString("status")
+    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(name.ifBlank { "Pakke" }, style = MaterialTheme.typography.bodyMedium)
+            val sub = listOf(version, status).filter { it.isNotBlank() }.joinToString(" · ")
+            if (sub.isNotBlank()) {
+                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

@@ -53,6 +53,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
         private set
+    var plugins by mutableStateOf<JSONObject?>(null)
+        private set
+    var pluginsBusy by mutableStateOf(false)
+        private set
 
     private val sseClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -179,6 +183,54 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 })
                 activeModelName = name.ifBlank { modelId }
             }.onFailure { error = it.message ?: "Kunne ikke bytte modell." }
+        }
+    }
+
+    fun loadPlugins() {
+        if (activeCwd.isBlank()) return
+        pluginsBusy = true
+        viewModelScope.launch {
+            runCatching {
+                val query = buildMap {
+                    put("cwd", activeCwd)
+                    if (activeFile.isNotBlank()) put("file", activeFile)
+                }
+                plugins = bridge.get("/api/omp/workspace/plugins", query)
+            }.onFailure { error = it.message ?: "Kunne ikke hente plugins." }
+            pluginsBusy = false
+        }
+    }
+
+    fun togglePlugin(id: String, enabled: Boolean, scope: String) {
+        if (activeCwd.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/omp/workspace/plugins", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("action", if (enabled) "enable" else "disable")
+                    put("target", id)
+                    if (scope.isNotBlank()) put("scope", scope)
+                    if (activeFile.isNotBlank()) put("file", activeFile)
+                })
+                loadPlugins()
+            }.onFailure { error = it.message ?: "Kunne ikke endre plugin." }
+        }
+    }
+
+    fun toggleSkill(name: String, scope: String, enabled: Boolean) {
+        if (activeCwd.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/omp/workspace/plugins", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("action", "set-skill-scope")
+                    put("target", name)
+                    put("scope", scope)
+                    put("enabled", enabled)
+                    if (activeFile.isNotBlank()) put("file", activeFile)
+                })
+                loadPlugins()
+            }.onFailure { error = it.message ?: "Kunne ikke endre skill." }
         }
     }
 
