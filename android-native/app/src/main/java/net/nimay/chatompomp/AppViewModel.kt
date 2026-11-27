@@ -282,6 +282,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 todoPhases = null
                 projectChecks = emptyList()
                 noticeText = ""
+                busy = false
+                streamingId = ""
+                streamingText = StringBuilder()
+                streamingThinking = StringBuilder()
                 refresh()
         loadModels()
         startEvents()
@@ -376,6 +380,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         todoPhases = null
         projectChecks = emptyList()
         noticeText = ""
+        busy = false
+        streamingId = ""
+        streamingText = StringBuilder()
+        streamingThinking = StringBuilder()
         messages = emptyList()
         stream = StreamState()
         error = ""
@@ -425,9 +433,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         eventSource?.cancel()
         eventSource = null
     }
-
     private fun onFrame(frame: JSONObject) {
-        when (frame.optString("type")) {
+        val type = frame.optString("type")
+        val frameFile = frame.optString("sessionFile")
+        if (type != "hello" && type != "state" && frameFile.isNotBlank() &&
+            activeFile.isNotBlank() && !frameFile.equals(activeFile, ignoreCase = true)) {
+            return
+        }
+        when (type) {
             "hello", "state" -> {
                 frame.optString("version").takeIf { it.isNotBlank() }?.let { bridgeVersion = it }
                 val state = frame.optJSONObject("state") ?: return
@@ -436,7 +449,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     phase = stream.phase,
                     tokensPerSecond = state.optDouble("tokensPerSecond", 0.0),
                 )
-                if (state.optBoolean("isStreaming")) busy = true
+                busy = state.optBoolean("isStreaming")
                 state.optString("thinkingLevel").takeIf { it.isNotBlank() }?.let { stateThinkingLevel = it }
                 val model = state.optJSONObject("model")
                 val provider = model?.optString("provider").orEmpty()

@@ -555,8 +555,12 @@ private fun DrawerContent(
 @Composable
 private fun ChatList(vm: AppViewModel, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
-    LaunchedEffect(vm.messages.size, vm.messages.lastOrNull()?.text?.length) {
-        if (vm.messages.isNotEmpty()) listState.animateScrollToItem(vm.messages.size - 1)
+    val tail = vm.messages.lastOrNull()
+    LaunchedEffect(vm.messages.size, tail?.text?.length, tail?.thinking?.length) {
+        if (vm.messages.isNotEmpty()) {
+            val count = listState.layoutInfo.totalItemsCount
+            if (count > 0) listState.scrollToItem(count - 1)
+        }
     }
     LazyColumn(
         state = listState,
@@ -623,21 +627,46 @@ private fun EntryRow(entry: Entry) {
         "tool" -> ToolRow(entry)
         else -> Column(Modifier.fillMaxWidth()) {
             if (entry.thinking.isNotBlank()) {
-                var expanded by remember { mutableStateOf(false) }
-                val showThinking = expanded || entry.streaming
-                Text(
-                    if (entry.streaming) "Resonnering · ${entry.thinking.length} tegn"
-                    else if (expanded) "Skjul resonnering" else "Vis resonnering",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { expanded = !expanded }.padding(vertical = 4.dp),
-                )
-                if (showThinking) {
-                    Text(entry.thinking, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surface).padding(10.dp).fillMaxWidth())
+                var userExpanded by remember(entry.id) { mutableStateOf<Boolean?>(null) }
+                val showThinking = userExpanded ?: entry.streaming
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { userExpanded = !showThinking },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                if (entry.streaming) "Resonnerer …" else "Resonnering",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "${entry.thinking.length} tegn",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                if (showThinking) "▾" else "▸",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 6.dp),
+                            )
+                        }
+                        if (showThinking) {
+                            Text(
+                                entry.thinking,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                    }
                 }
+                Spacer(Modifier.height(6.dp))
             }
             MarkdownText(entry.text)
             if (entry.text.isNotBlank()) {
@@ -1519,13 +1548,16 @@ private fun TurnCard(vm: AppViewModel, card: org.json.JSONObject) {
                 Row(
                     Modifier.fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { vm.openDiff(file.optString("path"), file.optString("diff")) }
+                        .clickable {
+                            val path = file.optString("path").ifBlank { file.optString("file") }
+                            vm.openDiff(path, file.optString("diff"))
+                        }
                         .padding(vertical = 6.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            file.optString("path"),
+                            file.optString("path").ifBlank { file.optString("file") },
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurface,
