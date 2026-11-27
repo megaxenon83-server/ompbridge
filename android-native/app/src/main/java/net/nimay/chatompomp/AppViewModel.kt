@@ -1,0 +1,333 @@
+package net.nimay.chatompomp
+
+import android.app.Application
+import android.util.Base64
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.sse.EventSource
+import okhttp3.sse.EventSourceListener
+import okhttp3.sse.EventSources
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+
+class AppViewModel(app: Application) : AndroidViewModel(app) {
+
+    val bridge = BridgeClient(app)
+
+    var pairing by mutableStateOf(bridge.pairing)
+        private set
+    var sessions by mutableStateOf<List<SessionInfo>>(emptyList())
+        private set
+    var activeFile by mutableStateOf("")
+        private set
+    var activeCwd by mutableStateOf("")
+        private set
+    var activeTitle by mutableStateOf("")
+        private set
+    var messages by mutableStateOf<List<Entry>>(emptyList())
+        private set
+    var stream by mutableStateOf(StreamState())
+        private set
+    var busy by mutableStateOf(false)
+        private set
+    var error by mutableStateOf("")
+        private set
+    var models by mutableStateOf<List<JSONObject>>(emptyList())
+        private set
+
+    private val sseClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
+    private var eventSource: EventSource? = null
+    private var streamingId: String = ""
+    private var streamingText: StringBuilder = StringBuilder()
+    private var streamingThinking: StringBuilder = StringBuilder()
+
+    private fun token(): String = pairing?.credential ?: ""
+    private fun origin(): String = pairing?.origin ?: ""
+
+    // ---------------------------------------------------------------- pairing
+
+    /** Handle a chatomp://pair/<ticket> link: exchange the nonce and store the pairing. */
+    suspend fun pair(link: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val start = link.indexOf("chatomp://pair/")
+            require(start >= 0) { "Ukjent paringslenke." }
+            val ticket = String(Base64.decode(link.substring(start + "chatomp://pair/".length).trim(), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP))
+            val data = JSONObject(ticket)
+            val address = data.getString("address")
+            val port = data.getInt("port")
+            val nonce = data.getString("nonce")
+            val key = Base64.decode(data.getString("key"), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+            android.util.Log.i("ChatOmpPair", "ticket address=$address port=$port nonceLen=${nonce.length} keyLen=${key.size}")
+            val url = "http://$address:$port/$nonce"
+            val request = Request.Builder().url(url).get().build()
+            val sealed = OkHttpClient().newCall(request).execute().use { response ->
+                require(response.isSuccessful) { "Paringstjeneren svarte ${response.code}." }
+                response.body?.string() ?: ""
+            }
+            val closed = sealed.trim()
+            require(closed.length > 28) { "Tomt paringssvar." }
+            val cipherBytes = Base64.decode(closed, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+            android.util.Log.i("ChatOmpPair", "cipher bytes=${cipherBytes.size}")
+            require(cipherBytes.size > 28) { "Tomt paringssvar." }
+            val iv = cipherBytes.copyOfRange(0, 12)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
+            val plain = cipher.doFinal(cipherBytes, 12, cipherBytes.size - 12)
+            val payload = JSONObject(String(plain))
+            val stored = Pairing(payload.getString("origin"), payload.getString("credential"))
+            android.util.Log.i("ChatOmpPair", "paired origin=${stored.origin} credentialLen=${stored.credential.length}")
+            bridge.save(stored)
+            pairing = stored
+            Unit
+        }.onFailure { android.util.Log.e("ChatOmpPair", "pair failed", it) }
+    }
+
+    fun forget() {
+        bridge.forget()
+        pairing = null
+        sessions = emptyList()
+        messages = emptyList()
+        activeFile = ""
+        stopEvents()
+    }
+
+    // ---------------------------------------------------------------- data
+
+    fun refresh() {
+        val p = pairing ?: return
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/sessions", mapOf("archived" to "1"))
+                sessions = SessionInfo.list(data.optJSONArray("sessions"))
+                val catalogue = runCatching { bridge.get("/api/models") }.getOrNull()
+                models = (catalogue?.optJSONArray("models")?.let { array ->
+                    (0 until array.length()).mapNotNull { array.optJSONObject(it) }
+                }) ?: emptyList()
+            }.onFailure { error = it.message ?: "Kunne ikke hente samtaler." }
+        }
+    }
+
+    fun openSession(info: SessionInfo) {
+        activeFile = info.file
+        activeCwd = info.cwd
+        activeTitle = info.title
+        messages = emptyList()
+        stream = StreamState()
+        error = ""
+        viewModelScope.launch {
+            runCatching {
+                val data = bridge.get("/api/session/messages", mapOf("file" to info.file))
+                val array = data.optJSONArray("messages")
+                messages = if (array == null) emptyList() else (0 until array.length()).mapNotNull { index ->
+                    val item = array.optJSONObject(index) ?: return@mapNotNull null
+                    Entry(
+                        id = item.optString("id"),
+                        role = item.optString("role"),
+                        text = item.optString("text"),
+                        thinking = item.optString("thinking"),
+                        toolName = item.optString("toolName"),
+                        command = item.optString("command"),
+                        isError = item.optBoolean("isError"),
+                        timestamp = item.optLong("timestamp"),
+                    )
+                }
+            }.onFailure { error = it.message ?: "Kunne ikke hente samtalen." }
+        }
+        startEvents()
+    }
+
+    // ---------------------------------------------------------------- events
+
+    private fun startEvents() {
+        stopEvents()
+        val p = pairing ?: return
+        if (activeFile.isBlank()) return
+        val query = "cwd=" + enc(activeCwd) + "&file=" + enc(activeFile)
+        val request = Request.Builder()
+            .url(p.origin + "/api/events?" + query)
+            .header("Authorization", "Bearer " + p.credential)
+            .build()
+        eventSource = EventSources.createFactory(sseClient).newEventSource(request, object : EventSourceListener() {
+            override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
+                runCatching { onFrame(JSONObject(data)) }
+            }
+        })
+    }
+
+    private fun stopEvents() {
+        eventSource?.cancel()
+        eventSource = null
+    }
+
+    private fun onFrame(frame: JSONObject) {
+        when (frame.optString("type")) {
+            "hello", "state" -> {
+                val state = frame.optJSONObject("state") ?: return
+                stream = StreamState(
+                    active = state.optBoolean("isStreaming"),
+                    phase = stream.phase,
+                    tokensPerSecond = state.optDouble("tokensPerSecond", 0.0),
+                )
+                if (state.optBoolean("isStreaming")) busy = true
+            }
+            "message_start" -> {
+                if (frame.optString("role") == "assistant" || frame.optJSONObject("message")?.optString("role") == "assistant") {
+                    streamingId = frame.optString("messageId")
+                    streamingText = StringBuilder()
+                    streamingThinking = StringBuilder()
+                    busy = true
+                    stream = stream.copy(active = true, phase = "OMP skriver")
+                    upsert(Entry(id = streamingId, role = "assistant", text = "", streaming = true, timestamp = System.currentTimeMillis()))
+                }
+            }
+            "message_delta" -> {
+                val delta = frame.optString("delta")
+                val kind = frame.optString("kind")
+                if (!streamingId.isBlank()) {
+                    if (kind == "thinking") streamingThinking.append(delta) else streamingText.append(delta)
+                    updateStreaming()
+                }
+            }
+            "message_end" -> {
+                val role = frame.optJSONObject("message")?.optString("role") ?: frame.optString("role")
+                if (role == "user") {
+                    val text = frame.optJSONObject("message")?.optString("text") ?: ""
+                    if (text.isNotBlank()) add(Entry(id = frame.optString("messageId") + "-u", role = "user", text = text, timestamp = System.currentTimeMillis()))
+                } else if (role == "assistant") {
+                    if (!streamingId.isBlank()) {
+                        finalizeStreaming()
+                    }
+                    busy = false
+                    stream = stream.copy(active = false)
+                }
+            }
+            "tool_start", "tool_update", "tool_end" -> {
+                val id = frame.optString("toolCallId").ifBlank { "tool-" + System.nanoTime() }
+                val name = frame.optString("toolName")
+                val result = frame.opt("result") ?: frame.opt("partial")
+                val text = when (result) {
+                    is JSONObject -> result.optString("content", result.toString())
+                    null -> ""
+                    else -> result.toString()
+                }
+                val existing = messages.indexOfFirst { it.role == "tool" && it.id == id }
+                val entry = Entry(
+                    id = id,
+                    role = "tool",
+                    text = text,
+                    toolName = name,
+                    command = frame.optJSONObject("args")?.optString("command") ?: "",
+                    isError = frame.optBoolean("isError"),
+                    timestamp = System.currentTimeMillis(),
+                    streaming = frame.optString("type") == "tool_start",
+                )
+                messages = if (existing >= 0) messages.toMutableList().also { it[existing] = entry } else messages + entry
+                if (frame.optString("type") != "tool_end") {
+                    stream = stream.copy(active = true, phase = phaseFor(name))
+                    busy = true
+                }
+            }
+            "agent_end", "session_settled" -> {
+                busy = false
+                stream = stream.copy(active = false, phase = "")
+                if (!streamingId.isBlank()) finalizeStreaming()
+            }
+        }
+    }
+
+    private fun phaseFor(tool: String): String = when (tool) {
+        "bash" -> "Kjører Bash"
+        "read" -> "Leser filer"
+        "edit", "write", "patch" -> "Endrer kode"
+        "web_search" -> "Søker på nettet"
+        else -> "OMP arbeider"
+    }
+
+    private fun upsert(entry: Entry) {
+        val index = messages.indexOfFirst { it.role == entry.role && it.id == entry.id }
+        messages = if (index >= 0) messages.toMutableList().also { it[index] = entry } else messages + entry
+    }
+
+    private fun add(entry: Entry) {
+        messages = messages + entry
+    }
+
+    private fun updateStreaming() {
+        updateStreamingEntry(streamingText.toString(), streamingThinking.toString())
+    }
+
+    private fun updateStreamingEntry(text: String, thinking: String) {
+        val index = messages.indexOfFirst { it.role == "assistant" && it.id == streamingId }
+        if (index < 0) return
+        messages = messages.toMutableList().also {
+            it[index] = it[index].copy(text = text, thinking = thinking, streaming = true)
+        }
+    }
+
+    private fun finalizeStreaming() {
+        updateStreamingEntry(streamingText.toString(), streamingThinking.toString())
+        val index = messages.indexOfFirst { it.role == "assistant" && it.id == streamingId }
+        if (index >= 0) messages = messages.toMutableList().also { it[index] = it[index].copy(streaming = false) }
+        streamingId = ""
+    }
+
+    // ---------------------------------------------------------------- actions
+
+    fun send(text: String) {
+        val p = pairing ?: return
+        if (text.isBlank() || activeFile.isBlank()) return
+        val optimistic = Entry(id = "local-" + System.currentTimeMillis(), role = "user", text = text, timestamp = System.currentTimeMillis())
+        messages = messages + optimistic
+        busy = true
+        stream = StreamState(active = true, phase = "Klargjør OMP")
+        viewModelScope.launch {
+            runCatching {
+                bridge.post("/api/prompt", JSONObject().apply {
+                    put("cwd", activeCwd)
+                    put("file", activeFile)
+                    put("text", text)
+                })
+            }.onFailure {
+                error = it.message ?: "Kunne ikke sende."
+                busy = false
+                stream = StreamState()
+            }
+        }
+    }
+
+    fun stop() {
+        if (activeFile.isBlank()) return
+        viewModelScope.launch {
+            runCatching { bridge.post("/api/abort", JSONObject().apply { put("cwd", activeCwd); put("file", activeFile) }) }
+            busy = false
+            stream = StreamState(active = false)
+        }
+    }
+
+    fun dismissError() { error = "" }
+
+    fun reportError(message: String) { error = message }
+
+    override fun onCleared() {
+        stopEvents()
+        super.onCleared()
+    }
+
+    private fun enc(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
+}
