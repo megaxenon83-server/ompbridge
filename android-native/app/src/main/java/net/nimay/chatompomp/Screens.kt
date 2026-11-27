@@ -391,7 +391,7 @@ private fun SessionRow(
                 text = { Text(if (session.file in vm.pinned) "Løsne" else "Fest") },
                 onClick = { vm.togglePin(session.file); onMenu(null) },
             )
-            DropdownMenuItem(text = { Text("Døp om") }, onClick = { onRename(session); onMenu(null) })
+            DropdownMenuItem(text = { Text("Endre navn") }, onClick = { onRename(session); onMenu(null) })
             DropdownMenuItem(
                 text = { Text("Merk som lest") },
                 onClick = { vm.markSeen(session.file, session.messageCount); onMenu(null) },
@@ -527,7 +527,7 @@ private fun DrawerContent(
         var name by remember(target.file) { mutableStateOf(target.title) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Døp om samtalen") },
+            title = { Text("Endre navn") },
             text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
             confirmButton = {
                 TextButton(onClick = { vm.renameSession(target.file, name); renameTarget = null }, enabled = name.isNotBlank()) {
@@ -1247,7 +1247,7 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     DropdownMenu(expanded = menuFor == folder.path, onDismissRequest = { menuFor = null }) {
-                        DropdownMenuItem(text = { Text("Døp om") }, onClick = { renameTarget = folder; menuFor = null })
+                        DropdownMenuItem(text = { Text("Endre navn") }, onClick = { renameTarget = folder; menuFor = null })
                         DropdownMenuItem(text = { Text("Slett") }, onClick = { vm.deleteFolder(folder.path); menuFor = null })
                     }
                 }
@@ -1278,7 +1278,7 @@ private fun ProjectsScreen(vm: AppViewModel, onBack: () -> Unit) {
         var name by remember(folder.path) { mutableStateOf(folder.name) }
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            title = { Text("Døp om mappen") },
+            title = { Text("Endre navn") },
             text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
             confirmButton = {
                 TextButton(
@@ -1321,7 +1321,7 @@ private fun ProjectRow(vm: AppViewModel, project: ProjectInfo, onRename: () -> U
                 maxLines = 1,
             )
         }
-        TextButton(onClick = onRename) { Text("Døp om") }
+        TextButton(onClick = onRename) { Text("Endre navn") }
     }
 }
 
@@ -1354,7 +1354,7 @@ private fun RenameProjectDialog(project: ProjectInfo, onDismiss: () -> Unit, onR
     var name by remember { mutableStateOf(project.name) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Døp om prosjekt") },
+        title = { Text("Endre navn") },
         text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Navn") }, singleLine = true) },
         confirmButton = {
             TextButton(onClick = { if (name.isNotBlank()) onRename(name) }, enabled = name.isNotBlank()) { Text("Lagre") }

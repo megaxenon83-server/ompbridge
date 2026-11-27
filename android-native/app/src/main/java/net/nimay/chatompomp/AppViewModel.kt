@@ -248,7 +248,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 bridge.post("/api/projects/rename", JSONObject().apply { put("id", id); put("name", name.trim()) })
                 loadRegistry()
                 loadProjects()
-            }.onFailure { error = it.message ?: "Kunne ikke døpe om prosjektet." }
+            }.onFailure { error = it.message ?: "Kunne ikke endre navnet på prosjektet." }
         }
     }
 
@@ -896,7 +896,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 bridge.post("/api/sessions/name", JSONObject().apply {
                     put("file", file); put("cwd", activeCwd); put("name", name.trim())
                 })
-            }.onFailure { error = it.message ?: "Kunne ikke døpe om samtalen." }
+            }.onFailure { error = it.message ?: "Kunne ikke endre navnet på samtalen." }
             refresh()
         }
     }
@@ -1074,7 +1074,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (from.isBlank() || to.isBlank()) return
         viewModelScope.launch {
             runCatching { bridge.post("/api/fs/rename", JSONObject().apply { put("from", from); put("to", to) }) }
-                .onFailure { error = it.message ?: "Kunne ikke døpe om mappen." }
+                .onFailure { error = it.message ?: "Kunne ikke endre navnet på mappen." }
             loadFolders(folderPath)
         }
     }
