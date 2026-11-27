@@ -11,8 +11,23 @@ android {
         applicationId = "net.nimay.chatompomp"
         minSdk = 26
         targetSdk = 34
-        versionCode = 40
+        versionCode = 1
         versionName = "0.3.0"
+    }
+
+    signingConfigs {
+        val keystorePath = System.getenv("CHATOMP_KEYSTORE")
+        val keystorePassword = System.getenv("CHATOMP_KEYSTORE_PASSWORD")
+        val keyAliasName = System.getenv("CHATOMP_KEY_ALIAS")
+        val keyPasswordValue = System.getenv("CHATOMP_KEY_PASSWORD")
+        if (keystorePath != null && keystorePassword != null && keyAliasName != null && keyPasswordValue != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = keystorePassword
+                keyAlias = keyAliasName
+                keyPassword = keyPasswordValue
+            }
+        }
     }
 
     buildTypes {
@@ -21,6 +36,10 @@ android {
         }
         release {
             isMinifyEnabled = false
+            applicationIdSuffix = ".native"
+            if (signingConfigs.findByName("release") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
