@@ -70,6 +70,10 @@ class MainActivity : ComponentActivity() {
             vm.stopRecording()
             intent.removeExtra(Notifications.EXTRA_STOP_RECORDING)
         }
+        intent?.getStringExtra(Notifications.EXTRA_RUN_ROUTINE)?.let { id ->
+            vm.startRoutineById(id)
+            intent.removeExtra(Notifications.EXTRA_RUN_ROUTINE)
+        }
         val data = intent?.data?.toString() ?: return
         if (data.startsWith("chatomp://pair/")) pendingLink = data
     }

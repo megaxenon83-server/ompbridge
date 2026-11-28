@@ -134,6 +134,8 @@ data class Routine(
     val createdAt: Long = System.currentTimeMillis(),
     val lastRunAt: Long = 0,
     val lastResult: String = "",
+    val trigger: Trigger = Trigger(),
+    val autoRun: Boolean = false,
 ) {
     fun toJson() = JSONObject().apply {
         put("id", id)
@@ -142,6 +144,8 @@ data class Routine(
         put("lastRunAt", lastRunAt)
         put("lastResult", lastResult)
         put("steps", JSONArray().apply { steps.forEach { put(it.toJson()) } })
+        put("trigger", trigger.toJson())
+        put("autoRun", autoRun)
     }
 
     companion object {
@@ -154,6 +158,8 @@ data class Routine(
             createdAt = json.optLong("createdAt"),
             lastRunAt = json.optLong("lastRunAt"),
             lastResult = json.optString("lastResult"),
+            trigger = Trigger.from(json.optJSONObject("trigger")),
+            autoRun = json.optBoolean("autoRun", false),
         )
 
         fun list(array: JSONArray?): List<Routine> {
@@ -252,7 +258,7 @@ class RoutineStore(context: Context) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoutinesScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit) {
+fun RoutinesScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Unit, onSources: () -> Unit = {}) {
     var newRoutine by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<Routine?>(null) }
@@ -271,6 +277,7 @@ fun RoutinesScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Uni
                 },
                 title = { Text(t("Rutiner", "Routines"), fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    TextButton(onClick = { onSources() }) { Text(t("Kilder", "Sources")) }
                     TextButton(onClick = { newRoutine = true }) { Text(t("+ Ny", "+ New")) }
                 },
             )
@@ -517,6 +524,8 @@ fun RoutineDetailScreen(vm: AppViewModel, onBack: () -> Unit) {
                     },
                 ) { Text(t("+ Steg", "+ Step")) }
             }
+
+            TriggerCard(vm, routine)
 
             LazyColumn(
                 Modifier.fillMaxSize(),

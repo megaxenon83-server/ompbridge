@@ -137,6 +137,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- rutiner
 
     private val routineStore = RoutineStore(app)
+    private val shiftStore = ShiftStore(app)
+    private val placeStore = PlaceStore(app)
+    var shifts by mutableStateOf<List<Shift>>(emptyList())
+        private set
+    var places by mutableStateOf<List<Place>>(emptyList())
+        private set
     var routines by mutableStateOf<List<Routine>>(emptyList())
         private set
     var activeRoutineId by mutableStateOf("")
@@ -159,6 +165,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         lang = runCatching { AppLang.valueOf(bridge.loadLang()) }.getOrDefault(AppLang.NB)
         pinned = bridge.pinnedFiles()
         routines = routineStore.load()
+        shifts = shiftStore.load()
+        places = placeStore.load()
+        TriggerScheduler.schedule(getApplication())
         checkUpdate()
     }
     var activeModelName by mutableStateOf("")
@@ -1282,78 +1291,86 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         recordingNotice = ""
     }
 
-    private suspend fun runRoutineStep(step: RoutineStep) {
-        // Fase 16b: kjør lokalt via tilgjengelighetstjenesten når den er på,
-        // ellers fall tilbake til ADB gjennom bridgen.
-        val local = RoutineDevice.isReady()
-        when (step.type) {
-            "wait" -> kotlinx.coroutines.delay(step.ms.coerceIn(0, 60_000).toLong())
-            "check" -> {
-                if (local) {
-                    if (!RoutineDevice.check(step.text)) {
-                        throw IllegalStateException("Fant ikke «${step.text}» på skjermen.")
-                    }
-                } else {
-                    val data = devicePost("check") { put("text", step.text) }
-                    if (!data.optBoolean("found")) {
-                        throw IllegalStateException("Fant ikke «${step.text}» på skjermen.")
-                    }
-                }
-            }
-            "open_app" -> {
-                if (local) {
-                    if (!RoutineDevice.openApp(getApplication(), step.packageName)) {
-                        throw IllegalStateException("Fant ikke appen «${shortPackage(step.packageName)}».")
-                    }
-                } else {
-                    devicePost("open") { put("package", step.packageName) }
-                }
-            }
-            "open_url" -> {
-                if (local) {
-                    if (!RoutineDevice.openUrl(getApplication(), step.url)) {
-                        throw IllegalStateException("Kunne ikke åpne ${step.url}.")
-                    }
-                } else {
-                    devicePost("open") { put("url", step.url) }
-                }
-            }
-            "tap" -> {
-                if (local) {
-                    val ok = if (step.usesPoint) RoutineDevice.tapPoint(step.rx, step.ry)
-                    else RoutineDevice.tapText(step.text)
-                    if (!ok) throw IllegalStateException("Fant ikke «${step.text}» å trykke på.")
-                } else if (step.usesPoint) {
-                    devicePost("tap") {
-                        put("x", step.rx.toDouble())
-                        put("y", step.ry.toDouble())
-                    }
-                } else {
-                    devicePost("tap") { put("text", step.text) }
-                }
-            }
-            "type" -> {
-                if (local) {
-                    if (!RoutineDevice.typeText(step.text)) {
-                        throw IllegalStateException("Fant ikke noe felt å skrive i.")
-                    }
-                } else {
-                    devicePost("type") { put("text", step.text) }
-                }
-            }
-            "key" -> {
-                if (local) {
-                    if (!RoutineDevice.pressKey(step.key)) {
-                        throw IllegalStateException("Tasten «${step.key}» støttes ikke uten PC.")
-                    }
-                } else {
-                    devicePost("key") { put("key", step.key) }
-                }
-            }
-            else -> throw IllegalStateException("Ukjent stegtype: ${step.type}")
+    // ---- Fase 16c/16d: triggere, steder og skiftplan ----
+
+    fun triggerSummary(routine: Routine): String =
+        TriggerEngine.describe(routine.trigger, places, lang == AppLang.NB)
+
+    fun setRoutineTrigger(id: String, trigger: Trigger) {
+        updateRoutine(id) { it.copy(trigger = trigger) }
+        TriggerScheduler.schedule(getApplication())
+    }
+
+    fun setRoutineAutoRun(id: String, autoRun: Boolean) {
+        updateRoutine(id) { it.copy(autoRun = autoRun) }
+    }
+
+    fun addPatternShifts(days: Set<Int>, startHour: Int, endHour: Int, weeks: Int) {
+        val generated = ShiftStore.pattern(days, startHour, endHour, weeks)
+        shifts = (shifts + generated).distinctBy { it.start }.sortedBy { it.start }
+        shiftStore.save(shifts)
+        recordingNotice = tr("La til ${generated.size} skift.", "Added ${generated.size} shifts.")
+    }
+
+    fun importShifts(text: String) {
+        val (parsed, rejects) = ShiftStore.parse(text)
+        shifts = (shifts + parsed).distinctBy { it.start }.sortedBy { it.start }
+        shiftStore.save(shifts)
+        recordingNotice = if (rejects.isEmpty()) {
+            tr("La til ${parsed.size} skift.", "Added ${parsed.size} shifts.")
+        } else {
+            tr(
+                "La til ${parsed.size} skift. ${rejects.size} linjer ble ikke forstått.",
+                "Added ${parsed.size} shifts. ${rejects.size} lines were not understood.",
+            )
         }
     }
 
+    fun deleteShift(id: String) {
+        shifts = shifts.filterNot { it.id == id }
+        shiftStore.save(shifts)
+    }
+
+    fun clearShifts() {
+        shifts = emptyList()
+        shiftStore.save(shifts)
+    }
+
+    fun addPlace(name: String, lat: Double, lng: Double, radius: Int) {
+        places = places + Place(UUID.randomUUID().toString(), name.ifBlank { "Sted" }, lat, lng, radius)
+        placeStore.save(places)
+    }
+
+    fun deletePlace(id: String) {
+        places = places.filterNot { it.id == id }
+        placeStore.save(places)
+    }
+
+    fun currentLocation(): Pair<Double, Double>? = TriggerEngine.lastLocation(getApplication())
+
+    suspend fun requestLocation(): Pair<Double, Double>? = TriggerEngine.currentLocation(getApplication())
+
+    fun startRoutineById(id: String) {
+        routines.firstOrNull { it.id == id }?.let { startRoutine(it) }
+    }
+
+    fun checkTriggersNow() {
+        val now = System.currentTimeMillis()
+        val location = TriggerEngine.lastLocation(getApplication())
+        val due = routines.filter {
+            it.trigger.type != "manual" &&
+                TriggerEngine.dueNow(it.trigger, now, shifts, places, location, it.lastRunAt)
+        }
+        if (due.isEmpty()) {
+            recordingNotice = tr("Ingen triggere er klare nå.", "No triggers are due right now.")
+            return
+        }
+        due.forEach { startRoutine(it) }
+    }
+
+    private suspend fun runRoutineStep(step: RoutineStep) {
+        RoutineRunner.runStep(getApplication(), step)
+    }
     private suspend fun devicePost(action: String, extra: JSONObject.() -> Unit = {}): JSONObject =
         bridge.post("/api/device/action", JSONObject().apply {
             put("device", "android")

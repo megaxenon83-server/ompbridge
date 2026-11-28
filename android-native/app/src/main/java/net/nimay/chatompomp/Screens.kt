@@ -219,7 +219,11 @@ fun MainApp(vm: AppViewModel) {
             RoutinesScreen(vm, onBack = { screen = "chat" }, onOpen = { id ->
                 vm.openRoutine(id)
                 screen = "routine"
-            })
+            }, onSources = { screen = "sources" })
+            return
+        }
+        "sources" -> {
+            SourcesScreen(vm, onBack = { screen = "routines" })
             return
         }
         "routine" -> {

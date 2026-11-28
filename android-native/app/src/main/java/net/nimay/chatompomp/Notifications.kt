@@ -115,6 +115,43 @@ object Notifications {
         context.getSystemService(NotificationManager::class.java)?.cancel(RECORDING_ID)
     }
 
+    /** Fase 16d: en trigger er klar, men rutinen kan ikke kjøre av seg selv. */
+    fun triggerReady(context: Context, routine: Routine) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            if (manager.getNotificationChannel(CHANNEL_RUN) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(CHANNEL_RUN, "OMP-rutiner", NotificationManager.IMPORTANCE_LOW),
+                )
+            }
+        }
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val run = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_RUN_ROUTINE, routine.id)
+        }
+        val runPending = PendingIntent.getActivity(
+            context, 20, run,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPending = PendingIntent.getActivity(
+            context, 21, open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = Notification.Builder(context, CHANNEL_RUN)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle("Klar til å kjøre")
+            .setContentText(routine.name)
+            .setAutoCancel(true)
+            .setContentIntent(openPending)
+            .addAction(Notification.Action.Builder(null, "KJØR", runPending).build())
+            .build()
+        runCatching { manager.notify(routine.id.hashCode(), notification) }
+    }
+
     fun answer(context: Context, title: String, body: String) {
         ensureChannel(context)
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -140,4 +177,5 @@ object Notifications {
 
     const val EXTRA_STOP_ROUTINE = "stop_routine"
     const val EXTRA_STOP_RECORDING = "stop_recording"
+    const val EXTRA_RUN_ROUTINE = "run_routine"
 }
