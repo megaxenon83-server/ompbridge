@@ -4,6 +4,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import java.awt.Cursor
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -165,6 +168,7 @@ fun CodexShell(
             }
         }
         }
+        ResizeHandles(controls)
         if (palette) {
             CommandOverlay(vm, onDismiss = { state.closePalette() }, onGo = { state.go(it) })
         }
@@ -177,6 +181,7 @@ class WindowControls(
     val toggleMaximize: () -> Unit,
     val close: () -> Unit,
     val dragBy: (Int, Int) -> Unit = { _, _ -> },
+    val resizeBy: (ResizeEdge, Int, Int) -> Unit = { _, _, _ -> },
 )
 
 @Composable
@@ -903,4 +908,31 @@ private fun formatTokenCount(value: Int): String = when {
     value >= 1_000_000 -> String.format(Locale.US, "%.1fM", value / 1_000_000.0)
     value >= 1_000 -> String.format(Locale.US, "%.0fK", value / 1_000.0)
     else -> value.toString()
+}
+enum class ResizeEdge { N, S, E, W, NE, NW, SE, SW }
+
+/** Invisible 6 dp grips on the frameless window's edges and corners. */
+@Composable
+private fun ResizeHandles(controls: WindowControls) {
+    val t = 6.dp
+    @Composable fun grip(edge: ResizeEdge, modifier: Modifier, cursor: Int) {
+        Box(
+            modifier.pointerHoverIcon(PointerIcon(Cursor(cursor))).pointerInput(edge) {
+                detectDragGestures { change, drag ->
+                    change.consume()
+                    controls.resizeBy(edge, drag.x.toInt(), drag.y.toInt())
+                }
+            },
+        )
+    }
+    Box(Modifier.fillMaxSize()) {
+        grip(ResizeEdge.N, Modifier.align(Alignment.TopCenter).fillMaxWidth().height(t), Cursor.N_RESIZE_CURSOR)
+        grip(ResizeEdge.S, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(t), Cursor.S_RESIZE_CURSOR)
+        grip(ResizeEdge.W, Modifier.align(Alignment.CenterStart).fillMaxHeight().width(t), Cursor.W_RESIZE_CURSOR)
+        grip(ResizeEdge.E, Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(t), Cursor.E_RESIZE_CURSOR)
+        grip(ResizeEdge.NW, Modifier.align(Alignment.TopStart).size(t * 2), Cursor.NW_RESIZE_CURSOR)
+        grip(ResizeEdge.NE, Modifier.align(Alignment.TopEnd).size(t * 2), Cursor.NE_RESIZE_CURSOR)
+        grip(ResizeEdge.SW, Modifier.align(Alignment.BottomStart).size(t * 2), Cursor.SW_RESIZE_CURSOR)
+        grip(ResizeEdge.SE, Modifier.align(Alignment.BottomEnd).size(t * 2), Cursor.SE_RESIZE_CURSOR)
+    }
 }

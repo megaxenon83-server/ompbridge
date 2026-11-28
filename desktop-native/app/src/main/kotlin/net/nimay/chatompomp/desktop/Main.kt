@@ -70,6 +70,30 @@ fun main() = application {
                 val location = window.location
                 window.location = java.awt.Point(location.x + dx, location.y + dy)
             },
+            resizeBy = { edge, dx, dy ->
+                val location = window.location
+                var x = location.x
+                var y = location.y
+                var w = window.size.width
+                var h = window.size.height
+                if (edge == ResizeEdge.W || edge == ResizeEdge.NW || edge == ResizeEdge.SW) {
+                    x += dx
+                    w -= dx
+                }
+                if (edge == ResizeEdge.E || edge == ResizeEdge.NE || edge == ResizeEdge.SE) {
+                    w += dx
+                }
+                if (edge == ResizeEdge.N || edge == ResizeEdge.NW || edge == ResizeEdge.NE) {
+                    y += dy
+                    h -= dy
+                }
+                if (edge == ResizeEdge.S || edge == ResizeEdge.SW || edge == ResizeEdge.SE) {
+                    h += dy
+                }
+                w = w.coerceAtLeast(900)
+                h = h.coerceAtLeast(600)
+                window.setBounds(x, y, w, h)
+            },
         )
         ChatOmpTheme(vm.theme) {
             CompositionLocalProvider(LocalLang provides vm.lang) {
