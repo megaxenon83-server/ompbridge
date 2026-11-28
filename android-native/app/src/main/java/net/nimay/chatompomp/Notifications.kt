@@ -16,6 +16,7 @@ object Notifications {
     private const val CHANNEL = "omp-answers"
     private const val CHANNEL_RUN = "omp-routine"
     private const val RUNNING_ID = 4001
+    private const val RECORDING_ID = 4002
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -72,6 +73,48 @@ object Notifications {
         context.getSystemService(NotificationManager::class.java)?.cancel(RUNNING_ID)
     }
 
+    /** Fase 16b: holder «spiller inn» synlig mens brukeren er i andre apper. */
+    fun recording(context: Context, steps: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            if (manager.getNotificationChannel(CHANNEL_RUN) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(CHANNEL_RUN, "OMP-rutiner", NotificationManager.IMPORTANCE_LOW),
+                )
+            }
+        }
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val open = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val openPending = PendingIntent.getActivity(
+            context, 12, open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val stop = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(EXTRA_STOP_RECORDING, true)
+        }
+        val stopPending = PendingIntent.getActivity(
+            context, 13, stop,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = Notification.Builder(context, CHANNEL_RUN)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle("OMP spiller inn")
+            .setContentText("$steps steg · trykk STOPP OG LAGRE for å avslutte")
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(openPending)
+            .addAction(Notification.Action.Builder(null, "STOPP OG LAGRE", stopPending).build())
+            .build()
+        runCatching { manager.notify(RECORDING_ID, notification) }
+    }
+
+    fun recordingFinished(context: Context) {
+        context.getSystemService(NotificationManager::class.java)?.cancel(RECORDING_ID)
+    }
+
     fun answer(context: Context, title: String, body: String) {
         ensureChannel(context)
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -96,4 +139,5 @@ object Notifications {
     }
 
     const val EXTRA_STOP_ROUTINE = "stop_routine"
+    const val EXTRA_STOP_RECORDING = "stop_recording"
 }

@@ -57,6 +57,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -256,6 +257,7 @@ fun RoutinesScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Uni
     var menuFor by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<Routine?>(null) }
     var deleteTarget by remember { mutableStateOf<Routine?>(null) }
+    val accessReady by OmpAccessibilityService.isReady.collectAsState()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -279,16 +281,24 @@ fun RoutinesScreen(vm: AppViewModel, onBack: () -> Unit, onOpen: (String) -> Uni
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            item {
-                Text(
-                    t(
-                        "Rutiner styrer telefonen via ADB. Hvert steg vises i klarspråk, og «Test» kjører dem ett for ett – med en stor stoppknapp.",
-                        "Routines drive the phone over ADB. Steps are shown in plain language, and Test runs them one by one with a big stop button.",
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 6.dp),
-                )
+            item { RoutineAccessCard(vm, accessReady) }
+            if (vm.recordingNotice.isNotBlank()) {
+                item {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                vm.recordingNotice,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { vm.clearRecordingNotice() }) { Text(t("Lukk", "Close")) }
+                        }
+                    }
+                }
             }
             if (vm.routines.isEmpty()) {
                 item {
@@ -1081,6 +1091,74 @@ fun RoutineRunOverlay(vm: AppViewModel, run: RoutineRunState) {
                 }
             }
         }
+        }
+    }
+}
+
+@Composable
+private fun RoutineAccessCard(vm: AppViewModel, ready: Boolean) {
+    val recorded by RoutineRecorder.steps.collectAsState()
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (ready) Icons.Filled.Check else Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (ready) t("Kjører uten PC", "Runs without a PC") else t("Kjør uten PC", "Run without a PC"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        if (ready) {
+                            t(
+                                "Tilgjengelighetstjenesten er på – rutinene virker uten bridge.",
+                                "The accessibility service is on — routines work without the bridge.",
+                            )
+                        } else {
+                            t(
+                                "Slå på tilgjengelighetstjenesten, så virker rutinene uten PC og ADB.",
+                                "Turn on the accessibility service so routines work without a PC or ADB.",
+                            )
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (!ready) {
+                    TextButton(onClick = { vm.openAccessibilitySettings() }) { Text(t("Slå på", "Turn on")) }
+                }
+            }
+            if (ready) {
+                Spacer(Modifier.height(10.dp))
+                if (vm.recording) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            t("Spiller inn · ${recorded.size} steg", "Recording · ${recorded.size} steps"),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { vm.cancelRecording() }) { Text(t("Avbryt", "Cancel")) }
+                        Button(onClick = { vm.stopRecording() }) { Text(t("Stopp og lagre", "Stop and save")) }
+                    }
+                } else {
+                    OutlinedButton(onClick = { vm.startRecording() }) {
+                        Icon(Icons.Filled.TouchApp, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(t("Spill inn en rutine", "Record a routine"))
+                    }
+                }
+            }
         }
     }
 }

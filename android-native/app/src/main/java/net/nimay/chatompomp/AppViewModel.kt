@@ -1220,27 +1220,136 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         Notifications.routineFinished(getApplication())
     }
 
+    // ---- Fase 16b: tilgjengelighetstjeneste og innspilling ----
+
+    var recording by mutableStateOf(false)
+        private set
+    var recordedSteps by mutableStateOf<List<RoutineStep>>(emptyList())
+        private set
+    var recordingNotice by mutableStateOf("")
+        private set
+
+    fun openAccessibilitySettings() {
+        val intent = android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { getApplication<Application>().startActivity(intent) }
+    }
+
+    fun startRecording() {
+        if (!RoutineDevice.isReady()) {
+            recordingNotice = tr("Slå på tilgjengelighetstjenesten først.", "Turn on the accessibility service first.")
+            return
+        }
+        RoutineRecorder.start()
+        recordedSteps = emptyList()
+        recordingNotice = ""
+        recording = true
+        Notifications.recording(getApplication(), 0)
+    }
+
+    fun stopRecording() {
+        val steps = RoutineRecorder.stop()
+        recordedSteps = steps
+        recording = false
+        Notifications.recordingFinished(getApplication())
+        if (steps.isEmpty()) {
+            recordingNotice = tr("Fant ingen handlinger å lagre.", "No actions were recorded.")
+            return
+        }
+        val stamp = java.text.SimpleDateFormat("d.MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        val routine = Routine(
+            id = UUID.randomUUID().toString(),
+            name = tr("Innspilling ", "Recording ") + stamp,
+            steps = steps,
+        )
+        routines = listOf(routine) + routines
+        routineStore.save(routines)
+        recordingNotice = tr(
+            "Lagret «${routine.name}» med ${steps.size} steg.",
+            "Saved «${routine.name}» with ${steps.size} steps.",
+        )
+    }
+
+    fun cancelRecording() {
+        RoutineRecorder.cancel()
+        recording = false
+        recordedSteps = emptyList()
+        Notifications.recordingFinished(getApplication())
+        recordingNotice = tr("Innspillingen ble avbrutt.", "Recording cancelled.")
+    }
+
+    fun clearRecordingNotice() {
+        recordingNotice = ""
+    }
+
     private suspend fun runRoutineStep(step: RoutineStep) {
+        // Fase 16b: kjør lokalt via tilgjengelighetstjenesten når den er på,
+        // ellers fall tilbake til ADB gjennom bridgen.
+        val local = RoutineDevice.isReady()
         when (step.type) {
             "wait" -> kotlinx.coroutines.delay(step.ms.coerceIn(0, 60_000).toLong())
             "check" -> {
-                val data = devicePost("check") { put("text", step.text) }
-                if (!data.optBoolean("found")) {
-                    throw IllegalStateException("Fant ikke «${step.text}» på skjermen.")
+                if (local) {
+                    if (!RoutineDevice.check(step.text)) {
+                        throw IllegalStateException("Fant ikke «${step.text}» på skjermen.")
+                    }
+                } else {
+                    val data = devicePost("check") { put("text", step.text) }
+                    if (!data.optBoolean("found")) {
+                        throw IllegalStateException("Fant ikke «${step.text}» på skjermen.")
+                    }
                 }
             }
-            "open_app" -> devicePost("open") { put("package", step.packageName) }
-            "open_url" -> devicePost("open") { put("url", step.url) }
-            "tap" -> if (step.usesPoint) {
-                devicePost("tap") {
-                    put("x", step.rx.toDouble())
-                    put("y", step.ry.toDouble())
+            "open_app" -> {
+                if (local) {
+                    if (!RoutineDevice.openApp(getApplication(), step.packageName)) {
+                        throw IllegalStateException("Fant ikke appen «${shortPackage(step.packageName)}».")
+                    }
+                } else {
+                    devicePost("open") { put("package", step.packageName) }
                 }
-            } else {
-                devicePost("tap") { put("text", step.text) }
             }
-            "type" -> devicePost("type") { put("text", step.text) }
-            "key" -> devicePost("key") { put("key", step.key) }
+            "open_url" -> {
+                if (local) {
+                    if (!RoutineDevice.openUrl(getApplication(), step.url)) {
+                        throw IllegalStateException("Kunne ikke åpne ${step.url}.")
+                    }
+                } else {
+                    devicePost("open") { put("url", step.url) }
+                }
+            }
+            "tap" -> {
+                if (local) {
+                    val ok = if (step.usesPoint) RoutineDevice.tapPoint(step.rx, step.ry)
+                    else RoutineDevice.tapText(step.text)
+                    if (!ok) throw IllegalStateException("Fant ikke «${step.text}» å trykke på.")
+                } else if (step.usesPoint) {
+                    devicePost("tap") {
+                        put("x", step.rx.toDouble())
+                        put("y", step.ry.toDouble())
+                    }
+                } else {
+                    devicePost("tap") { put("text", step.text) }
+                }
+            }
+            "type" -> {
+                if (local) {
+                    if (!RoutineDevice.typeText(step.text)) {
+                        throw IllegalStateException("Fant ikke noe felt å skrive i.")
+                    }
+                } else {
+                    devicePost("type") { put("text", step.text) }
+                }
+            }
+            "key" -> {
+                if (local) {
+                    if (!RoutineDevice.pressKey(step.key)) {
+                        throw IllegalStateException("Tasten «${step.key}» støttes ikke uten PC.")
+                    }
+                } else {
+                    devicePost("key") { put("key", step.key) }
+                }
+            }
             else -> throw IllegalStateException("Ukjent stegtype: ${step.type}")
         }
     }
