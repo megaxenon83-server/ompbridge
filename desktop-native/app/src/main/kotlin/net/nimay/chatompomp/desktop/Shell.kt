@@ -3,6 +3,7 @@ package net.nimay.chatompomp.desktop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CropSquare
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -64,6 +67,7 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -100,8 +104,13 @@ class ShellState {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CodexShell(vm: ChatViewModel, state: ShellState = ShellState()) {
+fun CodexShell(
+    vm: ChatViewModel,
+    state: ShellState = ShellState(),
+    controls: WindowControls = WindowControls({}, {}, {}),
+) {
     val theme = vm.theme
+    LaunchedEffect(vm.themeId) { WindowsChrome.apply("OMP Desktop", theme) }
     val screen = state.screen
     val palette = state.palette
     var showModel by remember { mutableStateOf(false) }
@@ -116,7 +125,9 @@ fun CodexShell(vm: ChatViewModel, state: ShellState = ShellState()) {
     if (showTheme) ThemeDialog(vm) { showTheme = false }
 
     Box(Modifier.fillMaxSize().background(theme.background)) {
-        Row(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            ChromeBar(theme, controls)
+            Row(Modifier.weight(1f).fillMaxWidth()) {
             CodexSidebar(
                 vm = vm,
                 screen = screen,
@@ -153,12 +164,76 @@ fun CodexShell(vm: ChatViewModel, state: ShellState = ShellState()) {
                 }
             }
         }
+        }
         if (palette) {
             CommandOverlay(vm, onDismiss = { state.closePalette() }, onGo = { state.go(it) })
         }
     }
 }
 
+/** Window actions the custom caption strip needs; provided by Main.kt. */
+class WindowControls(
+    val minimize: () -> Unit,
+    val toggleMaximize: () -> Unit,
+    val close: () -> Unit,
+    val dragBy: (Int, Int) -> Unit = { _, _ -> },
+)
+
+@Composable
+private fun ChromeBar(
+    theme: ThemeSpec,
+    controls: WindowControls,
+) {
+    val sidebarTone = lerp(theme.background, Color.Black, 0.35f)
+    Row(Modifier.fillMaxWidth().height(36.dp)) {
+        Row(
+            Modifier.weight(1f).fillMaxHeight().pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    controls.dragBy(dragAmount.x.toInt(), dragAmount.y.toInt())
+                }
+            },
+        ) {
+            Row(
+                Modifier.width(Ui.SidebarWidth).fillMaxHeight().background(sidebarTone).padding(start = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("OMP", color = theme.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.6.sp)
+            }
+            Row(Modifier.weight(1f).fillMaxHeight().background(theme.background)) { Spacer(Modifier.width(16.dp)) }
+        }
+        WindowButton(theme, { controls.minimize() }, Icons.Filled.Remove, t("Minimer", "Minimize"))
+        WindowButton(theme, { controls.toggleMaximize() }, Icons.Filled.CropSquare, t("Maksimer", "Maximize"))
+        WindowButton(theme, { controls.close() }, Icons.Filled.Close, t("Lukk", "Close"), danger = true)
+    }
+}
+
+@Composable
+private fun WindowButton(
+    theme: ThemeSpec,
+    onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    danger: Boolean = false,
+) {
+    var hover by remember { mutableStateOf(false) }
+    Box(
+        Modifier.width(46.dp).fillMaxHeight()
+            .background(when { hover && danger -> Color(0xFFC42B1C); hover -> theme.raised; else -> Color.Transparent })
+            .clickable { onClick() }
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        hover = event.changes.any { it.pressed } || hover
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = theme.muted, modifier = Modifier.size(14.dp))
+    }
+}
 // ----------------------------------------------------------------- sidebar
 
 @Composable
@@ -179,19 +254,6 @@ private fun CodexSidebar(
             .fillMaxHeight()
             .background(lerp(theme.background, Color.Black, 0.35f)),
     ) {
-        Row(
-            Modifier.fillMaxWidth().height(Ui.TopBarHeight).padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier.size(24.dp).clip(CircleShape).background(theme.brand),
-                contentAlignment = Alignment.Center,
-            ) { Text("O", color = theme.background, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
-            Spacer(Modifier.width(8.dp))
-            Text("OMP", color = theme.ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            Spacer(Modifier.weight(1f))
-        }
-
         Surface(
             onClick = onNew,
             shape = RoundedCornerShape(8.dp),

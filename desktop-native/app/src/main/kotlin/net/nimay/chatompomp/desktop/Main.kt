@@ -1,8 +1,13 @@
 package net.nimay.chatompomp.desktop
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -14,12 +19,15 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import java.awt.Frame
 
 /**
- * OMP Desktop – fase 14a spike.
+ * OMP Desktop.
  *
- * The window is a thin shell: ChatViewModel owns the bridge conversation and
- * RootScreen decides between the connect screen and the chat.
+ * The window is frameless on purpose: Windows' own caption would be a white band
+ * above a near-black app, which is exactly the "web page in a browser" look we
+ * are replacing. The app draws its own 36 dp strip instead, so the sidebar colour
+ * reaches the top edge the way a native tool does.
  */
 fun main() = application {
     val vm = remember { ChatViewModel() }
@@ -35,6 +43,8 @@ fun main() = application {
         },
         title = "OMP Desktop",
         state = windowState,
+        undecorated = true,
+        resizable = true,
         onPreviewKeyEvent = { event ->
             if (event.type == KeyEventType.KeyDown) {
                 when {
@@ -46,9 +56,24 @@ fun main() = application {
             } else false
         },
     ) {
+        val controls = WindowControls(
+            minimize = { window.extendedState = window.extendedState or Frame.ICONIFIED },
+            toggleMaximize = {
+                window.extendedState = if ((window.extendedState and Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                    Frame.NORMAL
+                } else {
+                    Frame.MAXIMIZED_BOTH
+                }
+            },
+            close = { exitApplication() },
+            dragBy = { dx, dy ->
+                val location = window.location
+                window.location = java.awt.Point(location.x + dx, location.y + dy)
+            },
+        )
         ChatOmpTheme(vm.theme) {
             CompositionLocalProvider(LocalLang provides vm.lang) {
-                RootScreen(vm, shell)
+                RootScreen(vm = vm, shell = shell, controls = controls)
             }
         }
     }

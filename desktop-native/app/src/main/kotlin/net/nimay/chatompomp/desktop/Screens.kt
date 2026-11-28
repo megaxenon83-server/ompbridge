@@ -83,8 +83,17 @@ import androidx.compose.ui.unit.sp
  * bubbles, reasoning card, context meter and approval dialogs.
  */
 @Composable
-fun RootScreen(vm: ChatViewModel, shell: ShellState = ShellState()) {
-    if (vm.pairing == null || !vm.connected) ConnectScreen(vm) else CodexShell(vm, shell)
+fun RootScreen(
+    vm: ChatViewModel,
+    shell: ShellState = ShellState(),
+    controls: WindowControls = WindowControls({}, {}, {}),
+    dragArea: @Composable (@Composable () -> Unit) -> Unit = { it() },
+) {
+    if (vm.pairing == null || !vm.connected) {
+        ConnectScreen(vm)
+    } else {
+        CodexShell(vm, shell, controls)
+    }
 }
 
 // ------------------------------------------------------------------ connect
