@@ -3,6 +3,11 @@ package net.nimay.chatompomp.desktop
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -18,6 +23,7 @@ import androidx.compose.ui.window.rememberWindowState
  */
 fun main() = application {
     val vm = remember { ChatViewModel() }
+    val shell = remember { ShellState() }
     val windowState = rememberWindowState(
         size = DpSize(vm.prefs.windowWidth().dp, vm.prefs.windowHeight().dp),
         position = WindowPosition(Alignment.Center),
@@ -29,10 +35,20 @@ fun main() = application {
         },
         title = "OMP Desktop",
         state = windowState,
+        onPreviewKeyEvent = { event ->
+            if (event.type == KeyEventType.KeyDown) {
+                when {
+                    event.isCtrlPressed && event.key == Key.K -> { shell.openPalette(); true }
+                    event.key == Key.Escape && shell.palette -> { shell.closePalette(); true }
+                    event.key == Key.Escape && vm.busy -> { vm.stop(); true }
+                    else -> false
+                }
+            } else false
+        },
     ) {
         ChatOmpTheme(vm.theme) {
             CompositionLocalProvider(LocalLang provides vm.lang) {
-                RootScreen(vm)
+                RootScreen(vm, shell)
             }
         }
     }

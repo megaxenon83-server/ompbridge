@@ -3,10 +3,10 @@ package net.nimay.chatompomp.desktop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -40,12 +40,11 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,14 +53,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -72,8 +69,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,9 +79,6 @@ private object Ui {
     val SidebarWidth = 264.dp
     val TopBarHeight = 56.dp
     val ContentMax = 760.dp
-    val Gap = 8.dp
-    val Pad = 16.dp
-    val Radius = 12.dp
 
     val body = TextStyle(fontSize = 15.sp, lineHeight = 23.sp)
     val small = TextStyle(fontSize = 13.sp, lineHeight = 19.sp)
@@ -94,80 +86,74 @@ private object Ui {
     val code = TextStyle(fontSize = 12.5.sp, fontFamily = FontFamily.Monospace)
 }
 
+/** Navigation and palette state shared with the window, so Ctrl+K works anywhere. */
+class ShellState {
+    var screen by mutableStateOf("chat")
+    var palette by mutableStateOf(false)
+    fun go(target: String) { screen = target; palette = false }
+    fun openPalette() { palette = true }
+    fun closePalette() { palette = false }
+}
 
 // ------------------------------------------------------------------- shell
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CodexShell(vm: ChatViewModel) {
+fun CodexShell(vm: ChatViewModel, state: ShellState = ShellState()) {
     val theme = vm.theme
-    var screen by remember { mutableStateOf("chat") }
-    var palette by remember { mutableStateOf(false) }
+    val screen = state.screen
+    val palette = state.palette
     var showModel by remember { mutableStateOf(false) }
     var showNew by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showTheme by remember { mutableStateOf(false) }
-    val rootFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { rootFocus.requestFocus() } }
 
     vm.approval?.let { ApprovalDialog(vm, it) }
     if (showModel) ModelDialog(vm) { showModel = false }
     if (showNew) NewChatDialog(vm) { showNew = false }
     if (showSettings) SettingsDialog(vm, { showSettings = false }, { showSettings = false; showTheme = true })
     if (showTheme) ThemeDialog(vm) { showTheme = false }
-    if (palette) CommandPalette(vm, onDismiss = { palette = false }, onGo = { screen = it })
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(theme.background)
-            .onPreviewKeyEvent { event ->
-                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                when {
-                    event.isCtrlPressed && event.key == Key.K -> { palette = true; true }
-                    event.key == Key.Escape -> when {
-                        palette -> { palette = false; true }
-                        vm.busy -> { vm.stop(); true }
-                        else -> false
-                    }
-                    event.isCtrlPressed && event.key == Key.N -> { showNew = true; true }
-                    else -> false
-                }
-            },
-    ) {
+    Box(Modifier.fillMaxSize().background(theme.background)) {
         Row(Modifier.fillMaxSize()) {
             CodexSidebar(
                 vm = vm,
                 screen = screen,
-                onGo = { screen = it },
+                onGo = { state.go(it) },
                 onNew = { showNew = true },
                 onSettings = { showSettings = true },
+                onPalette = { state.openPalette() },
             )
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                CodexTopBar(
-                    vm = vm,
-                    screen = screen,
-                    onBack = { screen = "chat" },
-                    onOpenModels = { showModel = true },
-                    onSettings = { showSettings = true },
-                )
-                Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                if (screen == "chat") {
+                    CodexTopBar(
+                        vm = vm,
+                        onBack = { state.go("chat") },
+                        onOpenModels = { showModel = true },
+                        onSettings = { showSettings = true },
+                        onPalette = { state.openPalette() },
+                    )
+                }
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (screen) {
-                        "files" -> FilesScreen(vm, onBack = { screen = "chat" })
-                        "git" -> GitScreen(vm, onBack = { screen = "chat" })
-                        "terminal" -> TerminalScreen(vm, onBack = { screen = "chat" })
-                        "devices" -> DevicesScreen(vm, onBack = { screen = "chat" })
-                        "voice" -> VoiceScreen(vm, onBack = { screen = "chat" })
+                        "files" -> FilesScreen(vm, onBack = { state.go("chat") })
+                        "git" -> GitScreen(vm, onBack = { state.go("chat") })
+                        "terminal" -> TerminalScreen(vm, onBack = { state.go("chat") })
+                        "devices" -> DevicesScreen(vm, onBack = { state.go("chat") })
+                        "voice" -> VoiceScreen(vm, onBack = { state.go("chat") })
                         else -> CodexThread(vm)
                     }
                 }
                 if (screen == "chat") {
                     Column(Modifier.fillMaxWidth().background(theme.background)) {
                         CodexComposer(vm, onOpenModels = { showModel = true })
-                        CodexStatusLine(vm, visible = true)
+                        CodexStatusLine(vm)
                     }
                 }
             }
+        }
+        if (palette) {
+            CommandOverlay(vm, onDismiss = { state.closePalette() }, onGo = { state.go(it) })
         }
     }
 }
@@ -181,14 +167,10 @@ private fun CodexSidebar(
     onGo: (String) -> Unit,
     onNew: () -> Unit,
     onSettings: () -> Unit,
+    onPalette: () -> Unit,
 ) {
     val theme = vm.theme
-    var query by remember { mutableStateOf("") }
-    val sessions = remember(vm.sessions, query) {
-        if (query.isBlank()) vm.sessions
-        else vm.sessions.filter { it.title.contains(query, true) || it.projectName.contains(query, true) }
-    }
-    val groups = remember(sessions) { groupSessions(sessions) }
+    val groups = remember(vm.sessions) { groupSessions(vm.sessions) }
 
     Column(
         Modifier
@@ -206,7 +188,7 @@ private fun CodexSidebar(
                 contentAlignment = Alignment.Center,
             ) { Text("O", color = theme.background, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
             Spacer(Modifier.width(8.dp))
-            Text(t("OMP", "OMP"), color = theme.ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("OMP", color = theme.ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onSettings, modifier = Modifier.size(28.dp)) {
                 Icon(Icons.Filled.Settings, contentDescription = t("Innstillinger", "Settings"),
@@ -232,22 +214,14 @@ private fun CodexSidebar(
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(32.dp)
                 .clip(RoundedCornerShape(8.dp)).background(theme.raised)
+                .clickable { onPalette() }
                 .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.Filled.Search, contentDescription = null, tint = theme.muted, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(6.dp))
-            BasicTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                textStyle = Ui.small.copy(color = theme.ink),
-                modifier = Modifier.weight(1f),
-                decorationBox = { inner ->
-                    if (query.isBlank()) Text(t("Søk i samtaler", "Search chats"), color = theme.muted, fontSize = 13.sp)
-                    inner()
-                },
-            )
+            Text(t("Søk eller hopp til …", "Search or jump to …"), color = theme.muted, fontSize = 12.5.sp, modifier = Modifier.weight(1f))
+            Text("Ctrl+K", color = theme.muted.copy(alpha = 0.55f), fontSize = 10.sp)
         }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp)) {
@@ -257,11 +231,9 @@ private fun CodexSidebar(
             }
             groups.forEach { (label, list) ->
                 item { SectionLabel(label, theme) }
-                items(list) { session ->
-                    SessionRow(vm, session, active = session.file == vm.activeFile)
-                }
+                items(list) { session -> SessionRow(vm, session, active = session.file == vm.activeFile) }
             }
-            if (sessions.isEmpty()) {
+            if (vm.sessions.isEmpty()) {
                 item {
                     Text(
                         t("Ingen samtaler ennå", "No chats yet"),
@@ -391,10 +363,10 @@ private fun ToolRail(theme: ThemeSpec, screen: String, onGo: (String) -> Unit) {
 @Composable
 private fun CodexTopBar(
     vm: ChatViewModel,
-    screen: String,
     onBack: () -> Unit,
     onOpenModels: () -> Unit,
     onSettings: () -> Unit,
+    onPalette: () -> Unit,
 ) {
     val theme = vm.theme
     val project = vm.activeCwd.trimEnd('\\', '/').split('\\', '/').lastOrNull().orEmpty()
@@ -403,43 +375,29 @@ private fun CodexTopBar(
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (screen != "chat") {
-            IconButton(onClick = onBack, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Filled.ChevronRight, contentDescription = t("Tilbake", "Back"),
-                    tint = theme.muted, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.width(6.dp))
-        }
         Text(
-            if (screen == "chat") (vm.activeTitle.ifBlank { t("Ny samtale", "New chat") })
-            else titleFor(screen),
+            vm.activeTitle.ifBlank { t("Ny samtale", "New chat") },
             color = theme.ink, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
-        if (project.isNotBlank() && screen == "chat") {
+        if (project.isNotBlank()) {
             Text("  ·  " + project, color = theme.muted, fontSize = 12.sp, maxLines = 1)
         }
         Spacer(Modifier.weight(1f))
-        if (screen == "chat") {
-            ModelChip(vm, onOpenModels)
-            Spacer(Modifier.width(8.dp))
-            StatusDot(theme, vm)
-            Spacer(Modifier.width(8.dp))
+        IconButton(onClick = onPalette, modifier = Modifier.size(28.dp)) {
+            Icon(Icons.Filled.Search, contentDescription = t("Søk (Ctrl+K)", "Search (Ctrl+K)"),
+                tint = theme.muted, modifier = Modifier.size(16.dp))
         }
+        Spacer(Modifier.width(4.dp))
+        ModelChip(vm, onOpenModels)
+        Spacer(Modifier.width(8.dp))
+        StatusDot(theme, vm)
+        Spacer(Modifier.width(8.dp))
         IconButton(onClick = onSettings, modifier = Modifier.size(28.dp)) {
             Icon(Icons.Filled.Settings, contentDescription = t("Innstillinger", "Settings"),
                 tint = theme.muted, modifier = Modifier.size(17.dp))
         }
     }
-}
-
-private fun titleFor(screen: String): String = when (screen) {
-    "files" -> "Filer"
-    "git" -> "Git"
-    "terminal" -> "Terminal"
-    "devices" -> "Enheter"
-    "voice" -> "Tale"
-    else -> "OMP"
 }
 
 @Composable
@@ -484,7 +442,6 @@ private fun StatusDot(theme: ThemeSpec, vm: ChatViewModel) {
 
 @Composable
 private fun CodexThread(vm: ChatViewModel) {
-    val theme = vm.theme
     val state = rememberLazyListState()
     LaunchedEffect(vm.messages.size, vm.messages.lastOrNull()?.text?.length) {
         if (vm.messages.isNotEmpty()) state.animateScrollToItem(vm.messages.lastIndex)
@@ -495,10 +452,9 @@ private fun CodexThread(vm: ChatViewModel) {
         } else {
             LazyColumn(
                 state = state,
-                modifier = Modifier.fillMaxHeight().widthIn(max = Ui.ContentMax).fillMaxWidth()
-                    .padding(horizontal = 24.dp),
+                modifier = Modifier.fillMaxHeight().fillMaxWidth().widthIn(max = Ui.ContentMax).padding(horizontal = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 18.dp),
+                contentPadding = PaddingValues(vertical = 18.dp),
             ) {
                 items(vm.messages, key = { it.id }) { entry -> MessageEntry(vm, entry) }
             }
@@ -563,9 +519,7 @@ private fun MessageEntry(vm: ChatViewModel, entry: Entry) {
             if (entry.thinking.isNotBlank()) ReasoningCard(theme, entry)
             if (entry.text.isNotBlank()) {
                 MarkdownText(entry.text, Modifier.fillMaxWidth())
-                if (entry.streaming) {
-                    Text("▍", color = theme.brand, fontSize = 13.sp)
-                }
+                if (entry.streaming) Text("▍", color = theme.brand, fontSize = 13.sp)
             }
         }
     }
@@ -666,16 +620,11 @@ private fun CodexComposer(vm: ChatViewModel, onOpenModels: () -> Unit) {
                             value = vm.draft,
                             onValueChange = { vm.updateDraft(it) },
                             textStyle = Ui.body.copy(color = theme.ink),
-                            cursorBrush = androidx.compose.ui.graphics.SolidColor(theme.brand),
+                            cursorBrush = SolidColor(theme.brand),
                             modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
-                                if (event.type == KeyEventType.KeyDown && event.key == Key.Enter) {
-                                    when {
-                                        event.isShiftPressed -> false
-                                        else -> {
-                                            if (vm.busy) vm.stop() else vm.send(vm.draft)
-                                            true
-                                        }
-                                    }
+                                if (event.type == KeyEventType.KeyDown && event.key == Key.Enter && !event.isShiftPressed) {
+                                    if (vm.busy) vm.stop() else vm.send(vm.draft)
+                                    true
                                 } else false
                             },
                         )
@@ -723,9 +672,8 @@ private fun CodexComposer(vm: ChatViewModel, onOpenModels: () -> Unit) {
 }
 
 @Composable
-private fun CodexStatusLine(vm: ChatViewModel, visible: Boolean) {
+private fun CodexStatusLine(vm: ChatViewModel) {
     val theme = vm.theme
-    if (!visible) return
     val rate = vm.stream.tokensPerSecond
     val context = buildString {
         if (vm.activeModelName.isNotBlank()) append(vm.activeModelName)
@@ -739,7 +687,7 @@ private fun CodexStatusLine(vm: ChatViewModel, visible: Boolean) {
         if (vm.busy && vm.stream.phase.isNotBlank()) { if (isNotEmpty()) append(" · "); append(vm.stream.phase) }
     }
     Row(
-        Modifier.fillMaxWidth().height(26.dp).padding(horizontal = 24.dp, vertical = 2.dp),
+        Modifier.fillMaxWidth().height(26.dp).padding(horizontal = 24.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -751,10 +699,10 @@ private fun CodexStatusLine(vm: ChatViewModel, visible: Boolean) {
     }
 }
 
-// ---------------------------------------------------------- command palette
+// ---------------------------------------------------------- command overlay
 
 @Composable
-private fun CommandPalette(vm: ChatViewModel, onDismiss: () -> Unit, onGo: (String) -> Unit) {
+private fun CommandOverlay(vm: ChatViewModel, onDismiss: () -> Unit, onGo: (String) -> Unit) {
     val theme = vm.theme
     var query by remember { mutableStateOf("") }
     val actions = listOf(
@@ -766,46 +714,42 @@ private fun CommandPalette(vm: ChatViewModel, onDismiss: () -> Unit, onGo: (Stri
         Triple(t("Tale", "Voice"), "voice", Icons.Outlined.RecordVoiceOver),
     )
     val sessions = remember(vm.sessions, query) {
-        if (query.isBlank()) emptyList()
-        else vm.sessions.filter { it.title.contains(query, true) }.take(6)
+        if (query.isBlank()) emptyList() else vm.sessions.filter { it.title.contains(query, true) }.take(6)
     }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize().background(Color(0x88000000)).clickable { onDismiss() }, contentAlignment = Alignment.TopCenter) {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = theme.surface,
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.border),
-                modifier = Modifier.padding(top = 120.dp).width(560.dp).clickable { },
-            ) {
-                Column {
-                    BasicTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        singleLine = true,
-                        textStyle = Ui.body.copy(color = theme.ink),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-                        decorationBox = { inner ->
-                            if (query.isBlank()) Text(t("Søk eller hopp til …", "Search or jump to …"), color = theme.muted, fontSize = 14.sp)
-                            inner()
-                        },
-                    )
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(theme.border))
-                    LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                        items(actions.filter { query.isBlank() || it.first.contains(query, true) }) { action ->
-                            PaletteRow(theme, action.first, action.third) {
-                                onDismiss()
-                                if (action.second == "chat") vm.newSession(vm.activeCwd)
-                                else onGo(action.second)
-                            }
-                        }
-                        if (sessions.isNotEmpty()) {
-                            item { SectionLabel(t("SAMTALER", "CHATS"), theme) }
-                            items(sessions) { session ->
-                                PaletteRow(theme, session.title, Icons.Filled.ChevronRight) {
-                                    onDismiss()
-                                    vm.openSession(session)
-                                }
-                            }
+    Box(Modifier.fillMaxSize().background(Color(0xB3000000)).clickable { onDismiss() }, contentAlignment = Alignment.TopCenter) {
+        Column(
+            Modifier.padding(top = 96.dp).width(560.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color(0xFF202227))
+                .border(1.dp, theme.border, RoundedCornerShape(14.dp))
+                .clickable { },
+        ) {
+            BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                textStyle = Ui.body.copy(color = theme.ink),
+                cursorBrush = SolidColor(theme.brand),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                decorationBox = { inner ->
+                    if (query.isBlank()) Text(t("Søk eller hopp til …", "Search or jump to …"), color = theme.muted, fontSize = 14.sp)
+                    inner()
+                },
+            )
+            Box(Modifier.fillMaxWidth().height(1.dp).background(theme.border))
+            LazyColumn(Modifier.heightIn(max = 380.dp)) {
+                items(actions.filter { query.isBlank() || it.first.contains(query, true) }) { action ->
+                    PaletteRow(theme, action.first, action.third) {
+                        onDismiss()
+                        if (action.second == "chat") vm.newSession(vm.activeCwd) else onGo(action.second)
+                    }
+                }
+                if (sessions.isNotEmpty()) {
+                    item { SectionLabel(t("SAMTALER", "CHATS"), theme) }
+                    items(sessions) { session ->
+                        PaletteRow(theme, session.title, Icons.Filled.ChevronRight) {
+                            onDismiss()
+                            vm.openSession(session)
                         }
                     }
                 }
@@ -815,7 +759,7 @@ private fun CommandPalette(vm: ChatViewModel, onDismiss: () -> Unit, onGo: (Stri
 }
 
 @Composable
-private fun PaletteRow(theme: ThemeSpec, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun PaletteRow(theme: ThemeSpec, label: String, icon: ImageVector, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

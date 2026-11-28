@@ -85,24 +85,34 @@ fun ToolBar(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 4.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().height(56.dp).padding(start = 6.dp, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) {
+        IconButton(onClick = onBack, modifier = Modifier.size(28.dp)) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack,
                 contentDescription = t("Tilbake", "Back"),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
             )
         }
-        Column(Modifier.weight(1f).padding(start = 2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Spacer(Modifier.width(6.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
             if (subtitle.isNotBlank()) {
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
         }

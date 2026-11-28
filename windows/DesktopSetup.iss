@@ -1,8 +1,8 @@
-#ifndef DesktopVersion
-  #define DesktopVersion "0.8.45"
+﻿#ifndef DesktopVersion
+  #define DesktopVersion "0.9.0"
 #endif
 #ifndef DesktopPayload
-  #define DesktopPayload "..\clients\dist\" + DesktopVersion + "\OMP Desktop"
+  #define DesktopPayload "..\desktop-native\app\build\compose\binaries\main\app\OMP Desktop"
 #endif
 
 [Setup]
@@ -31,6 +31,20 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 Name: "autostart"; Description: "Start OMP Desktop when I sign in"; Flags: unchecked
+
+[InstallDelete]
+; The native app replaces the Electron build in the same folder.
+Type: files; Name: "{app}\icudtl.dat"
+Type: files; Name: "{app}\snapshot_blob.bin"
+Type: files; Name: "{app}\v8_context_snapshot.bin"
+Type: files; Name: "{app}\vk_swiftshader_icd.json"
+Type: files; Name: "{app}\LICENSES.chromium.html"
+Type: files; Name: "{app}\LICENSE"
+Type: filesandordirs; Name: "{app}\resources"
+Type: filesandordirs; Name: "{app}\locales"
+Type: files; Name: "{app}\*.dll"
+Type: files; Name: "{app}\*.pak"
+Type: files; Name: "{app}\version"
 
 [Files]
 Source: "{#DesktopPayload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
