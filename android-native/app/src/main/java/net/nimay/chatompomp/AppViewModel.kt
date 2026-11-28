@@ -174,8 +174,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var modelMetrics by mutableStateOf<JSONObject?>(null)
         private set
+    var modelSwitchText by mutableStateOf("")
+        private set
     var plugins by mutableStateOf<JSONObject?>(null)
         private set
+
     var pluginsBusy by mutableStateOf(false)
         private set
 
@@ -355,6 +358,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseModel(provider: String, modelId: String, name: String) {
         if (activeCwd.isBlank()) return
         viewModelScope.launch {
+            modelSwitchText = tr("Bytter til $name …", "Switching to $name …")
             runCatching {
                 bridge.post("/api/model", JSONObject().apply {
                     put("cwd", activeCwd)
@@ -365,6 +369,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 activeModelName = name.ifBlank { modelId }
                 syncThinking(provider, modelId)
             }.onFailure { error = it.message ?: "Kunne ikke bytte modell." }
+            modelSwitchText = ""
         }
     }
 
@@ -617,6 +622,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 busy = false
                 stream = stream.copy(active = false, phase = "")
                 if (!streamingId.isBlank()) finalizeStreaming()
+            }
+            "model_preparing" -> {
+                val phase = frame.optString("phase")
+                val label = frame.optString("name").ifBlank { activeModelName }
+                modelSwitchText = when (phase) {
+                    "starting" -> tr("Starter $label …", "Starting $label …")
+                    "unloading" -> tr("Frigjør VRAM …", "Freeing VRAM …")
+                    "loading" -> tr("Laster $label …", "Loading $label …")
+                    "waiting" -> tr("Venter på ledig GPU …", "Waiting for the GPU …")
+                    "ready", "failed", "cloud" -> ""
+                    else -> modelSwitchText
+                }
             }
             "model_metrics" -> {
                 val live = frame.optJSONObject("live")

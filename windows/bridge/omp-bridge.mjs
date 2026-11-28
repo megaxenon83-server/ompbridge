@@ -30,7 +30,7 @@ import localModels from "./local-models.cjs";
 import machineResources from "./machine-resources.cjs";
 import modelCatalogue from "./model-catalogue.cjs";
 /* OMP Desktop turn changes */
-const VERSION = "2.9.90";
+const VERSION = "2.9.91";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const turnChanges = turnModule.createTurnChanges(path.join(HERE, "turn-changes"));
 
@@ -1815,6 +1815,12 @@ let localCatalog;
 let localCatalogExpires = 0;
 let localDiscovery;
 
+function isLocalModel(model) {
+  if (!model) return false;
+  if (["ollama", "llama.cpp", "llamacpp", "strata"].includes(String(model.provider || "").toLowerCase())) return true;
+  return /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?=[:/]|$)/i.test(String(model.baseUrl || model.origin || ""));
+}
+
 async function prepareChatModel(runtime, model = runtime.state?.model, { selection = false } = {}) {
   const preparation = { cancelled: false, queued: false };
   const operationId = crypto.randomUUID();
@@ -1844,6 +1850,10 @@ async function prepareChatModel(runtime, model = runtime.state?.model, { selecti
       next = localModels.matchLocal(model, localCatalog);
     }
     if (preparation.cancelled) throw new Error("Oppgaven ble avbrutt.");
+    if (!next && isLocalModel(model)) {
+      const label = model.name || model.id || model.modelId || "modellen";
+      throw new Error(`Serveren for ${label} kjører ikke. Start den på PC-en, eller velg en skymodell.`);
+    }
     if (!next && !selection) return;
     while (!lease) {
       try { lease = await localModels.acquireGpu(); break; }
@@ -4465,7 +4475,50 @@ async function handle(req, res) {
           return json(res, 500, { ok: false, error: String(error?.message || error) });
         }
       }
-      case "POST /api/local/models/start":
+      case "GET /api/local/servers": {
+        try {
+          return json(res, 200, { ok: true, servers: await localModels.listServers() });
+        } catch (error) {
+          return json(res, 500, { ok: false, error: String(error?.message || error) });
+        }
+      }
+      case "POST /api/local/servers/start": {
+        try {
+          const body = await readBody(req);
+          const servers = localModels.loadManagedServers();
+          const server = servers.find((item) => (item.id || (item.provider ? item.provider + "/" + item.modelId : String(item.port))) === String(body.id || ""));
+          if (!server) return json(res, 404, { ok: false, error: "Fant ikke serveren." });
+          if (server.service) return json(res, 400, { ok: false, error: "Dette er en tjeneste som kjører selv." });
+          await localModels.startManagedServer(server, () => {});
+          return json(res, 200, { ok: true, server: await localModels.serverStatus(server) });
+        } catch (error) {
+          return json(res, 409, { ok: false, error: String(error?.message || error) });
+        }
+      }
+      case "POST /api/local/servers/stop": {
+        try {
+          const body = await readBody(req);
+          const servers = localModels.loadManagedServers();
+          const server = servers.find((item) => (item.id || (item.provider ? item.provider + "/" + item.modelId : String(item.port))) === String(body.id || ""));
+          if (!server) return json(res, 404, { ok: false, error: "Fant ikke serveren." });
+          await localModels.stopManagedServer(server);
+          return json(res, 200, { ok: true, server: await localModels.serverStatus(server) });
+        } catch (error) {
+          return json(res, 409, { ok: false, error: String(error?.message || error) });
+        }
+      }
+      case "POST /api/local/models/unload": {
+        try {
+          const body = await readBody(req);
+          const servers = localModels.loadManagedServers();
+          const server = servers.find((item) => (item.id || (item.provider ? item.provider + "/" + item.modelId : String(item.port))) === String(body.id || ""));
+          if (!server) return json(res, 404, { ok: false, error: "Fant ikke serveren." });
+          await localModels.unloadManagedModel(server);
+          return json(res, 200, { ok: true, server: await localModels.serverStatus(server) });
+        } catch (error) {
+          return json(res, 409, { ok: false, error: String(error?.message || error) });
+        }
+      }      case "POST /api/local/models/start":
       case "POST /api/local/models/switch": {
         try {
           const body = await readBody(req);
@@ -5973,6 +6026,9 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(CONFIG.port, CONFIG.host, () => {
   const hosts = lanAddresses();
+  // Seed the model-server registry once, so local models can be started and
+  // switched without the user hand-writing managed-servers.json.
+  try { localModels.ensureDefaultServers(); } catch (error) { log("warn", "server registry: " + error.message); }
   // PID file so the installer can stop exactly this bridge on upgrade/uninstall
   // (paths may be short 8.3 forms, which makes command-line matching unreliable).
   try {

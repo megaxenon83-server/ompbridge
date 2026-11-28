@@ -876,6 +876,21 @@ private fun Composer(vm: ChatViewModel, onOpenModels: () -> Unit, onOpenSettings
                 )
             }
         }
+        if (vm.modelSwitchText.isNotBlank()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    vm.modelSwitchText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+            }
+        }
         if (vm.stream.active || vm.busy) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 5.dp),

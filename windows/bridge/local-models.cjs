@@ -88,7 +88,141 @@ async function portPids(port, executable, required = []) {
   } catch (error) { throw new Error('Kunne ikke bekrefte hvilken prosess som eier port ' + port + '.', { cause: error }); }
 }
 
+/** Where the Inkling launcher lives (configurable, never hardcoded to one checkout). */
+function findInklingScript() {
+  const candidates = [
+    process.env.OMP_INKLING_SCRIPT,
+    'C:\\Prosjekter\\aimodeller\\launcher\\inkling.ps1',
+    path.join(os.homedir(), 'aimodeller', 'launcher', 'inkling.ps1')
+  ].filter(Boolean);
+  return candidates.find(candidate => { try { return fs.existsSync(candidate); } catch { return false; } }) || null;
+}
+
+/** Creates a starter managed-servers.json the first time; never overwrites the user's file. */
+function ensureDefaultServers() {
+  const file = path.join(os.homedir(), '.omp', 'agent', 'managed-servers.json');
+  try {
+    if (fs.existsSync(file)) {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+      if (Array.isArray(raw.servers) && raw.servers.length) return file;
+    }
+    const script = findInklingScript();
+    const servers = [];
+    if (script) {
+      servers.push({
+        id: 'inkling', label: 'Inkling 2 Mini', engine: 'strata',
+        provider: 'llama.cpp', providerAliases: ['llama.cpp', 'strata'],
+        modelId: 'inkling-2-mini-polystrata',
+        port: 8080, healthUrl: 'http://127.0.0.1:8080/v1/models', modelMode: 'strata',
+        control: {
+          start: 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + script + '" start',
+          stop: 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + script + '" stop',
+          status: 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + script + '" status'
+        }
+      });
+    }
+    servers.push({
+      id: 'ollama', label: 'Ollama', engine: 'ollama', service: true,
+      provider: 'ollama', modelId: 'gpt-oss:20b',
+      port: 11434, healthUrl: 'http://127.0.0.1:11434/api/tags', modelMode: 'ollama'
+    });
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ servers }, null, 2));
+    serversCache = undefined;
+    serversStamp = '';
+    return file;
+  } catch { return null; }
+}
+
+/** Runs a server's start/stop/status command (PowerShell) and returns its output. */
+async function runControl(server, action, timeoutMs = 300000) {
+  const command = server.control && server.control[action];
+  if (!command) throw new Error('Serveren har ingen «' + action + '»-kommando.');
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+    windowsHide: true, stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let out = '';
+  let err = '';
+  child.stdout.on('data', chunk => { out += chunk; });
+  child.stderr.on('data', chunk => { err += chunk; });
+  const timer = setTimeout(() => { try { child.kill(); } catch {} }, timeoutMs);
+  const code = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', resolve);
+  }).catch(() => -1);
+  clearTimeout(timer);
+  return { code, out, err };
+}
+
+/** Live state for one registered server: running process, loaded model, port. */
+async function serverStatus(server) {
+  const id = server.id || (server.provider ? server.provider + '/' + server.modelId : String(server.port));
+  const pids = await portPids(server.port).catch(() => []);
+  const running = pids.length > 0;
+  let loaded = false;
+  let model = server.modelId || '';
+  try {
+    const origin = new URL(server.healthUrl).origin;
+    if (server.modelMode === 'strata') {
+      const status = await json(origin, '/v1/status', undefined, 3000);
+      loaded = !!status?.loaded;
+      model = status?.model || model;
+    } else if (server.modelMode === 'ollama') {
+      const list = await json(origin, '/api/ps', undefined, 3000);
+      const items = list?.models || [];
+      loaded = items.some(item => item.name === server.modelId || item.model === server.modelId);
+      model = items[0]?.name || model;
+    } else {
+      loaded = running;
+    }
+  } catch {}
+  return {
+    id, label: server.label || server.name || model || String(server.port), engine: server.engine || server.modelMode || '',
+    provider: server.provider || '', modelId: server.modelId || '', port: server.port || null,
+    running, loaded, model,
+    service: !!server.service,
+    controllable: !server.service && !!(server.control?.start || server.command)
+  };
+}
+
+/** Every registered server with its live state. */
+async function listServers() {
+  ensureDefaultServers();
+  const servers = loadManagedServers();
+  const out = [];
+  for (const server of servers) out.push(await serverStatus(server));
+  return out;
+}
+
+/** Frees the model's VRAM/RAM but leaves the server process running. */
+async function unloadManagedModel(server) {
+  const origin = new URL(server.healthUrl).origin;
+  if (server.modelMode === 'strata') {
+    await cancelActive({ origin, id: server.modelId, mode: 'strata' }).catch(() => false);
+    // wait=1 lets PolyStrata finish the running turn instead of answering 409.
+    const result = await json(origin, '/v1/unload?wait=1', {}, 180000);
+    if (['unloaded', 'not loaded', 'unsupported'].includes(result?.status)) return true;
+    const status = await json(origin, '/v1/status', undefined, 5000).catch(() => ({}));
+    return !status?.loaded;
+  }
+  if (server.modelMode === 'ollama') {
+    await json(origin, '/api/generate', { model: server.modelId, stream: false, keep_alive: 0 }, 120000);
+    const list = await json(origin, '/api/ps', undefined, 5000).catch(() => ({ models: [] }));
+    return !(list?.models || []).some(item => item.name === server.modelId || item.model === server.modelId);
+  }
+  return false;
+}
 async function stopManagedServer(server) {
+  if (server.service) {
+    throw new Error((server.label || server.provider) + ' er en tjeneste. Bruk «Last ut» for å frigjøre VRAM i stedet for å stoppe den.');
+  }
+  if (server.control && server.control.stop) {
+    const result = await runControl(server, 'stop');
+    if (result.code !== 0) {
+      throw new Error('Kunne ikke stoppe ' + (server.label || server.provider) + ': ' + (result.err || result.out || 'ukjent feil').trim().slice(0, 300));
+    }
+    return;
+  }
   const listeners = await portPids(server.port);
   if (!listeners.length) return;
   const pids = await portPids(server.port, server.listenerCommand || server.command, server.listenerArgs);
@@ -133,6 +267,19 @@ async function healthOk(url, timeout = 2000) {
 }
 
 async function startManagedServer(server, onProgress = () => {}) {
+  if (server.control && server.control.start) {
+    if (await healthOk(server.healthUrl, 1500)) return;
+    onProgress('starting', server);
+    const result = await runControl(server, 'start');
+    if (result.code !== 0) {
+      throw new Error('Kunne ikke starte ' + (server.label || server.provider) + ': ' + (result.err || result.out || 'ukjent feil').trim().slice(0, 300));
+    }
+    for (let attempt = 0; attempt < 120; attempt++) {
+      if (await healthOk(server.healthUrl, 2000)) return;
+      await delay(1000);
+    }
+    throw new Error((server.label || server.provider) + ' svarte ikke etter start.');
+  }
   const listeners = await portPids(server.port);
   if (listeners.length) {
     const owned = await portPids(server.port, server.listenerCommand || server.command, server.listenerArgs);
@@ -418,8 +565,15 @@ async function swapMemory(previous, next, { warmOllama = true, onProgress = () =
     try {
       // A cloud model needs no VRAM, so a local model that will not let go must not fail that switch.  A local
       // one does need it, and then the error is the answer.
-      await lifecycle(previous, false, onProgress, true, next ? 30 : 8);
-      if (previous.mode !== 'fixed' || managedForModel(previous)) onProgress('unloaded', previous);
+      const managedPrevious = managedForModel(previous);
+      if (managedPrevious && managedPrevious.modelMode) {
+        // Free the model's VRAM/RAM but keep the server process warm: the next switch back is then fast.
+        await unloadManagedModel(managedPrevious);
+        onProgress('unloaded', previous);
+      } else {
+        await lifecycle(previous, false, onProgress, true, next ? 30 : 8);
+        if (previous.mode !== 'fixed' || managedForModel(previous)) onProgress('unloaded', previous);
+      }
     } catch (error) {
       if (next) throw error;
       previousUnloaded = false;
@@ -459,5 +613,5 @@ async function managedStatus() {
   }
   return out;
 }
-module.exports = { discoverLocal, inspect, matchLocal, swapMemory, managedForModel, isManagedModel, switchManaged, ensureManaged, managedStatus, loadManagedServers, stopManagedServer,
+module.exports = { discoverLocal, inspect, matchLocal, swapMemory, managedForModel, isManagedModel, switchManaged, ensureManaged, managedStatus, loadManagedServers, stopManagedServer, listServers, serverStatus, unloadManagedModel, ensureDefaultServers, startManagedServer,
   acquireGpu, readResident, saveResident, cancelActive, strataOrigin };

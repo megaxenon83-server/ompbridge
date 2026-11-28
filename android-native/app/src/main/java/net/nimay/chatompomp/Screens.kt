@@ -816,18 +816,20 @@ private fun ComposerBar(vm: AppViewModel, onOpenPlugins: () -> Unit = {}) {
             }
         }
         val metrics = vm.metricsLabel()
-        if (vm.stream.active || metrics.isNotBlank()) {
+        if (vm.modelSwitchText.isNotBlank() || vm.stream.active || metrics.isNotBlank()) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(metrics.ifBlank { vm.stream.phase.ifBlank { "OMP arbeider" } },
+                Text(
+                    vm.modelSwitchText.ifBlank { metrics.ifBlank { vm.stream.phase.ifBlank { "OMP arbeider" } } },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1)
-                if (metrics.isBlank() && vm.stream.tokensPerSecond > 0) {
+                    color = if (vm.modelSwitchText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                if (vm.modelSwitchText.isBlank() && metrics.isBlank() && vm.stream.tokensPerSecond > 0) {
                     Spacer(Modifier.width(8.dp))
                     Text("${vm.stream.tokensPerSecond.toInt()} tok/s", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -71,6 +71,7 @@ class ChatViewModel {
     var draft by mutableStateOf("")
         private set
     var contextTokens by mutableStateOf(0)
+    var modelSwitchText by mutableStateOf("")
         private set
     var contextWindow by mutableStateOf(0)
         private set
@@ -487,6 +488,17 @@ class ChatViewModel {
                     upsert(Entry(id = streamingId, role = "assistant", text = "", streaming = true, timestamp = System.currentTimeMillis()))
                 }
             }
+            "model_preparing" -> {
+                val phase = frame.optString("phase")
+                val label = frame.optString("name").ifBlank { activeModelName }
+                modelSwitchText = when (phase) {
+                    "starting" -> "Starter $label …"
+                    "unloading" -> "Frigjør VRAM …"
+                    "loading" -> "Laster $label …"
+                    "waiting" -> "Venter på ledig GPU …"
+                    else -> ""
+                }
+            }
             "message_delta" -> {
                 val delta = frame.optString("delta")
                 val kind = frame.optString("kind")
@@ -706,6 +718,7 @@ class ChatViewModel {
     fun chooseModel(model: ModelInfo) {
         if (activeCwd.isBlank()) return
         scope.launch {
+            modelSwitchText = "Bytter til ${model.name} …"
             runCatching {
                 bridge.post("/api/model", JSONObject().apply {
                     put("cwd", activeCwd)
@@ -721,6 +734,7 @@ class ChatViewModel {
                     else -> model.efforts.first()
                 }
             }.onFailure { error = it.message ?: "Kunne ikke bytte modell." }
+            modelSwitchText = ""
         }
     }
 
