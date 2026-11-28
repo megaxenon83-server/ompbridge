@@ -84,7 +84,7 @@ import androidx.compose.ui.unit.sp
  */
 @Composable
 fun RootScreen(vm: ChatViewModel) {
-    if (vm.pairing == null || !vm.connected) ConnectScreen(vm) else ChatScreen(vm)
+    if (vm.pairing == null || !vm.connected) ConnectScreen(vm) else CodexShell(vm)
 }
 
 // ------------------------------------------------------------------ connect

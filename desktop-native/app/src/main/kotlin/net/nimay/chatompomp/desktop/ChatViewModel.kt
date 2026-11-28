@@ -214,6 +214,8 @@ class ChatViewModel {
         }
     }
 
+    fun clearError() { error = "" }
+
     fun retry() {
         scope.launch { connecting = true; autoConnect(); connecting = false }
     }
