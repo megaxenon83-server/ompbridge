@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
@@ -176,8 +177,7 @@ private fun CodexSidebar(
         Modifier
             .width(Ui.SidebarWidth)
             .fillMaxHeight()
-            .background(theme.surface)
-            .border(width = 1.dp, color = theme.border),
+            .background(lerp(theme.background, Color.Black, 0.35f)),
     ) {
         Row(
             Modifier.fillMaxWidth().height(Ui.TopBarHeight).padding(horizontal = 14.dp),
@@ -190,10 +190,6 @@ private fun CodexSidebar(
             Spacer(Modifier.width(8.dp))
             Text("OMP", color = theme.ink, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onSettings, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Filled.Settings, contentDescription = t("Innstillinger", "Settings"),
-                    tint = theme.muted, modifier = Modifier.size(17.dp))
-            }
         }
 
         Surface(
@@ -245,7 +241,7 @@ private fun CodexSidebar(
             item { Spacer(Modifier.height(8.dp)) }
         }
 
-        ToolRail(theme, screen, onGo)
+        SidebarFooter(theme, screen, onGo, onSettings, onPalette)
     }
 }
 
@@ -329,6 +325,45 @@ private fun SessionRow(vm: ChatViewModel, session: SessionInfo, active: Boolean)
 }
 
 @Composable
+private fun SidebarFooter(
+    theme: ThemeSpec,
+    screen: String,
+    onGo: (String) -> Unit,
+    onSettings: () -> Unit,
+    onPalette: () -> Unit,
+) {
+    val items = listOf(
+        Triple("files", t("Filer", "Files"), Icons.Outlined.Folder),
+        Triple("git", t("Git", "Git"), Icons.Outlined.AccountTree),
+        Triple("terminal", t("Terminal", "Terminal"), Icons.Filled.Terminal),
+        Triple("devices", t("Enheter", "Devices"), Icons.Outlined.PhoneAndroid),
+        Triple("voice", t("Tale", "Voice"), Icons.Outlined.RecordVoiceOver),
+    )
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+        items.forEach { (id, label, icon) ->
+            FooterRow(theme, label, icon, selected = screen == id) { onGo(if (screen == id) "chat" else id) }
+        }
+        FooterRow(theme, t("Innstillinger", "Settings"), Icons.Filled.Settings, selected = false) { onSettings() }
+    }
+}
+
+@Composable
+private fun FooterRow(theme: ThemeSpec, label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(30.dp)
+            .clip(RoundedCornerShape(7.dp))
+            .background(if (selected) theme.raised else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (selected) theme.ink else theme.muted, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(9.dp))
+        Text(label, color = if (selected) theme.ink else theme.muted, fontSize = 12.5.sp)
+    }
+}
+
+@Composable
 private fun ToolRail(theme: ThemeSpec, screen: String, onGo: (String) -> Unit) {
     val items = listOf(
         Triple("files", t("Filer", "Files"), Icons.Outlined.Folder),
@@ -338,7 +373,7 @@ private fun ToolRail(theme: ThemeSpec, screen: String, onGo: (String) -> Unit) {
         Triple("voice", t("Tale", "Voice"), Icons.Outlined.RecordVoiceOver),
     )
     Row(
-        Modifier.fillMaxWidth().height(44.dp).border(width = 1.dp, color = theme.border),
+        Modifier.fillMaxWidth().height(44.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
@@ -609,7 +644,7 @@ private fun CodexComposer(vm: ChatViewModel, onOpenModels: () -> Unit) {
             Surface(
                 shape = RoundedCornerShape(14.dp),
                 color = theme.surface,
-                border = androidx.compose.foundation.BorderStroke(1.dp, theme.border),
+                border = androidx.compose.foundation.BorderStroke(1.dp, theme.border.copy(alpha = 0.45f)),
             ) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                     Box(Modifier.fillMaxWidth().heightIn(min = 24.dp, max = 160.dp)) {

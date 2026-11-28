@@ -24,6 +24,8 @@ dependencies {
 
     // android-native uses the platform's org.json; on desktop it is a library.
     implementation("org.json:json:20240303")
+    // Native Windows chrome: dark title bar and caption colours that match the app.
+    implementation("net.java.dev.jna:jna-platform:5.14.0")
 
     // Dispatchers.Main on desktop (Swing event loop for Compose).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.8.1")
@@ -39,7 +41,7 @@ compose.desktop {
             // a portable app-image folder with the launcher exe.
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "OMP Desktop"
-            packageVersion = "1.15.0"
+            packageVersion = "1.16.0"
             description = "OMP Desktop - native Compose client for OMP Bridge"
             vendor = "Nimay"
             copyright = "(c) 2026 Nimay"

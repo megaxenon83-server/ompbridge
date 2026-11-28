@@ -1,5 +1,5 @@
-﻿#ifndef DesktopVersion
-  #define DesktopVersion "0.9.0"
+#ifndef DesktopVersion
+  #define DesktopVersion "0.9.1"
 #endif
 #ifndef DesktopPayload
   #define DesktopPayload "..\desktop-native\app\build\compose\binaries\main\app\OMP Desktop"
