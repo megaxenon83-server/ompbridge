@@ -85,9 +85,9 @@ private object Ui {
     val TopBarHeight = 56.dp
     val ContentMax = 760.dp
 
-    val body = TextStyle(fontSize = 15.sp, lineHeight = 23.sp)
-    val small = TextStyle(fontSize = 13.sp, lineHeight = 19.sp)
-    val meta = TextStyle(fontSize = 11.sp, lineHeight = 15.sp)
+    val body = TextStyle(fontSize = 15.sp, lineHeight = 23.sp, fontFamily = AppFont)
+    val small = TextStyle(fontSize = 13.sp, lineHeight = 19.sp, fontFamily = AppFont)
+    val meta = TextStyle(fontSize = 11.sp, lineHeight = 15.sp, fontFamily = AppFont)
     val code = TextStyle(fontSize = 12.5.sp, fontFamily = FontFamily.Monospace)
 }
 
@@ -401,7 +401,7 @@ private fun SidebarFooter(
         Triple("devices", t("Enheter", "Devices"), Icons.Outlined.PhoneAndroid),
         Triple("voice", t("Tale", "Voice"), Icons.Outlined.RecordVoiceOver),
     )
-    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+    Column(Modifier.fillMaxWidth().background(lerp(theme.background, Color.Black, 0.35f)).padding(horizontal = 8.dp, vertical = 6.dp)) {
         items.forEach { (id, label, icon) ->
             FooterRow(theme, label, icon, selected = screen == id) { onGo(if (screen == id) "chat" else id) }
         }

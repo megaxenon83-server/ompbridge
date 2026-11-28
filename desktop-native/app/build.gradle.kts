@@ -41,7 +41,7 @@ compose.desktop {
             // a portable app-image folder with the launcher exe.
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "OMP Desktop"
-            packageVersion = "1.17.0"
+            packageVersion = "1.18.0"
             description = "OMP Desktop - native Compose client for OMP Bridge"
             vendor = "Nimay"
             copyright = "(c) 2026 Nimay"

@@ -146,10 +146,33 @@ fun ChatOmpTheme(spec: ThemeSpec, content: @Composable () -> Unit) {
             onPrimaryContainer = spec.ink,
         )
     }
-    MaterialTheme(colorScheme = colors) {
+    MaterialTheme(colorScheme = colors, typography = appTypography()) {
         // MaterialTheme does not provide a content colour, and plain Text outside
         // a Surface would fall back to black. Every screen here is a plain Column,
         // so the ink colour has to come from the theme itself.
         CompositionLocalProvider(LocalContentColor provides spec.ink, content = content)
     }
+}
+
+/** Material defaults plus the bundled Inter family, so plain Text() also uses it. */
+@androidx.compose.runtime.Composable
+private fun appTypography(): androidx.compose.material3.Typography {
+    val base = androidx.compose.material3.Typography()
+    return androidx.compose.material3.Typography(
+        displayLarge = base.displayLarge.copy(fontFamily = AppFont),
+        displayMedium = base.displayMedium.copy(fontFamily = AppFont),
+        displaySmall = base.displaySmall.copy(fontFamily = AppFont),
+        headlineLarge = base.headlineLarge.copy(fontFamily = AppFont),
+        headlineMedium = base.headlineMedium.copy(fontFamily = AppFont),
+        headlineSmall = base.headlineSmall.copy(fontFamily = AppFont),
+        titleLarge = base.titleLarge.copy(fontFamily = AppFont),
+        titleMedium = base.titleMedium.copy(fontFamily = AppFont),
+        titleSmall = base.titleSmall.copy(fontFamily = AppFont),
+        bodyLarge = base.bodyLarge.copy(fontFamily = AppFont),
+        bodyMedium = base.bodyMedium.copy(fontFamily = AppFont),
+        bodySmall = base.bodySmall.copy(fontFamily = AppFont),
+        labelLarge = base.labelLarge.copy(fontFamily = AppFont),
+        labelMedium = base.labelMedium.copy(fontFamily = AppFont),
+        labelSmall = base.labelSmall.copy(fontFamily = AppFont),
+    )
 }
